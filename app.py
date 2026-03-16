@@ -1,4 +1,247 @@
-from flask import Flask, request, jsonify, render_template
+# from flask import Flask, request, jsonify, render_template, Response
+# import requests
+# import threading
+# import os
+# import base64
+# import json
+# import time
+# import re
+# import csv
+# import random
+# from collections import defaultdict, Counter
+# import fitz
+# from PIL import Image
+# import io
+# import queue
+# import webbrowser
+# from threading import Timer
+# import hardware_controller
+#
+# app = Flask(__name__)
+#
+# # ==========================================
+# # ⚙️ 配置参数 (填入真实 API-KEY)
+# # ==========================================
+# SILICONFLOW_API_KEY = "sk-zskagakurneevlklkhhzbaxunehikfyeinnjvyizyfstvtci"  # <--- 请确保是纯英文数字组合
+# PDF_FOLDER = r"test"
+# MODEL_NAME = "Qwen/Qwen2.5-VL-72B-Instruct"
+# API_URL = "https://api.siliconflow.cn/v1/chat/completions"
+#
+# DPI = 200
+# REQUEST_DELAY = 3.0
+#
+# task_queue = queue.Queue()
+# task_running = False
+#
+#
+# def pdf_page_to_image(pdf_path, page_num):
+#     doc = fitz.open(pdf_path)
+#     page = doc.load_page(page_num)
+#     pix = page.get_pixmap(matrix=fitz.Matrix(DPI / 72, DPI / 72))
+#     img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+#     buffered = io.BytesIO()
+#     img.save(buffered, format="JPEG", quality=85)
+#     img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+#     doc.close()
+#     return img_str
+#
+#
+# def normalize_text(name):
+#     return re.sub(r'[^\w\s-]', '', str(name).strip())
+#
+#
+# def process_pdf_library(task_description):
+#     global task_running
+#     task_running = True
+#     task_queue.put({"type": "info", "message": f"🚀 后台解析任务已启动！当前任务：【{task_description}】"})
+#
+#     target_docs = defaultdict(set)
+#     unique_targets = set()
+#
+#     if not os.path.exists(PDF_FOLDER):
+#         task_queue.put({"type": "error", "message": f"找不到文件夹: {PDF_FOLDER}"})
+#         task_running = False
+#         return
+#
+#     pdf_files = [f for f in os.listdir(PDF_FOLDER) if f.lower().endswith('.pdf')]
+#     total_files = len(pdf_files)
+#     task_queue.put({"type": "info", "message": f"共发现 {total_files} 篇 PDF，开始逐页智能分析..."})
+#
+#     for file_idx, filename in enumerate(pdf_files):
+#         pdf_path = os.path.join(PDF_FOLDER, filename)
+#         doc_id = os.path.splitext(filename)[0]
+#         try:
+#             with fitz.open(pdf_path) as doc:
+#                 num_pages = len(doc)
+#             task_queue.put({"type": "progress", "message": f"正在处理第 {file_idx + 1}/{total_files} 篇: {filename}"})
+#
+#             for page_num in range(num_pages):
+#                 img_base64 = pdf_page_to_image(pdf_path, page_num)
+#                 sys_prompt = (
+#                     f"你是一个资深的材料科学与有机光伏领域专家。你的任务是从提供的文献页面图像(包括文字和图片)中提取：\n【目标】：{task_description}\n\n"
+#                     "请严格遵循以下规则提取并返回 JSON 数组：\n"
+#                     "1. 准确识别复合体系：如果使用了复合体系（如 A+B 或 A/B 共混），请将其作为一个完整的组合名称提取，绝对不要拆分，也绝对不要错误地无符号拼凑。\n"
+#                     "2. 原文证据：必须提取出描述该目标的“英语原文句子”。\n"
+#                     "3. 中文总结：根据原文，用专业且简明的中文总结该目标的核心机理或用途。\n"
+#                     "4. 严格输出：必须且只能输出合法的 JSON 数组，不要包含任何 Markdown 标记。未发现请输出 []。\n\n"
+#                     "JSON 输出范例：\n"
+#                     '[{"target": "PEAI + GASCN", "source": "正文", "original_text": "The synergistic effect...", "explanation": "协同钝化晶界..."}]'
+#                 )
+#                 messages = [
+#                     {"role": "system", "content": sys_prompt},
+#                     {"role": "user",
+#                      "content": [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_base64}"}}]}
+#                 ]
+#                 headers = {"Authorization": f"Bearer {SILICONFLOW_API_KEY}", "Content-Type": "application/json"}
+#                 payload = {"model": MODEL_NAME, "messages": messages, "temperature": 0.1, "max_tokens": 800}
+#
+#                 response = requests.post(API_URL, headers=headers, json=payload, timeout=60)
+#                 if response.status_code == 200:
+#                     result_text = response.json()['choices'][0]['message']['content'].strip()
+#                     try:
+#                         clean_text = re.sub(r'```json\n|\n```|```', '', result_text).strip()
+#                         extracted_data = json.loads(clean_text)
+#                         if isinstance(extracted_data, list) and len(extracted_data) > 0:
+#                             for item in extracted_data:
+#                                 target_val = normalize_text(item.get('target', '未知目标'))
+#                                 source = item.get('source', '未知')
+#                                 explanation = item.get('explanation', '无详细解释')
+#                                 unique_targets.add((target_val, doc_id))
+#                                 target_docs[target_val].add(doc_id)
+#                                 task_queue.put({
+#                                     "type": "finding",
+#                                     "data": {"filename": filename, "page": page_num + 1, "target_name": target_val,
+#                                              "source": source, "explanation": explanation}
+#                                 })
+#                     except json.JSONDecodeError:
+#                         pass
+#                 time.sleep(REQUEST_DELAY)
+#         except Exception as e:
+#             task_queue.put({"type": "error", "message": f"处理 {filename} 失败: {str(e)}"})
+#
+#     final_counts = Counter()
+#     for t_val, d_id in unique_targets:
+#         final_counts[t_val] += 1
+#
+#     summary_data = []
+#     csv_filename = f"extract/Extraction_Result_{time.strftime('%Y%m%d-%H%M%S')}.csv"
+#     with open(csv_filename, 'w', newline='', encoding='utf-8') as csvfile:
+#         writer = csv.writer(csvfile)
+#         writer.writerow(["提取目标", "文献出现次数", "相关文献"])
+#         for t_val, count in final_counts.most_common():
+#             related_docs = list(target_docs.get(t_val, set()))
+#             doc_list_str = "; ".join(related_docs)
+#             writer.writerow([t_val, count, doc_list_str])
+#             summary_data.append({"target_name": t_val, "count": count,
+#                                  "docs": doc_list_str[:60] + "..." if len(doc_list_str) > 60 else doc_list_str})
+#
+#     task_queue.put({"type": "complete", "csv": csv_filename, "summary": summary_data})
+#     task_running = False
+#
+#
+# @app.route('/')
+# def home():
+#     return render_template('index.html')
+#
+#
+# @app.route('/api/task_stream')
+# def task_stream():
+#     def event_stream():
+#         while True:
+#             try:
+#                 msg = task_queue.get(timeout=2)
+#                 yield f"data: {json.dumps(msg, ensure_ascii=False)}\n\n"
+#                 if msg.get("type") == "complete": break
+#             except queue.Empty:
+#                 if not task_running: break
+#                 yield ": heartbeat\n\n"
+#
+#     return Response(event_stream(), mimetype="text/event-stream")
+#
+#
+# @app.route('/api/chat', methods=['POST'])
+# def chat():
+#     data = request.json
+#     user_message = data['message'].strip()
+#
+#     # 🌟 模式 1：拦截【文献提取】指令
+#     if user_message.startswith("帮我搜寻："):
+#         global task_running
+#         if task_running:
+#             return jsonify({'type': 'system', 'reply': "⚠️ 当前已有一个提取任务正在运行。"})
+#
+#         task_desc = user_message.replace("帮我搜寻：", "").strip()
+#         if not task_desc:
+#             task_desc = "专门用于 FAPbI3 钙钛矿体系的钝化剂(Passivator)"
+#
+#         while not task_queue.empty(): task_queue.get()
+#         threading.Thread(target=process_pdf_library, args=(task_desc,)).start()
+#         return jsonify({'type': 'task_trigger', 'reply': f"收到指令！已启动后台文献解析。当前任务目标：【{task_desc}】"})
+#
+#     # 🌟 模式 2：拦截【硬件控制】指令
+#     if user_message.startswith("硬件控制："):
+#         cmd_text = user_message.replace("硬件控制：", "").strip()
+#
+#         # 步骤A：让纯文本大模型把自然语言解析成 JSON 指令
+#         headers = {"Authorization": f"Bearer {SILICONFLOW_API_KEY}", "Content-Type": "application/json"}
+#         parse_prompt = '你是一个实验室硬件控制助手。请将用户的自然语言请求转换为严格的 JSON 格式输出，用于控制下位机。例如：{"action": "set_temperature", "params": {"target": 25}}。不要输出任何多余的解释文本。'
+#         payload = {
+#             "model": "Qwen/Qwen2.5-72B-Instruct",  # 处理文本直接用文本模型，速度更快
+#             "messages": [{"role": "system", "content": parse_prompt}, {"role": "user", "content": cmd_text}]
+#         }
+#
+#         try:
+#             resp = requests.post(API_URL, headers=headers, json=payload, timeout=20)
+#             llm_json = resp.json()['choices'][0]['message']['content'].strip()
+#
+#             # 步骤B：将大模型生成的 JSON 喂给你写的 Python/C 接口
+#             hw_result = hardware_controller.execute_llm_hardware_command(llm_json)
+#
+#             # 将硬件执行结果返回给前端显示
+#             final_reply = f"🔧 **硬件调度完成**\n\nAI 生成指令：`{llm_json}`\n底层执行状态：**{hw_result['status']}**\n底层反馈信息：{hw_result.get('output', hw_result.get('message', '无反馈'))}"
+#             return jsonify({'type': 'system', 'reply': final_reply})
+#
+#         except Exception as e:
+#             return jsonify({'type': 'system', 'reply': f"❌ 硬件调度失败: {str(e)}"})
+#
+#     # 🌟 模式 3：正常的流式对话
+#     def generate_chat():
+#         headers = {"Authorization": f"Bearer {SILICONFLOW_API_KEY}", "Content-Type": "application/json"}
+#         payload = {"model": MODEL_NAME, "messages": [{"role": "user", "content": user_message}], "stream": True}
+#         try:
+#             response = requests.post(API_URL, headers=headers, json=payload, stream=True, timeout=30)
+#             if response.status_code != 200:
+#                 yield f"API 异常: {response.status_code} - {response.text}"
+#                 return
+#             for line in response.iter_lines():
+#                 if line:
+#                     decoded_line = line.decode('utf-8')
+#                     if decoded_line.startswith("data: "):
+#                         data_str = decoded_line[6:]
+#                         if data_str == "[DONE]": break
+#                         try:
+#                             chunk = json.loads(data_str)
+#                             content = chunk['choices'][0]['delta'].get('content', '')
+#                             if content: yield content
+#                         except json.JSONDecodeError:
+#                             pass
+#         except Exception as e:
+#             yield f"\n[请求失败: 请检查网络异常({str(e)})]"
+#
+#     return Response(generate_chat(), content_type='text/plain; charset=utf-8')
+#
+#
+# def open_browser():
+#     # 修复：去除 open_new，延长等待时间保证服务完全启动
+#     webbrowser.open("http://127.0.0.1:5000")
+#
+#
+# if __name__ == '__main__':
+#     print("🚀 服务即将启动...")
+#     Timer(1.5, open_browser).start()
+#     app.run(debug=False, port=5000, threaded=True)
+
+from flask import Flask, request, jsonify, render_template, Response
 import requests
 import threading
 import os
@@ -7,55 +250,34 @@ import json
 import time
 import re
 import csv
-import random
-import pickle
-from collections import defaultdict, Counter
-import fitz  # PyMuPDF
+import fitz
 from PIL import Image
 import io
-from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn, SpinnerColumn
+import queue
+import webbrowser
+from threading import Timer
+
+import hardware_controller
 
 app = Flask(__name__)
 
 # ==========================================
-# ⚙️ 全局配置参数 (请在这里修改为你的真实信息)
+# ⚙️ 配置参数
 # ==========================================
-SILICONFLOW_API_KEY = "sk-zskagakurneevlklkhhzbaxunehikfyeinnjvyizyfstvtci"
-PDF_FOLDER = r"test"  # 建议加上 r 防止路径转义报错
+SILICONFLOW_API_KEY = "sk-zskagakurneevlklkhhzbaxunehikfyeinnjvyizyfstvtci"  # <--- 请确保是纯英文数字组合
+PDF_FOLDER = r"test"
 MODEL_NAME = "Qwen/Qwen2.5-VL-72B-Instruct"
 API_URL = "https://api.siliconflow.cn/v1/chat/completions"
 
-# 提取任务专属参数
 DPI = 200
 REQUEST_DELAY = 3.0
-MAX_RETRIES = 5
-MIN_DELAY = 2.0
-MAX_DELAY = 60.0
-PROGRESS_FILE = "progress_state.pkl"
 
-
-# ==========================================
-# 🛠️ 核心功能：PDF 处理与 API 请求函数
-# ==========================================
-def save_progress_state(state):
-    """保存进度状态到文件"""
-    with open(PROGRESS_FILE, 'wb') as f:
-        pickle.dump(state, f)
-
-
-def load_progress_state():
-    """从文件加载进度状态"""
-    if os.path.exists(PROGRESS_FILE):
-        try:
-            with open(PROGRESS_FILE, 'rb') as f:
-                return pickle.load(f)
-        except:
-            return None
-    return None
+task_queue = queue.Queue()
+task_running = False
+cancel_requested = False  # 新增：用于中断后台线程的全局标志位
 
 
 def pdf_page_to_image(pdf_path, page_num):
-    """将PDF页面转换为Base64编码的图像"""
     doc = fitz.open(pdf_path)
     page = doc.load_page(page_num)
     pix = page.get_pixmap(matrix=fitz.Matrix(DPI / 72, DPI / 72))
@@ -67,188 +289,171 @@ def pdf_page_to_image(pdf_path, page_num):
     return img_str
 
 
-def extract_chat_completion(messages, model=MODEL_NAME):
-    """专门用于提取任务的 API 调用 - 带重试机制和速率限制处理"""
-    headers = {
-        "Authorization": f"Bearer {SILICONFLOW_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "model": model,
-        "messages": messages,
-        "temperature": 0.1,
-        "max_tokens": 500
-    }
-
-    for attempt in range(MAX_RETRIES):
-        try:
-            response = requests.post(API_URL, headers=headers, json=payload, timeout=90)
-            if response.status_code == 200:
-                data = response.json()
-                return data['choices'][0]['message']['content'].strip(), None
-            elif response.status_code == 429:
-                retry_after = response.headers.get('Retry-After')
-                wait_time = float(retry_after) if retry_after else min(MAX_DELAY, MIN_DELAY * (2 ** attempt))
-                jitter = random.uniform(0.5, 1.5)
-                wait_time *= jitter
-                time.sleep(wait_time)
-                continue
-            else:
-                error_msg = f"API错误: {response.status_code}"
-                return "", error_msg
-        except requests.exceptions.RequestException as e:
-            wait_time = min(MAX_DELAY, MIN_DELAY * (2 ** attempt))
-            time.sleep(wait_time)
-            continue
-        except (KeyError, ValueError) as e:
-            return "", f"响应解析错误: {str(e)}"
-    return "", "达到最大重试次数后仍然失败"
+# LLM 动态提取字段生成器
+def get_dynamic_fields_from_llm(task_desc):
+    headers = {"Authorization": f"Bearer {SILICONFLOW_API_KEY}", "Content-Type": "application/json"}
+    prompt = (
+        f"你是一个文献数据抽取专家。用户希望进行以下信息提取任务：【{task_desc}】。\n"
+        "请你推断为了完成这个任务，最终的数据表格需要包含哪些列名（字段）？\n"
+        "必须严格输出 JSON 格式的字符串数组。例如：[\"反溶剂名称\", \"旋涂时间\", \"旋涂转速\", \"文献来源\"]\n"
+        "重要：不要输出任何其他解释性文字。"
+    )
+    payload = {"model": "Qwen/Qwen2.5-72B-Instruct", "messages": [{"role": "user", "content": prompt}],
+               "temperature": 0.1}
+    try:
+        resp = requests.post(API_URL, headers=headers, json=payload, timeout=20)
+        content = resp.json()['choices'][0]['message']['content'].strip()
+        clean_text = re.sub(r'```json\n|\n```|```', '', content).strip()
+        fields = json.loads(clean_text)
+        if isinstance(fields, list) and len(fields) > 0:
+            return fields
+    except Exception as e:
+        print(f"动态字段生成失败: {e}")
+    return ["提取目标", "相关详细参数", "文献来源"]  # Fallback
 
 
-def normalize_chemical_name(name):
-    """简单标准化化学名称"""
-    name = re.sub(r'[^\w\s-]', '', name.strip())
-    return name
+# LLM 动态生成英文文件名前缀
+def get_filename_prefix(task_desc):
+    headers = {"Authorization": f"Bearer {SILICONFLOW_API_KEY}", "Content-Type": "application/json"}
+    prompt = f"将以下提取任务的核心关键词翻译为简短的英文（单词之间用下划线连接），仅输出英文，不要有其他字符。任务：{task_desc}"
+    payload = {"model": "Qwen/Qwen2.5-72B-Instruct", "messages": [{"role": "user", "content": prompt}],
+               "temperature": 0.1}
+    try:
+        resp = requests.post(API_URL, headers=headers, json=payload, timeout=10)
+        return resp.json()['choices'][0]['message']['content'].strip().replace(" ", "_").lower()
+    except:
+        return "extraction_result"
 
 
-def process_pdf_library():
-    """处理整个PDF文献库的主干函数（将在后台线程运行）"""
-    print("\n--- 🚀 后台提取任务已启动 ---")
-    progress_state = load_progress_state()
-    if progress_state:
-        passivator_docs = progress_state['passivator_docs']
-        unique_passivators = progress_state['unique_passivators']
-        processed_files = progress_state['processed_files']
-        api_errors = progress_state['api_errors']
-        start_file_idx = progress_state['file_idx'] + 1
-    else:
-        passivator_docs = defaultdict(set)
-        unique_passivators = set()
-        api_errors = []
-        processed_files = set()
-        start_file_idx = 0
+# 核心提取主程序：支持动态字段与中断
+def process_pdf_library(task_description, fields):
+    global task_running, cancel_requested
+    task_running = True
+    cancel_requested = False
+
+    task_queue.put({"type": "info", "message": f"🚀 提取任务启动！目标：【{task_description}】"})
+
+    # 1. 创建 temporal 文件夹
+    save_dir = "extract"
+    os.makedirs(save_dir, exist_ok=True)
+    prefix = get_filename_prefix(task_description)
 
     if not os.path.exists(PDF_FOLDER):
-        print(f"❌ 错误：找不到 PDF 文件夹路径 {PDF_FOLDER}，请检查配置！")
+        task_queue.put({"type": "error", "message": f"找不到文件夹: {PDF_FOLDER}"})
+        task_running = False
         return
 
-    pdf_files = []
-    for f in os.listdir(PDF_FOLDER):
-        if f.lower().endswith('.pdf'):
-            pdf_path = os.path.join(PDF_FOLDER, f)
-            try:
-                with fitz.open(pdf_path) as doc:
-                    pdf_files.append((f, len(doc)))
-            except Exception as e:
-                print(f"无法读取文件: {f} - {str(e)}")
+    pdf_files = [f for f in os.listdir(PDF_FOLDER) if f.lower().endswith('.pdf')]
+    total_files = len(pdf_files)
 
-    pdf_files = [(f, p) for f, p in pdf_files if f not in processed_files]
+    all_extracted_data = []  # 存储所有动态抓取的数据
 
-    progress_columns = [
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        TextColumn("•"),
-        TimeRemainingColumn()
-    ]
+    for file_idx, filename in enumerate(pdf_files):
+        if cancel_requested:
+            task_queue.put({"type": "info", "message": "⚠️ 接收到停止指令！正在终止并保存当前数据..."})
+            break
 
-    with Progress(*progress_columns) as progress:
-        main_task = progress.add_task("[cyan]处理文献...", total=len(pdf_files), visible=True)
+        pdf_path = os.path.join(PDF_FOLDER, filename)
+        doc_id = os.path.splitext(filename)[0]
+        try:
+            with fitz.open(pdf_path) as doc:
+                num_pages = len(doc)
+            task_queue.put({"type": "progress", "message": f"正在处理第 {file_idx + 1}/{total_files} 篇: {filename}"})
 
-        for file_idx, (filename, num_pages) in enumerate(pdf_files):
-            if file_idx < start_file_idx:
-                progress.update(main_task, advance=1)
-                continue
+            for page_num in range(num_pages):
+                if cancel_requested: break
 
-            pdf_path = os.path.join(PDF_FOLDER, filename)
-            doc_id = os.path.splitext(filename)[0]
-            progress.update(main_task, advance=1,
-                            description=f"[cyan]处理文献 {file_idx + 1}/{len(pdf_files)}: {filename[:20]}")
+                img_base64 = pdf_page_to_image(pdf_path, page_num)
 
-            with progress:
-                page_task = progress.add_task(f"[green]处理 {filename}...", total=num_pages, visible=True)
-                try:
-                    for page_num in range(num_pages):
-                        progress.update(page_task, advance=1,
-                                        description=f"[green]{filename} 页面 {page_num + 1}/{num_pages}")
-                        img_base64 = pdf_page_to_image(pdf_path, page_num)
+                # 构建动态 JSON Keys
+                fields_format = ", ".join([f'"{f}": "..."' for f in fields])
 
-                        messages = [{
-                            "role": "user",
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": "你是有机光伏材料领域的专业研究员。请从这张文献页面图像中识别并列出所有"
-                                            "专门用于FAPbI3钙钛矿体系的钝化剂(passivator)化学名称。\n"
-                                            "重要要求：\n"
-                                            "1. 只返回针对FAPbI3体系的钝化剂化学名称\n"
-                                            "2. 多个名称用英文分号分隔(;)\n"
-                                            "3. 不要添加任何解释、分析或前缀文本\n"
-                                            "4. 严格按照以下示例格式之一输出：\n"
-                                            "   - 多个名称: `CsI; RbI; EAI`\n"
-                                            "   - 单个名称: `CsI`\n"
-                                            "   - 没有钝化剂: `无`\n"
-                                            "5. 如果无法确定，返回`无`\n"
-                                            "请严格遵守输出格式要求，这是最重要的！"
-                                },
-                                {
-                                    "type": "image_url",
-                                    "image_url": {"url": f"data:image/jpeg;base64,{img_base64}"}
-                                }
-                            ]
-                        }]
+                # 向前端推送当前 AI 正在阅读的页面图像
+                task_queue.put({
+                    "type": "page_reading",
+                    "data": {
+                        "filename": filename,
+                        "page": page_num + 1,
+                        "image": img_base64
+                    }
+                })
 
-                        response, error = extract_chat_completion(messages)
+                sys_prompt = (
+                    f"你是一个专业的学术文献分析专家。你的任务是从提供的文献页面图像中提取：\n【目标】：{task_description}\n\n"
+                    "请严格遵循以下规则提取并返回 JSON 数组：\n"
+                    f"1. 必须包含以下字段：{json.dumps(fields, ensure_ascii=False)}\n"
+                    "2. 提取要精准，如果是复合材料不可拆分，如果是复合材料中中间有+，and或者其他标示复合的字符，都视为一个材料，不要重复输出。复合材料需要提取其比例，如果未提取出，请在名称后标明（未说明比例）。\n"
+                    "3. 如果需要提取溶剂量/浓度/转速/温度等，必须标明单位，若无法提取单位，请标明。\n"
+                    "4. 必须且只能输出合法的 JSON 数组，不要包含任何 Markdown 标记。未发现目标请输出 []。\n\n"
+                    f"JSON 输出范例：\n[{{{fields_format}}}]"
+                )
 
-                        if error:
-                            api_errors.append(f"{filename} 第 {page_num + 1} 页: {error}")
-                            if "速率限制" in error or "429" in error:
-                                save_progress_state({
-                                    'passivator_docs': passivator_docs, 'unique_passivators': unique_passivators,
-                                    'api_errors': api_errors, 'processed_files': processed_files | {filename},
-                                    'file_idx': file_idx
+                messages = [
+                    {"role": "system", "content": sys_prompt},
+                    {"role": "user",
+                     "content": [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_base64}"}}]}
+                ]
+                headers = {"Authorization": f"Bearer {SILICONFLOW_API_KEY}", "Content-Type": "application/json"}
+                payload = {"model": MODEL_NAME, "messages": messages, "temperature": 0.1, "max_tokens": 1024}
+
+                response = requests.post(API_URL, headers=headers, json=payload, timeout=60)
+                if response.status_code == 200:
+                    result_text = response.json()['choices'][0]['message']['content'].strip()
+                    try:
+                        clean_text = re.sub(r'```json\n|\n```|```', '', result_text).strip()
+                        extracted_data = json.loads(clean_text)
+                        if isinstance(extracted_data, list) and len(extracted_data) > 0:
+                            for item in extracted_data:
+                                item['_source_doc'] = doc_id  # 追加隐藏的来源字段
+                                all_extracted_data.append(item)
+                                task_queue.put({
+                                    "type": "finding",
+                                    "data": {"page": page_num + 1, "filename": filename, "details": item}
                                 })
-                                return
+                    except json.JSONDecodeError:
+                        pass
+                time.sleep(REQUEST_DELAY)
+        except Exception as e:
+            task_queue.put({"type": "error", "message": f"处理 {filename} 失败: {str(e)}"})
 
-                        elif response and response.lower() != "无":
-                            page_passivators = [normalize_chemical_name(p.strip()) for p in response.split(';') if
-                                                p.strip() and p.strip().lower() != "无"]
-                            for p in page_passivators:
-                                unique_passivators.add((p, doc_id))
-                                passivator_docs[p].add(doc_id)
+    # 2. 将结果动态写入 CSV
+    csv_filename = os.path.join(save_dir, f"{prefix}_{time.strftime('%Y%m%d-%H%M%S')}.csv")
+    if all_extracted_data:
+        # 补全可能缺失的 keys
+        all_keys = set(fields)
+        for d in all_extracted_data: all_keys.update(d.keys())
+        all_keys = list(all_keys)
 
-                        time.sleep(REQUEST_DELAY + random.uniform(0, 1.0))
+        with open(csv_filename, 'w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=all_keys)
+            writer.writeheader()
+            for row in all_extracted_data:
+                writer.writerow(row)
+    else:
+        # 即使没有数据也建个空文件
+        with open(csv_filename, 'w', newline='', encoding='utf-8') as csvfile:
+            csvfile.write(",".join(fields))
 
-                except Exception as e:
-                    api_errors.append(f"{filename} 处理错误: {str(e)}")
-                    continue
-                finally:
-                    progress.remove_task(page_task)
-                    processed_files.add(filename)
-                    save_progress_state({
-                        'passivator_docs': passivator_docs, 'unique_passivators': unique_passivators,
-                        'api_errors': api_errors, 'processed_files': processed_files, 'file_idx': file_idx
-                    })
+    # 写入一个固定名字的excel表，方便后续调用
+    csv_filename_temporal = "temporal/extraction.csv"
+    if all_extracted_data:
+        # 补全可能缺失的 keys
+        all_keys = set(fields)
+        for d in all_extracted_data: all_keys.update(d.keys())
+        all_keys = list(all_keys)
 
-    if os.path.exists(PROGRESS_FILE):
-        os.remove(PROGRESS_FILE)
+        with open(csv_filename_temporal, 'w', newline='', encoding='utf-8') as csvfile_temporal:
+            writer = csv.DictWriter(csvfile_temporal, fieldnames=all_keys)
+            writer.writeheader()
+            for row in all_extracted_data:
+                writer.writerow(row)
+    else:
+        # 即使没有数据也建个空文件
+        with open(csv_filename_temporal, 'w', newline='', encoding='utf-8') as csvfile_temporal:
+            csvfile_temporal.write(",".join(fields))
 
-    final_counts = Counter()
-    for passivator, doc_id in unique_passivators:
-        final_counts[passivator] += 1
-
-    csv_filename = f"extract/FAPbI3_passivators_{time.strftime('%Y%m%d-%H%M%S')}.csv"
-    with open(csv_filename, 'w', newline='', encoding='utf-8') as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerow(["Passivator", "文献出现次数", "相关文献"])
-        for passivator, count in final_counts.most_common():
-            related_docs = passivator_docs.get(passivator, set())
-            doc_list = "; ".join(related_docs)
-            if len(doc_list) > 200: doc_list = doc_list[:197] + "..."
-            writer.writerow([passivator, count, doc_list])
-
-    print(f"\n✅ 提取任务全部完成！结果已保存到: {csv_filename}\n")
+    task_queue.put({"type": "complete", "csv": csv_filename_temporal, "count": len(all_extracted_data), "fields": fields})
+    task_running = False
 
 
 @app.route('/')
@@ -256,51 +461,131 @@ def home():
     return render_template('index.html')
 
 
+@app.route('/api/upload', methods=['POST'])
+def upload_file():
+    if 'files' not in request.files:
+        return jsonify({'error': '没有收到文件'}), 400
+
+    files = request.files.getlist('files')
+    os.makedirs(PDF_FOLDER, exist_ok=True)  # 确保文件夹存在
+    saved_files = []
+
+    for file in files:
+        if file.filename.lower().endswith('.pdf'):
+            path = os.path.join(PDF_FOLDER, file.filename)
+            file.save(path)
+            saved_files.append(file.filename)
+
+    return jsonify({'status': 'success', 'saved': saved_files})
+
+@app.route('/api/task_stream')
+def task_stream():
+    def event_stream():
+        while True:
+            try:
+                msg = task_queue.get(timeout=2)
+                yield f"data: {json.dumps(msg, ensure_ascii=False)}\n\n"
+                if msg.get("type") == "complete": break
+            except queue.Empty:
+                if not task_running: break
+                yield ": heartbeat\n\n"
+
+    return Response(event_stream(), mimetype="text/event-stream")
+
+
+# 🌟 新增：手动中断任务接口
+@app.route('/api/cancel_task', methods=['POST'])
+def cancel_task():
+    global cancel_requested
+    cancel_requested = True
+    return jsonify({"status": "stopping"})
+
+
 @app.route('/api/chat', methods=['POST'])
 def chat():
     data = request.json
-    if not data or 'message' not in data:
-        return jsonify({'error': '无效的请求'}), 400
+    user_message = data.get('message', '').strip()
+    action = data.get('action', 'chat')  # 用于区分普通对话还是特殊指令
 
-    user_message = data['message'].strip()
+    # 🌟 特殊流程：用户已确认字段，正式开始提取
+    if action == 'start_extraction':
+        task_desc = data.get('task_desc')
+        fields = data.get('fields')
+        while not task_queue.empty(): task_queue.get()
+        threading.Thread(target=process_pdf_library, args=(task_desc, fields)).start()
+        return jsonify({'type': 'task_trigger', 'reply': "指令确认！正在调度解析引擎，实时进度见下方..."})
 
-    # 🌟 拦截器：检测关键词
+    # 🌟 拦截提取指令：Agentic 判断与 Schema 生成
     if user_message.startswith("帮我搜寻："):
-        # 开启后台线程执行庞大的 PDF 解析任务
-        thread = threading.Thread(target=process_pdf_library)
-        thread.start()
+        global task_running
+        if task_running:
+            return jsonify({'type': 'system', 'reply': "⚠️ 当前已有一个提取任务正在运行。"})
 
-        return jsonify({
-                           'reply': "好的老板！我已经收到了提取指令，正在后台为你启动【FAPbI3体系钝化剂】的 AI 提取任务。\n\n由于处理 PDF 图像非常耗时，请切回后端的终端窗口（命令行）查看实时的跑动进度条。处理完成后，会自动在你的项目目录下生成一份详尽的 CSV 统计文件！"})
+        task_desc = user_message.replace("帮我搜寻：", "").strip()
 
-    # 🌟 正常的对话逻辑
-    headers = {
-        "Authorization": f"Bearer {SILICONFLOW_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "model": MODEL_NAME,
-        "messages": [
-            {"role": "system", "content": "你是一个有用的 AI 助手。"},
-            {"role": "user", "content": user_message}
-        ],
-        "temperature": 0.5,
-        "max_tokens": 1024
-    }
+        # 场景 1：如果没有任何输入，直接采用默认值并默认字段
+        if not task_desc:
+            task_desc = "专门用于 FAPbI3 钙钛矿体系的钝化剂(Passivator)"
+            default_fields = ["钝化剂名称", "原文原句", "作用机理", "文献来源"]
+            while not task_queue.empty(): task_queue.get()
+            threading.Thread(target=process_pdf_library, args=(task_desc, default_fields)).start()
+            return jsonify({'type': 'task_trigger', 'reply': f"已启动 FAPbI3 钝化剂解析..."})
 
-    try:
-        response = requests.post(API_URL, headers=headers, json=payload, timeout=30)
-        if response.status_code == 200:
-            return jsonify({'reply': response.json()['choices'][0]['message']['content'].strip()})
-        elif response.status_code == 429:
-            return jsonify({'reply': 'API 请求太频繁，请稍后再试。'})
+        # 场景 2：自定义输入，去 LLM 询问字段，并返回前端要求用户确认
         else:
-            return jsonify({'reply': f'API 请求失败: {response.status_code}'})
-    except Exception as e:
-        return jsonify({'reply': f'请求大模型异常: {str(e)}'})
+            fields = get_dynamic_fields_from_llm(task_desc)
+            confirm_msg = f"我分析了你的需求，为了完美完成【{task_desc}】的提取，我为你规划了以下输出表格列名：\n\n`{', '.join(fields)}`\n\n请问是否确认使用这些字段进行解析？"
+            return jsonify({
+                'type': 'field_confirm',
+                'task_desc': task_desc,
+                'fields': fields,
+                'reply': confirm_msg
+            })
+
+    # 🌟 硬件控制
+    if user_message.startswith("硬件控制："):
+        cmd_text = user_message.replace("硬件控制：", "").strip()
+        headers = {"Authorization": f"Bearer {SILICONFLOW_API_KEY}", "Content-Type": "application/json"}
+        payload = {"model": "Qwen/Qwen2.5-72B-Instruct",
+                   "messages": [{"role": "system", "content": '输出JSON'}, {"role": "user", "content": cmd_text}]}
+        try:
+            resp = requests.post(API_URL, headers=headers, json=payload, timeout=20)
+            llm_json = resp.json()['choices'][0]['message']['content'].strip()
+            hw_result = hardware_controller.execute_llm_hardware_command(llm_json)
+            return jsonify({'type': 'system',
+                            'reply': f"🔧 **硬件调度完成**\nJSON 指令：`{llm_json}`\n反馈：{hw_result.get('output', '已执行')}"})
+        except Exception as e:
+            return jsonify({'type': 'system', 'reply': f"❌ 硬件调度失败: {str(e)}"})
+
+    # 🌟 普通聊天流式输出
+    def generate_chat():
+        headers = {"Authorization": f"Bearer {SILICONFLOW_API_KEY}", "Content-Type": "application/json"}
+        payload = {"model": MODEL_NAME, "messages": [{"role": "user", "content": user_message}], "stream": True}
+        try:
+            response = requests.post(API_URL, headers=headers, json=payload, stream=True, timeout=30)
+            for line in response.iter_lines():
+                if line:
+                    decoded_line = line.decode('utf-8')
+                    if decoded_line.startswith("data: "):
+                        data_str = decoded_line[6:]
+                        if data_str == "[DONE]": break
+                        try:
+                            chunk = json.loads(data_str)
+                            content = chunk['choices'][0]['delta'].get('content', '')
+                            if content: yield content
+                        except:
+                            pass
+        except Exception as e:
+            yield f"\n[请求失败: {str(e)}]"
+
+    return Response(generate_chat(), content_type='text/plain; charset=utf-8')
+
+
+def open_browser():
+    webbrowser.open("http://127.0.0.1:5000")
 
 
 if __name__ == '__main__':
-    print("🚀 后端服务已启动！请访问: http://127.0.0.1:5000")
-    app.run(debug=True, port=5000)
-
+    print("🚀 服务即将启动...")
+    Timer(1.5, open_browser).start()
+    app.run(debug=False, port=5000, threaded=True)

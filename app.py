@@ -21,7 +21,7 @@ app = Flask(__name__)
 # ==========================================
 # 配置参数
 # ==========================================
-SILICONFLOW_API_KEY = "sk-zskagakurneevlklkhhzbaxunehikfyeinnjvyizyfstvtci"  # <--- 请确保是纯英文数字组合
+SILICONFLOW_API_KEY = "sk-zskagakurneevlklkhhzbaci"
 PDF_FOLDER = r"test"
 MODEL_NAME = "Qwen/Qwen2.5-VL-72B-Instruct"
 API_URL = "https://api.siliconflow.cn/v1/chat/completions"

@@ -21,7 +21,7 @@ app = Flask(__name__)
 # ==========================================
 # 配置参数
 # ==========================================
-SILICONFLOW_API_KEY = "sk-zskagakurneevlklkhhzbaci"
+SILICONFLOW_API_KEY = "sk-"
 PDF_FOLDER = r"test"
 MODEL_NAME = "Qwen/Qwen2.5-VL-72B-Instruct"
 API_URL = "https://api.siliconflow.cn/v1/chat/completions"
@@ -285,6 +285,7 @@ def chat():
 
         # 场景 1：如果没有任何输入，直接采用默认值并默认字段
         if not task_desc:
+            # 默认字段：
             task_desc = "专门用于 FAPbI3 钙钛矿体系的钝化剂(Passivator)"
             default_fields = ["钝化剂名称", "原文原句", "作用机理", "文献来源"]
             while not task_queue.empty(): task_queue.get()

@@ -1,2 +1,25 @@
-文献来源,作用机理,原文原句,钝化剂名称,_source_doc
-Nature Communications (2019)10:3008,treating the perovskite surface with different types of ammonium salts reduces the level of electronic defects present at the interface between the perovskite film and the hole transport layer.,"We introduce a straightforward strategy to reduce the level of electronic defects present at the interface between the perovskite film and the hole transport layer by treating the perovskite surface with different types of ammonium salts, namely ethylammonium, imidazolium and guanidinium iodide.","ethylammonium, imidazolium and guanidinium iodide",nature_articles_s41467-019-10985-5
+钝化剂名称,文献来源,使用浓度,处理温度,_source_doc,处理时间
+"ethylammonium, imidazolium and guanidinium iodide",Nature Communications (2019)10:3008,未说明,未说明,nature_articles_s41467-019-10985-5,未说明
+EAI,NATURE COMMUNICATIONS | https://doi.org/10.1038/s41467-019-10985-5,5 mg ml^-1,70 ℃,nature_articles_s41467-019-10985-5,10-15 min
+IAI,NATURE COMMUNICATIONS | https://doi.org/10.1038/s41467-019-10985-5,未说明,70 ℃,nature_articles_s41467-019-10985-5,10-15 min
+GuaI,NATURE COMMUNICATIONS | https://doi.org/10.1038/s41467-019-10985-5,未说明,70 ℃,nature_articles_s41467-019-10985-5,10-15 min
+EAI,NATURE COMMUNICATIONS | https://doi.org/10.1038/s41467-019-10985-5,5 mg ml^-1,未说明,nature_articles_s41467-019-10985-5,未说明
+EAI,NATURE COMMUNICATIONS | https://doi.org/10.1038/s41467-019-10985-5,3 mg ml⁻¹,未说明,nature_articles_s41467-019-10985-5,未说明
+IAI,NATURE COMMUNICATIONS | https://doi.org/10.1038/s41467-019-10985-5,7 mg ml⁻¹,未说明,nature_articles_s41467-019-10985-5,未说明
+GuaI,NATURE COMMUNICATIONS | https://doi.org/10.1038/s41467-019-10985-5,5 mg ml⁻¹,未说明,nature_articles_s41467-019-10985-5,未说明
+EAI,NATURE COMMUNICATIONS | https://doi.org/10.1038/s41467-019-10985-5,3 mg ml^-1,未说明,nature_articles_s41467-019-10985-5,未说明
+IAI,NATURE COMMUNICATIONS | https://doi.org/10.1038/s41467-019-10985-5,7 mg ml^-1,未说明,nature_articles_s41467-019-10985-5,未说明
+Gual,NATURE COMMUNICATIONS | https://doi.org/10.1038/s41467-019-10985-5,5 mg ml^-1,未说明,nature_articles_s41467-019-10985-5,未说明
+EAI,NATURE COMMUNICATIONS | https://doi.org/10.1038/s41467-019-10985-5,3 mg ml^-1,70 °C,nature_articles_s41467-019-10985-5,30 s
+IAI,NATURE COMMUNICATIONS | https://doi.org/10.1038/s41467-019-10985-5,7 mg ml^-1,70 °C,nature_articles_s41467-019-10985-5,30 s
+GuaI,NATURE COMMUNICATIONS | https://doi.org/10.1038/s41467-019-10985-5,5 mg ml^-1,70 °C,nature_articles_s41467-019-10985-5,30 s
+EAI,NATURE COMMUNICATIONS | https://doi.org/10.1038/s41467-019-10985-5,3 mg ml^-1,未说明,nature_articles_s41467-019-10985-5,未说明
+IAI,NATURE COMMUNICATIONS | https://doi.org/10.1038/s41467-019-10985-5,7 mg ml^-1,未说明,nature_articles_s41467-019-10985-5,未说明
+Gual,NATURE COMMUNICATIONS | https://doi.org/10.1038/s41467-019-10985-5,5 mg ml^-1,未说明,nature_articles_s41467-019-10985-5,未说明
+Phenylalkylamine,"Wang, F. et al. Phenylalkylamine passivation of organolead halide perovskites enabling high-efficiency and air-stable photovoltaic cells. Adv. Mater. 28, 9986–9992 (2016).",未说明,未说明,nature_articles_s41467-019-10985-5,未说明
+PEAI and GASCN,Carrier control in Sn–Pb perovskites via 2D cation engineering for all-perovskite tandem solar cells with improved efficiency and stability,未说明,未说明,nature_articles_s41560-022-01046-1,未说明
+PEAI+GASCN,"Nature Energy, Vol 7, July 2022",2% PEAI and 7% GASCN,未说明,nature_articles_s41560-022-01046-1,未说明
+PEAI + GASCN,NATURE ENERGY,未说明,未说明,nature_articles_s41560-022-01046-1,未说明
+PEAI+GASCN,"Nature Energy, VOL 7 | JULY 2022 | 642-651",未说明,未说明,nature_articles_s41560-022-01046-1,未说明
+PEAI+GASCN,NATURE ENERGY | VOL 7 | JULY 2022,未说明,未说明,nature_articles_s41560-022-01046-1,未说明
+PEAI+GASCN,NATURE ENERGY | VOL 7 | JULY 2022 | 642-651 | www.nature.com/natureenergy,未说明,未说明,nature_articles_s41560-022-01046-1,未说明

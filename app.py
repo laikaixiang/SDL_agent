@@ -139,9 +139,10 @@ def process_pdf_library(task_description, fields):
                     f"你是一个专业的学术文献分析专家。你的任务是从提供的文献页面图像中提取：\n【目标】：{task_description}\n\n"
                     "请严格遵循以下规则提取并返回 JSON 数组：\n"
                     f"1. 必须包含以下字段：{json.dumps(fields, ensure_ascii=False)}\n"
-                    "2. 提取要精准，如果是复合材料不可拆分，如果是复合材料中中间有+，and或者其他标示复合的字符，都视为一个材料，不要重复输出。复合材料需要提取其比例，如果未提取出，请在名称后标明（未说明比例）。\n"
+                    "2. 提取要精准，如果是复合材料不可拆分，如果是复合材料中中间有+，and或者其他标示复合的字符，并且之前已经提取过，都视为一个材料，不要重复输出。复合材料需要提取其比例，如果未提取出，请在名称后标明（未说明比例）。\n"
                     "3. 如果需要提取溶剂量/浓度/转速/温度等，必须标明单位，若无法提取单位，请标明。\n"
-                    "4. 必须且只能输出合法的 JSON 数组，不要包含任何 Markdown 标记。未发现目标请输出 []。\n\n"
+                    "4. 不需要提取参考文献里的数据。\n"
+                    "5. 必须且只能输出合法的 JSON 数组，不要包含任何 Markdown 标记。未发现目标请输出 []。\n\n"
                     f"JSON 输出范例：\n[{{{fields_format}}}]"
                 )
 
@@ -224,6 +225,8 @@ def upload_file():
         return jsonify({'error': '没有收到文件'}), 400
 
     files = request.files.getlist('files')
+
+    # PDF_FOLDER是前面全局定义的那个
     os.makedirs(PDF_FOLDER, exist_ok=True)  # 确保文件夹存在
     saved_files = []
 

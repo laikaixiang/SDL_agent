@@ -56,7 +56,7 @@
 
         /* 左右分屏布局 */
         body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background-color: var(--bg); display: flex; justify-content: center; align-items: center; }
-        .app-wrapper { display: flex; width: 100%; max-width: 1400px; height: 100vh; padding: 20px; gap: 20px; transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
+        .app-wrapper { display: flex; justify-content: center; margin: 0 auto; width: 100%; max-width: 1400px; height: 100vh; padding: 20px; gap: 20px; transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
 
         /* PDF 预览面板 */
         .pdf-panel { flex: 0; width: 0; background: #fff; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); overflow: hidden; display: flex; flex-direction: column; opacity: 0; transform: translateX(20px); transition: all 0.4s ease; position: relative; }
@@ -108,6 +108,10 @@
 
     <div class="input-area">
         <button id="tool-btn" class="tool-btn">+</button>
+
+        <label for="file-upload" class="tool-btn" style="margin-left:-8px; cursor:pointer;" title="上传文献">📎</label>
+        <input type="file" id="file-upload" accept=".pdf" style="display:none;" multiple>
+
         <div class="input-container" id="input-container">
             <div id="mode-badge" class="mode-badge"></div>
             <input type="text" id="user-input" placeholder="输入问题或指令..." autocomplete="off">
@@ -119,7 +123,10 @@
 <div class="pdf-panel" id="pdf-panel">
     <div class="pdf-header">
         <span>AI正在阅读...</span>
-        <span id="pdf-title" style="font-size:0.8rem; color:#9ca3af; font-weight:normal;">等待连接...</span>
+        <div style="display: flex; align-items: center; gap: 15px;">
+            <span id="pdf-title" style="font-size:0.8rem; color:#9ca3af; font-weight:normal;">等待连接...</span>
+            <button id="close-pdf-btn" style="background: none; border: none; color: #fff; font-size: 1.5rem; cursor: pointer; padding: 0; line-height: 1;" title="关闭预览面板">×</button>
+        </div>
     </div>
     <div class="pdf-viewer" id="pdf-viewer">
         <div class="scan-line"></div>
@@ -404,6 +411,67 @@ ${replyMsg.replace(/\n/g, '<br>')}
     function scrollToBottom() {
         chatBox.scrollTop = chatBox.scrollHeight;
     }
+
+    // =====================================
+    // 关闭 PDF 面板
+    // =====================================
+    document.getElementById('close-pdf-btn').addEventListener('click', () => {
+        document.getElementById('app-wrapper').classList.remove('split-mode');
+    });
+
+    // =====================================
+    // 拖拽与上传逻辑
+    // =====================================
+    const fileUpload = document.getElementById('file-upload');
+    const chatContainer = document.getElementById('chat-container');
+
+    // 监听回形针点击选择
+    fileUpload.addEventListener('change', (e) => handleFiles(e.target.files));
+
+    // 监听拖拽事件
+    chatContainer.addEventListener('dragover', (e) => { e.preventDefault(); chatContainer.classList.add('drag-over'); });
+    chatContainer.addEventListener('dragleave', (e) => { e.preventDefault(); chatContainer.classList.remove('drag-over'); });
+    chatContainer.addEventListener('drop', (e) => {
+        e.preventDefault();
+        chatContainer.classList.remove('drag-over');
+        handleFiles(e.dataTransfer.files);
+    });
+
+    async function handleFiles(files) {
+        if (!files || files.length === 0) return;
+
+        const formData = new FormData();
+        let pdfCount = 0;
+
+        for (let file of files) {
+            if (file.type === "application/pdf" || file.name.toLowerCase().endsWith('.pdf')) {
+                formData.append('files', file);
+                pdfCount++;
+            }
+        }
+
+        if (pdfCount === 0) {
+            appendMessage('仅支持上传 PDF 格式的文献哦！', 'ai');
+            return;
+        }
+
+        appendMessage(`正在将 ${pdfCount} 份文献归档至本地知识库...`, 'user');
+
+        try {
+            const res = await fetch('/api/upload', { method: 'POST', body: formData });
+            const data = await res.json();
+            if (data.status === 'success') {
+                appendMessage(`✅ 成功归档！可随时对它们下达提取指令。\n\n已保存：\n${data.saved.join('\n')}`, 'ai');
+            } else {
+                appendMessage(`❌ 上传失败：${data.error}`, 'ai');
+            }
+        } catch (e) {
+            appendMessage('❌ 网络异常，未能连接到本地服务。', 'ai');
+        }
+
+        fileUpload.value = ''; // 清空选择器，允许重复上传同一文件
+    }
+
 </script>
 </div>
 </body>

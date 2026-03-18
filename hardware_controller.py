@@ -128,7 +128,7 @@ def execute_llm_hardware_command(llm_json_response):
             if msg == "experiment start":
                 return {"status": "success", "output": msg}
             else:
-                return {"status": "error", "message": msg"}
+                return {"status": "error", "message": msg}
         
         else:
             return {"status": "error", "message": f"未知的硬件操作指令: {action}"}

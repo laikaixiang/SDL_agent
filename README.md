@@ -62,7 +62,8 @@ flowchart TD
 |----------|----------|----------|
 | `templates/index.html` | 前端可视化界面 | 多模式交互、PDF预览、进度展示、任务控制 |
 | `app.py` | Flask Web服务主程序 | PDF转码、大模型调用、数据提取/持久化、任务调度、硬件模块集成 |
-| `hardware_controller.py` | 硬件控制核心模块 | MQTT通信、试剂位置解析、实验指令下发、大模型指令路由、底层硬件调用 |
+| `hardware_controller.py` | 硬件控制核心模块 |试剂位置解析、实验指令整合、大模型指令路由、底层硬件调用 |
+| `agent_client.py` | EMQX服务器连接模块 | MQTT通信、实验指令下发 |
 | `temporal/extraction.csv` | 临时数据文件 | 存储最新提取的实验参数，供硬件控制模块调用 |
 | `extract/` | 归档数据目录 | 按时间戳存储历史提取结果，支持追溯 |
 | `reagent_layout.json` | 试剂配置文件 | 存储自动化平台上试剂的物理位置（BPxx格式） |

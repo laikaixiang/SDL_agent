@@ -114,10 +114,7 @@ def execute_llm_hardware_command(llm_json_response):
             x, y, z = params.get("x", 0), params.get("y", 0), params.get("z", 0)
             # 调用 Python 脚本
             res = subprocess.run(["python", "arm_ctrl.py", str(x), str(y), str(z)], capture_output=True, text=True)
-            if msg == "experiment start":
-                return {"status": "success", "output": msg}
-            else:
-                return {"status": "error", "message": msg"}
+            return {"status": "success", "output": res.stdout}
 
         elif action == "do_experiment":
             # 自动化实验平台执行一次原位旋涂实验，要求JSON输出格式为：
@@ -128,7 +125,10 @@ def execute_llm_hardware_command(llm_json_response):
             reagent = params.get("reagent")
             volume = params.get("volume")
             msg = do_experiment(spin_speed, spin_acc, spin_dur, reagent, volume)
-            return {"status": "success", "output": res.stdout}
+            if msg == "experiment start":
+                return {"status": "success", "output": msg}
+            else:
+                return {"status": "error", "message": msg"}
         
         else:
             return {"status": "error", "message": f"未知的硬件操作指令: {action}"}

@@ -3,8 +3,7 @@ import json
 import logging
 
 # ai与自动化平台需要通过emqx服务器通信，仅能传输简单的开始/结束指令和一些指定的参数，还没有做平台组件的运动控制协议
-import threading
-import paho.mqtt.client as mqtt
+from agent_client import MQTTConnecter
 
 
 logging.basicConfig(level=logging.INFO)
@@ -15,80 +14,6 @@ local_client = MQTTConnector()
 topic = "do_experiment"
 # 自动化平台试剂瓶位置:溶液的配置文件地址，在实验室电脑里
 json_path = "bin\\Debug\\net8.0-windows\\reagent_layout.json"
-
-# ai客户端配置网络配置
-class Client_Conf:
-    """
-    Class saving the configurations of the agent client, including client id, username, password, server ip and port
-    """
-    def __init__(self):
-        self.client_id = "bibilabu"
-        self.usr_name = "agent"
-        self.password = "s208ht"
-        self.ip = "192.168.120.129"
-        self.port = 1883
-
-# emqx服务器连接、发布消息
-class MQTTConnector:
-    """emqx server connection class"""
-    def __init__(self):
-        self.client_config = Client_Conf()
-        self.client = None
-        self.is_connected = False
-        self.connect_event = threading.Event()
-
-    def on_connect(self, client, userdata, flags, rc):
-        """Connection recall"""
-        if rc == 0:
-            print('Connected to emqx server')
-            self.is_connected = True
-        else:
-            print(f'Connection failed! RC: {rc}')
-            self.is_connected = False
-
-        self.connect_event.set()
-
-    def connect(self, timeout=5) -> bool:
-        """
-        Connect the emqx server. Automatically initiallizes mqtt.Client() class object
-        :param timeout: how long the thread waits for connection recall. if timeout, connection is considered fail
-        :return: True if connection success, False if failed
-        """
-        self.client = mqtt.Client()
-        self.client.username_pw_set(username=self.client_config.usr_name, password=self.client_config.password)
-        self.client.on_connect = self.on_connect
-
-        # reset connection status
-        self.is_connected = False
-        self.connect_event.clear()
-
-        try:
-            self.client.connect(self.client_config.ip, self.client_config.port, 60)
-            self.client.loop_start()
-
-            # waiting for recall. if connection established, returns True
-            if self.connect_event.wait(timeout):
-                return self.is_connected
-            else:
-                print("Timeout waiting for connection.")
-                return False
-        except Exception as e:
-            print(f"Error: {e}")
-            return False
-
-    def check_connect(self) -> bool:
-        """
-        Check connection with emqx server.
-        :return: The current connection state. True if agent_client is already or successfully connected, otherwise, False
-        """
-        if self.is_connected:
-            return True
-        else:
-            return False
-
-    def publish(self, topic:str, msg:str):
-        """Publish string data"""
-        self.client.publish(topic, msg)
 
 # 获取自动化平台试剂瓶的位置，找到特定溶液对应的平台中的位置
 def get_reagents(name:str, path = json_path) -> str:

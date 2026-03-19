@@ -306,15 +306,60 @@ def chat():
     # 🌟 硬件控制
     if user_message.startswith("硬件控制："):
         cmd_text = user_message.replace("硬件控制：", "").strip()
+
+        # 专门针对现有硬件接口设计的高精度 Prompt
+        hw_prompt = """你是一个专业的实验室自动化硬件控制智能体。你的任务是将用户的自然语言指令，精准转换为可由下位机执行的 JSON 格式数据。
+
+        目前系统仅支持以下三种硬件操作，请根据用户的指令匹配最合适的 action，并提取相应 params：
+        
+        1. 设置温度 (set_temperature)
+           - 格式: {"action": "set_temperature", "params": {"target": 浮点数}}
+           - 示例: 用户说"把温度设为30度"，输出 {"action": "set_temperature", "params": {"target": 30.0}}
+        
+        2. 移动机械臂 (move_robot_arm)
+           - 格式: {"action": "move_robot_arm", "params": {"x": 浮点数, "y": 浮点数, "z": 浮点数}}
+           - 示例: 用户说"机械臂移动到10, 20, 5"，输出 {"action": "move_robot_arm", "params": {"x": 10.0, "y": 20.0, "z": 5.0}}
+        
+        3. 执行原位旋涂实验 (do_experiment)
+           - 格式: {"action": "do_experiment", "params": {"reagent": "字符串", "spin_speed": 整数, "spin_acc": 整数, "spin_dur": 整数, "volume": 整数}}
+           - 参数说明: reagent(试剂名称), spin_speed(转速 rpm，最大6000), spin_acc(加速度 rpm/s，默认1000), spin_dur(旋涂时间 ms，注意：如果用户说秒，请乘以1000换算为毫秒), volume(溶液体积)
+           - 示例: 用户说"用氯苯以3000转、1000加速度旋涂30秒，体积50"，输出 {"action": "do_experiment", "params": {"reagent": "氯苯", "spin_speed": 3000, "spin_acc": 1000, "spin_dur": 30000, "volume": 50}}
+        
+        重要规则：
+        - 必须且只能输出一个合法的 JSON 对象。
+        - 绝对不要输出任何多余的解释、思考过程或问候语。
+        - 绝对不要包含 Markdown 标记（例如不要写 ```json ）。
+        - 如果用户指令中缺失了旋涂实验(do_experiment)的某些参数，请使用常规默认值填补（如 spin_acc 默认为 1000）。"""
+
         headers = {"Authorization": f"Bearer {SILICONFLOW_API_KEY}", "Content-Type": "application/json"}
-        payload = {"model": "Qwen/Qwen2.5-72B-Instruct",
-                   "messages": [{"role": "system", "content": '输出JSON'}, {"role": "user", "content": cmd_text}]}
+        payload = {
+            "model": "Qwen/Qwen2.5-72B-Instruct",
+            "messages": [
+                {"role": "system", "content": hw_prompt},
+                {"role": "user", "content": cmd_text}
+            ],
+            "temperature": 0.1  # 调低温度以保证JSON输出的稳定性和确定性
+        }
         try:
             resp = requests.post(API_URL, headers=headers, json=payload, timeout=20)
             llm_json = resp.json()['choices'][0]['message']['content'].strip()
-            hw_result = hardware_controller.execute_llm_hardware_command(llm_json)
-            return jsonify({'type': 'system',
-                            'reply': f"🔧 **硬件调度完成**\nJSON 指令：`{llm_json}`\n反馈：{hw_result.get('output', '已执行')}"})
+
+            # 双重保险：清理大模型可能残留的 markdown code block 标记
+            clean_json = re.sub(r'```json\n|\n```|```', '', llm_json).strip()
+
+            # 将清理后的 JSON 喂给硬件控制器
+            hw_result = hardware_controller.execute_llm_hardware_command(clean_json)
+
+            # 优化前端 UI 反馈
+            status_icon = "✅" if hw_result.get("status") == "success" else "❌"
+            reply_msg = (
+                f"🔧 **硬件调度执行完毕**\n\n"
+                f"**JSON 指令**：\n`{clean_json}`\n\n"
+                f"**执行状态**：{status_icon} {hw_result.get('status')}\n"
+                f"**底层反馈**：{hw_result.get('output', hw_result.get('message', '无反馈'))}"
+            )
+
+            return jsonify({'type': 'system', 'reply': reply_msg})
         except Exception as e:
             return jsonify({'type': 'system', 'reply': f"❌ 硬件调度失败: {str(e)}"})
 

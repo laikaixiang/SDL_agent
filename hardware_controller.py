@@ -118,7 +118,7 @@ def execute_llm_hardware_command(llm_json_response):
 
         elif action == "do_experiment":
             # 自动化实验平台执行一次原位旋涂实验，要求JSON输出格式为：
-            # {"action": "do_experiment", "params": {"spin_speed":int, "spin_acc":int, "spin_dur":int, "reagent":str, "volume":int}
+            # {"action": "do_experiment", "params": {"reagent":str, "spin_speed":int, "spin_acc":int, "spin_dur":int, "volume":int}
             spin_speed = params.get("spin_speed")
             spin_acc = params.get("spin_acc")
             spin_dur = params.get("spin_dur")

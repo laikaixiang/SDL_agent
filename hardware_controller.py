@@ -3,7 +3,7 @@ import json
 import logging
 
 # ai与自动化平台需要通过emqx服务器通信，仅能传输简单的开始/结束指令和一些指定的参数，还没有做平台组件的运动控制协议
-from agent_client import MQTTConnecter
+from agent_client import MQTTConnector
 
 
 logging.basicConfig(level=logging.INFO)

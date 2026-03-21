@@ -27,7 +27,7 @@ from typing import Literal, Optional
 from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
-from openai import AsyncOpenAI  # 🌟 新增：用于底层的原生多模态视觉 API 调用
+from openai import AsyncOpenAI  # 新增：用于底层的原生多模态视觉 API 调用
 
 # 引入硬件控制模块中的具体执行函数
 from hardware.tools import execute_spin_coating, execute_set_temperature, execute_move_robot_arm

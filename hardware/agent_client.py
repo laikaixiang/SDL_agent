@@ -72,13 +72,3 @@ class MQTTConnector:
     def publish(self, topic:str, msg:str):
         """Publish string data"""
         self.client.publish(topic, msg)
-
-# test code
-# connector = MQTTConnector()
-# if connector.connect():
-#     print("Success logic")
-# else:
-#     print("Fail logic")
-# print(connector.check_connect())
-# while True:
-#     connector.publish("test topic", "test msg")

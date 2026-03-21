@@ -99,7 +99,7 @@ API_URL = "https://api.siliconflow.cn/v1/chat/completions"
 # PDF存储目录
 PDF_FOLDER = r"本地PDF文件夹路径"
 
-# MQTT服务器配置（hardware_controller.py）
+# MQTT服务器配置（hardware/tool.py）
 class Client_Conf:
     def __init__(self):
         self.client_id = "自定义客户端ID"

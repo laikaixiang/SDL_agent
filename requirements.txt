@@ -4,3 +4,5 @@ Pillow>=10.0.0
 rich>=13.0.0
 flask>=3.0.0
 paho-mqtt>=2.1.0
+pydantic-ai
+pydantic

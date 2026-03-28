@@ -8,7 +8,7 @@ from pydantic_ai import RunContext
 import logging
 import threading
 import json
-from agent_client import MQTTConnector # 确保你同目录下有之前上传的 agent_client.py
+from .agent_client import MQTTConnector # 确保你同目录下有之前上传的 agent_client.py
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

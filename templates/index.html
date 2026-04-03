@@ -152,6 +152,9 @@
     const inputContainer = document.getElementById('input-container');
 
     let currentMode = { id: 'normal', prefix: '', label: '' };
+    let abortController = null;      // 用于中断聊天流式响应
+    let chatStreaming = false;        // 聊天流式响应中
+    let hardwareRunning = false;      // 硬件执行中（不可中断）
 
     toolBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -173,8 +176,23 @@
         userInput.focus();
     }
 
-    sendBtn.addEventListener('click', sendMessage);
-    userInput.addEventListener('keypress', e => { if (e.key === 'Enter') sendMessage(); });
+    sendBtn.addEventListener('click', handleSendClick);
+    userInput.addEventListener('keypress', e => { if (e.key === 'Enter') handleSendClick(); });
+
+    function handleSendClick() {
+        if (chatStreaming) {
+            stopChatStream();
+        } else {
+            sendMessage();
+        }
+    }
+
+    function stopChatStream() {
+        if (abortController) {
+            abortController.abort();
+            abortController = null;
+        }
+    }
 
     async function sendMessage() {
         const text = userInput.value.trim();
@@ -189,44 +207,64 @@
         userInput.value = '';
         setNormalLoadingState(true);
 
+        abortController = new AbortController();
+
         try {
             const response = await fetch('/api/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'chat', message: finalPayload })
+                body: JSON.stringify({ action: 'chat', message: finalPayload }),
+                signal: abortController.signal
             });
 
-            setNormalLoadingState(false);
             const contentType = response.headers.get("content-type");
 
             if (contentType && contentType.indexOf("application/json") !== -1) {
+                setNormalLoadingState(false);
                 const data = await response.json();
 
-                // 🌟 Agent 询问确认字段环节
                 if (data.type === 'field_confirm') {
-                    renderFieldConfirm(data.task_desc, data.fields, data.reply);
+                    if (data.task_desc === '硬件控制') {
+                        renderHardwareConfirm(data.fields, data.reply);
+                    } else {
+                        renderFieldConfirm(data.task_desc, data.fields, data.reply);
+                    }
                 }
                 else if (data.type === 'task_trigger') {
                     appendMessage(data.reply, 'ai');
                     startTaskStream();
                 } else {
-                    appendMessage(data.reply, 'ai');
+                    appendMessage(data.reply || '', 'ai');
                 }
             } else {
+                // 流式聊天响应 — 可中断
+                setChatStreamingState(true);
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder('utf-8');
                 const msgDiv = createMessageDiv('ai');
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    msgDiv.textContent += decoder.decode(value, {stream: true});
-                    scrollToBottom();
+                try {
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        msgDiv.textContent += decoder.decode(value, {stream: true});
+                        scrollToBottom();
+                    }
+                } catch (readErr) {
+                    if (readErr.name !== 'AbortError') throw readErr;
+                    msgDiv.textContent += '\n(已停止生成)';
                 }
+                setChatStreamingState(false);
             }
         } catch (error) {
+            if (error.name === 'AbortError') {
+                // 用户主动中断，不显示错误
+            } else {
+                appendMessage('网络连接异常。', 'ai');
+            }
             setNormalLoadingState(false);
-            appendMessage('网络连接异常。', 'ai');
+            setChatStreamingState(false);
         }
+        abortController = null;
     }
 
     // =====================================
@@ -272,6 +310,51 @@ ${replyMsg.replace(/\n/g, '<br>')}
     }
 
     // =====================================
+    // 硬件确认与执行逻辑
+    // =====================================
+    function renderHardwareConfirm(toolCalls, replyMsg) {
+        const html = `<div>
+${replyMsg.replace(/\n/g, '<br>')}
+<div class="agent-actions">
+    <button class="btn-yes" onclick='confirmHardware(${JSON.stringify(toolCalls)}, this)'>确认执行硬件操作</button>
+    <button class="btn-no" onclick='cancelHardware(this)'>取消</button>
+</div>
+</div>`;
+        appendMessageHtml(html, 'ai');
+    }
+
+    async function confirmHardware(toolCalls, btnElement) {
+        if (hardwareRunning || btnElement.disabled) return;
+
+        btnElement.disabled = true;
+        btnElement.parentElement.innerHTML = '<i>(用户已确认)</i>';
+        appendMessageHtml("确认，请执行硬件操作。", "user");
+
+        setHardwareRunningState(true);
+        try {
+            const res = await fetch('/api/chat', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ action: 'start_hardware', tool_calls: toolCalls })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                appendMessage('硬件操作执行完成。\n' + (data.reply || ''), 'ai');
+            } else {
+                appendMessage('硬件操作执行失败: ' + (data.reply || data.error || '未知错误'), 'ai');
+            }
+        } catch (e) {
+            appendMessage('硬件通信异常: ' + e.message, 'ai');
+        }
+        setHardwareRunningState(false);
+    }
+
+    function cancelHardware(btnElement) {
+        btnElement.parentElement.innerHTML = '<i>(用户已取消)</i>';
+        appendMessageHtml("已取消硬件操作。", "user");
+    }
+
+    // =====================================
     // 🌟 后台提取与中断控制
     // =====================================
     function startTaskStream() {
@@ -293,18 +376,20 @@ ${replyMsg.replace(/\n/g, '<br>')}
         eventSource.onmessage = function(event) {
             const msg = JSON.parse(event.data);
             if (msg.type === 'info' || msg.type === 'progress') {
-                logEl.textContent = `> ${msg.message}`;
+                logEl.textContent = `> ${msg.data || ''}`;
             }
-            else if (msg.type === 'page_reading') {
+            else if (msg.type === 'page_reading' && msg.data) {
                 document.getElementById('app-wrapper').classList.add('split-mode');
                 document.getElementById('pdf-viewer').classList.add('is-scanning');
-                document.getElementById('pdf-title').textContent = `${msg.data.filename} (第 ${msg.data.page} 页)`;
+                document.getElementById('pdf-title').textContent = `${msg.data.filename || ''} (第 ${msg.data.page || ''} 页)`;
 
                 const imgEl = document.getElementById('pdf-image');
-                imgEl.src = "data:image/jpeg;base64," + msg.data.image;
-                imgEl.style.opacity = "1";
+                if (msg.data.image) {
+                    imgEl.src = "data:image/jpeg;base64," + msg.data.image;
+                    imgEl.style.opacity = "1";
+                }
             }
-            else if (msg.type === 'finding') {
+            else if (msg.type === 'finding' && msg.data) {
                 const d = msg.data;
                 const findingDiv = document.createElement('div');
                 findingDiv.className = 'finding-item';
@@ -329,7 +414,8 @@ ${replyMsg.replace(/\n/g, '<br>')}
 
                 eventSource.close();
                 setTaskRunningState(false); // 恢复正常UI
-                showSummaryModal(msg.csv, msg.count);
+                const completeData = msg.data || {};
+                showSummaryModal(completeData.csv || '', completeData.count || 0);
             }
             scrollToBottom();
         };
@@ -353,11 +439,47 @@ ${replyMsg.replace(/\n/g, '<br>')}
     // UI 状态控制辅助
     // =====================================
     function setNormalLoadingState(isLoading) {
+        if (chatStreaming || hardwareRunning) return; // 不覆盖其他状态
         userInput.disabled = isLoading;
         sendBtn.disabled = isLoading;
         inputContainer.classList.toggle('disabled', isLoading);
         sendBtn.innerHTML = isLoading ? '<div class="btn-spinner"></div>' : '发送';
         if (!isLoading) userInput.focus();
+    }
+
+    function setChatStreamingState(isStreaming) {
+        chatStreaming = isStreaming;
+        if (isStreaming) {
+            userInput.disabled = true;
+            inputContainer.classList.add('disabled');
+            sendBtn.innerHTML = '停止生成';
+            sendBtn.className = 'send-btn cancel-mode';
+            sendBtn.disabled = false;
+        } else {
+            userInput.disabled = false;
+            inputContainer.classList.remove('disabled');
+            sendBtn.innerHTML = '发送';
+            sendBtn.className = 'send-btn';
+            userInput.focus();
+        }
+    }
+
+    function setHardwareRunningState(isRunning) {
+        hardwareRunning = isRunning;
+        if (isRunning) {
+            userInput.disabled = true;
+            inputContainer.classList.add('disabled');
+            sendBtn.innerHTML = '<div class="btn-spinner"></div> 硬件执行中';
+            sendBtn.className = 'send-btn';
+            sendBtn.disabled = true;
+        } else {
+            userInput.disabled = false;
+            inputContainer.classList.remove('disabled');
+            sendBtn.innerHTML = '发送';
+            sendBtn.className = 'send-btn';
+            sendBtn.disabled = false;
+            userInput.focus();
+        }
     }
 
     function setTaskRunningState(isRunning) {
@@ -375,7 +497,6 @@ ${replyMsg.replace(/\n/g, '<br>')}
             sendBtn.className = 'send-btn';
             sendBtn.removeEventListener('click', requestCancelTask);
             sendBtn.onclick = null;
-            sendBtn.addEventListener('click', sendMessage);
             userInput.focus();
         }
     }

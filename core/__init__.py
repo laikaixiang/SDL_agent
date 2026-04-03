@@ -12,6 +12,7 @@ from .hardware_controller import HardwareController
 from .task_manager import TaskManager
 from .extraction_engine import ExtractionEngine
 from .csv_writer import CSVWriter
+from .experiment_agent import ExperimentDesignAgent
 
 __all__ = [
     'Config',
@@ -21,5 +22,6 @@ __all__ = [
     'HardwareController',
     'TaskManager',
     'ExtractionEngine',
-    'CSVWriter'
+    'CSVWriter',
+    'ExperimentDesignAgent',
 ]

@@ -13,6 +13,8 @@ import threading
 import os
 import json
 import queue
+import uuid
+import asyncio
 import webbrowser
 import requests
 from threading import Timer
@@ -26,7 +28,8 @@ from core import (
     HardwareController,
     TaskManager,
     ExtractionEngine,
-    CSVWriter
+    CSVWriter,
+    ExperimentDesignAgent,
 )
 
 # 初始化Flask应用
@@ -41,6 +44,7 @@ hardware_controller = HardwareController()
 task_manager = TaskManager()
 extraction_engine = ExtractionEngine(task_manager)
 csv_writer = CSVWriter()
+experiment_agent = ExperimentDesignAgent()  # 实验设计智能体（PydanticAI 原生 tool-use）
 
 
 def open_browser():
@@ -377,6 +381,61 @@ def internal_error(error):
     500错误处理
     """
     return jsonify({'error': '服务器内部错误'}), 500
+
+
+# =============================================================================
+# 实验设计路由（基于 PydanticAI Agent 原生 tool-use）
+# =============================================================================
+
+@app.route('/api/experiment_chat', methods=['POST'])
+def experiment_chat():
+    """
+    实验设计对话 - AI 自主选择工具规划实验流程
+    """
+    data = request.json
+    session_id = data.get('session_id', 'default')
+    user_message = data.get('message', '').strip()
+
+    if not user_message:
+        return jsonify({'type': 'error', 'reply': '消息不能为空'})
+
+    # 将异步 send_event 桥接到 task_manager 消息队列
+    async def send_event_async(event):
+        task_manager.put_task_message(event)
+
+    # 在同步 Flask 中运行异步 Agent
+    loop = asyncio.new_event_loop()
+    try:
+        result = loop.run_until_complete(
+            experiment_agent.run(session_id, user_message, send_event_async)
+        )
+        return jsonify({'type': 'assistant_response', 'reply': result})
+    except Exception as e:
+        return jsonify({'type': 'error', 'reply': f'实验设计Agent错误: {str(e)}'})
+    finally:
+        loop.close()
+
+
+@app.route('/api/experiment_upload', methods=['POST'])
+def experiment_upload():
+    """
+    实验设计模式的 PDF 上传，上传后 AI 可通过 read_pdf 工具读取
+    """
+    session_id = request.form.get('session_id', 'default')
+    if 'file' not in request.files:
+        return jsonify({'error': '没有收到文件'}), 400
+
+    file = request.files['file']
+    if not file.filename.lower().endswith('.pdf'):
+        return jsonify({'error': '仅支持 PDF 文件'}), 400
+
+    os.makedirs('./pdf_cache', exist_ok=True)
+    safe_name = f"{session_id}_{uuid.uuid4().hex}.pdf"
+    path = os.path.join('./pdf_cache', safe_name)
+    file.save(path)
+
+    experiment_agent.set_pdf_path(session_id, path)
+    return jsonify({'filename': safe_name, 'path': path})
 
 
 if __name__ == '__main__':

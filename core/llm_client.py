@@ -28,7 +28,7 @@ class LLMClient:
         """初始化LLM客户端"""
         self.config = Config()
         self.headers = {
-            "Authorization": f"Bearer {self.config.SILICONFLOW_API_KEY}",
+            "Authorization": f"Bearer {self.config.API_KEY}",
             "Content-Type": "application/json"
         }
 

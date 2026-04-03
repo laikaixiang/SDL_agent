@@ -154,7 +154,7 @@ pip install -r requirements.txt
 
 ```python
 # 大模型API配置
-SILICONFLOW_API_KEY = "你的SiliconFlow API密钥"
+API_KEY = "你的API密钥"
 MODEL_NAME_VL = "Qwen/Qwen2.5-VL-72B-Instruct"
 MODEL_NAME_TALK = "Qwen/Qwen2.5-7B-Instruct"
 API_URL = "https://api.siliconflow.cn/v1/chat/completions"

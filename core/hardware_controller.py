@@ -1,6 +1,5 @@
 """
-硬件控制模块
-负责与硬件设备交互，执行硬件控制命令，支持智能硬件选择和复杂调用
+硬件控制模块 - 基于 LLM 命令解析的同步工具调用（"硬件控制：" 前缀触发）
 """
 
 import json
@@ -8,8 +7,7 @@ import re
 import threading
 import time
 from typing import Dict, Any, Optional, List, Tuple
-from pydantic import BaseModel, Field, ValidationError, create_model
-from typing import Literal
+from pydantic import BaseModel, Field
 
 from .config import Config
 from .llm_client import LLMClient
@@ -17,7 +15,13 @@ from .llm_client import LLMClient
 
 class HardwareTool(BaseModel):
     """
-    硬件工具定义
+    硬件工具元数据定义
+
+    Attributes:
+        name        : 工具名称，如 "do_experiment"
+        description : 工具描述，注入 LLM prompt 帮助 AI 选择工具
+        params      : 参数定义，每个参数含 type/description/required/default
+        function    : 对应 hardware/tools.py 中底层函数名称
     """
     name: str = Field(description="硬件工具名称")
     description: str = Field(description="硬件工具描述")
@@ -27,107 +31,87 @@ class HardwareTool(BaseModel):
 
 class HardwareAgent:
     """
-    硬件智能体 - 负责智能硬件选择和调用
+    硬件智能体 - 通过 LLM 解析自然语言命令，映射到已注册工具并执行
+
+    工作流：用户命令 -> LLM 解析为 JSON -> 参数验证 -> 调用底层函数
     """
 
     def __init__(self):
-        """初始化硬件智能体"""
         self.config = Config()
         self.llm_client = LLMClient()
         self.hardware_tools = self._load_hardware_tools()
 
     def _load_hardware_tools(self) -> List[HardwareTool]:
         """
-        加载硬件工具列表，对应root/hardware/tools.py中的函数
+        加载所有已注册的硬件工具定义
 
-        Returns:
-            硬件工具列表
+        扩展方法：
+        1. 在 hardware/tools.py 中编写底层执行函数
+        2. 在此方法中添加 HardwareTool 定义
+        3. 在 execute_tool_call() 中添加分派逻辑
         """
         return [
             HardwareTool(
                 name="set_temperature",
                 description="设置设备温度",
                 params={
-                    "target": {
-                        "type": "float",
-                        "description": "目标温度值",
-                        "required": True,
-                        "default": None
-                    }
+                    "target": {"type": "float", "description": "目标温度值（℃）", "required": True, "default": None},
                 },
-                function="execute_set_temperature"
+                function="execute_set_temperature",
             ),
             HardwareTool(
                 name="move_robot_arm",
                 description="移动机械臂到指定位置",
                 params={
-                    "x": {
-                        "type": "float",
-                        "description": "X坐标",
-                        "required": True,
-                        "default": None
-                    },
-                    "y": {
-                        "type": "float",
-                        "description": "Y坐标",
-                        "required": True,
-                        "default": None
-                    },
-                    "z": {
-                        "type": "float",
-                        "description": "Z坐标",
-                        "required": True,
-                        "default": None
-                    }
+                    "x": {"type": "float", "description": "X坐标", "required": True, "default": None},
+                    "y": {"type": "float", "description": "Y坐标", "required": True, "default": None},
+                    "z": {"type": "float", "description": "Z坐标", "required": True, "default": None},
                 },
-                function="execute_move_robot_arm"
+                function="execute_move_robot_arm",
             ),
             HardwareTool(
                 name="do_experiment",
                 description="执行旋涂实验",
                 params={
-                    "reagent": {
-                        "type": "str",
-                        "description": "试剂名称",
-                        "required": True,
-                        "default": ""
-                    },
-                    "spin_speed": {
-                        "type": "int",
-                        "description": "转速(rpm)，最大6000rpm",
-                        "required": True,
-                        "default": 3000
-                    },
-                    "spin_acc": {
-                        "type": "int",
-                        "description": "加速度(rpm/s)",
-                        "required": False,
-                        "default": 1000
-                    },
-                    "spin_dur": {
-                        "type": "int",
-                        "description": "持续时间(毫秒)",
-                        "required": True,
-                        "default": 30000
-                    },
-                    "volume": {
-                        "type": "int",
-                        "description": "体积(ul)",
-                        "required": False,
-                        "default": 10
-                    }
+                    "reagent":    {"type": "str", "description": "试剂名称", "required": True, "default": ""},
+                    "spin_speed": {"type": "int", "description": "转速(rpm)，最大6000", "required": True, "default": 3000},
+                    "spin_acc":   {"type": "int", "description": "加速度(rpm/s)", "required": False, "default": 1000},
+                    "spin_dur":   {"type": "int", "description": "持续时间(ms)", "required": True, "default": 30000},
+                    "volume":     {"type": "int", "description": "体积(µl)", "required": False, "default": 10},
                 },
-                function="execute_spin_coating"
-            )
+                function="execute_spin_coating",
+            ),
+            # ---- 合并 AutonomousPlatform 后新增 ----
+            HardwareTool(
+                name="save_experiment_step",
+                description="注册一步旋涂实验参数（多步实验需多次调用，最后用 start_experiment 启动）",
+                params={
+                    "reagent":    {"type": "str", "description": "试剂名称", "required": True, "default": ""},
+                    "spin_speed": {"type": "int", "description": "转速(rpm)，最大6000", "required": True, "default": 3000},
+                    "spin_acc":   {"type": "int", "description": "加速度(rpm/s)", "required": False, "default": 1000},
+                    "spin_dur":   {"type": "int", "description": "持续时间(ms)", "required": True, "default": 30000},
+                    "volume":     {"type": "int", "description": "体积(µl)", "required": False, "default": 10},
+                },
+                function="execute_spin_coating",
+            ),
+            HardwareTool(
+                name="start_experiment",
+                description="启动已注册的多步实验序列",
+                params={},
+                function="execute_start_experiment",
+            ),
+            HardwareTool(
+                name="collect_spectrum",
+                description="启动光谱仪数据采集",
+                params={
+                    "duration": {"type": "int", "description": "采集时长(秒)", "required": False, "default": 60},
+                },
+                function="execute_collect_spectrum",
+            ),
         ]
 
     def get_tools_schema(self) -> str:
-        """
-        获取工具Schema供LLM使用
-
-        Returns:
-            工具Schema字符串
-        """
+        """将工具列表转为 JSON 字符串，注入到 LLM prompt 中"""
         tools_info = []
         for tool in self.hardware_tools:
             params_info = {}
@@ -135,31 +119,28 @@ class HardwareAgent:
                 params_info[param_name] = {
                     "type": param_info.get("type"),
                     "description": param_info.get("description"),
-                    "required": param_info.get("required", False)
+                    "required": param_info.get("required", False),
                 }
                 if param_info.get("default") is not None:
                     params_info[param_name]["default"] = param_info["default"]
-
             tools_info.append({
                 "name": tool.name,
                 "description": tool.description,
-                "params": params_info
+                "params": params_info,
             })
-
         return json.dumps(tools_info, ensure_ascii=False)
 
     def parse_complex_command(self, command_text: str) -> Tuple[bool, List[Dict[str, Any]]]:
         """
-        解析复杂硬件命令，支持多工具调用
+        用 LLM 解析自然语言命令为工具调用 JSON 列表
 
         Args:
-            command_text: 命令文本
+            command_text: 用户自然语言命令
 
         Returns:
-            (成功状态, 工具调用列表)
+            (是否成功, 工具调用列表 [{"name": "xxx", "params": {...}}, ...])
         """
         tools_schema = self.get_tools_schema()
-
         prompt = f"""
 你是一个智能实验室助手，需要根据用户指令调用相应的硬件工具。
 
@@ -175,173 +156,122 @@ class HardwareAgent:
 - 简单调用: [{{"name": "set_temperature", "params": {{"target": 25.0}}}}]
 - 多工具调用: [{{"name": "set_temperature", "params": {{"target": 25.0}}}}, {{"name": "move_robot_arm", "params": {{"x": 10.0, "y": 20.0, "z": 30.0}}}}]
 """
-
         messages = [{"role": "user", "content": prompt}]
-
         result = self.llm_client.call_api(
             model=self.config.MODEL_NAME_TALK,
             messages=messages,
             temperature=0.1,
             max_tokens=1024,
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
         )
-
         if not result:
             return False, []
 
         try:
             content = result['choices'][0]['message']['content'].strip()
             clean_json = re.sub(r'```json\n|\n```|```', '', content).strip()
-
-            # 尝试解析为工具调用列表
             tool_calls = json.loads(clean_json)
-
             if isinstance(tool_calls, list):
                 return True, tool_calls
-            else:
-                return False, []
-
+            return False, []
         except Exception as e:
             print(f"解析复杂命令失败: {e}")
             return False, []
 
     def execute_tool_call(self, tool_call: Dict[str, Any]) -> Dict[str, Any]:
         """
-        执行单个工具调用，调用root/hardware/tools.py中的底层函数
+        执行单个工具调用，分派到 hardware/tools.py 底层函数
 
         Args:
-            tool_call: 工具调用
+            tool_call: {"name": "工具名", "params": {参数}}
 
         Returns:
-            执行结果
+            {"status": "success"/"error", "result"/"message": ...}
         """
         try:
-            # 导入root/hardware/tools.py中的底层函数
             from hardware.tools import (
                 execute_spin_coating,
                 execute_set_temperature,
-                execute_move_robot_arm
+                execute_move_robot_arm,
+                execute_start_experiment,
+                execute_collect_spectrum,
             )
 
             tool_name = tool_call.get("name")
             params = tool_call.get("params", {})
 
-            # 根据工具名称选择对应的函数
             if tool_name == "set_temperature":
                 result = execute_set_temperature(float(params["target"]))
             elif tool_name == "move_robot_arm":
                 result = execute_move_robot_arm(
-                    float(params["x"]),
-                    float(params["y"]),
-                    float(params["z"])
+                    float(params["x"]), float(params["y"]), float(params["z"]),
                 )
-            elif tool_name == "do_experiment":
+            elif tool_name in ("do_experiment", "save_experiment_step"):
                 result = execute_spin_coating(
-                    int(params["spin_speed"]),
+                    int(params.get("spin_speed", 3000)),
                     int(params.get("spin_acc", 1000)),
-                    int(params["spin_dur"]),
-                    params["reagent"],
-                    int(params.get("volume", 10))
+                    int(params.get("spin_dur", 30000)),
+                    str(params.get("reagent", "")),
+                    int(params.get("volume", 10)),
                 )
+            elif tool_name == "start_experiment":
+                result = execute_start_experiment()
+            elif tool_name == "collect_spectrum":
+                result = execute_collect_spectrum(int(params.get("duration", 60)))
             else:
-                return {
-                    "status": "error",
-                    "message": f"未知工具: {tool_name}"
-                }
+                return {"status": "error", "message": f"未知工具: {tool_name}"}
 
-            return {
-                "status": "success",
-                "result": result
-            }
+            return {"status": "success", "result": result}
 
         except ImportError as e:
-            return {
-                "status": "error",
-                "message": f"硬件工具模块导入失败: {str(e)}"
-            }
+            return {"status": "error", "message": f"硬件工具模块导入失败: {str(e)}"}
         except Exception as e:
-            return {
-                "status": "error",
-                "message": f"执行工具调用失败: {str(e)}"
-            }
+            return {"status": "error", "message": f"执行工具调用失败: {str(e)}"}
 
     def execute_complex_command(self, tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        执行复杂命令（多工具调用）
-
-        Args:
-            tool_calls: 工具调用列表
-
-        Returns:
-            执行结果列表
-        """
+        """依次执行多个工具调用，返回每个调用的结果列表"""
         results = []
-
-        for i, tool_call in enumerate(tool_calls):
+        for tool_call in tool_calls:
             tool_name = tool_call.get("name")
             params = tool_call.get("params", {})
-
-            # 验证参数
             valid, error_msg = self.validate_tool_params(tool_name, params)
             if not valid:
-                results.append({
-                    "tool": tool_name,
-                    "status": "error",
-                    "message": error_msg
-                })
+                results.append({"tool": tool_name, "status": "error", "message": error_msg})
                 continue
-
-            # 执行调用
             result = self.execute_tool_call(tool_call)
-            results.append({
-                "tool": tool_name,
-                "status": result.get("status"),
-                "result": result
-            })
-
+            results.append({"tool": tool_name, "status": result.get("status"), "result": result})
         return results
 
     def validate_tool_params(self, tool_name: str, params: Dict[str, Any]) -> Tuple[bool, str]:
         """
-        验证工具参数
-
-        Args:
-            tool_name: 工具名称
-            params: 参数
+        验证工具参数（类型检查、必填检查、转速上限等）
 
         Returns:
-            (是否有效, 错误信息)
+            (是否合法, 错误信息)
         """
         tool = next((t for t in self.hardware_tools if t.name == tool_name), None)
         if not tool:
             return False, f"未知工具: {tool_name}"
 
-        # 检查必需参数
         for param_name, param_info in tool.params.items():
             if param_info.get("required", False) and param_name not in params:
                 return False, f"缺少必需参数: {param_name}"
 
-        # 验证参数类型
         for param_name, param_value in params.items():
             if param_name in tool.params:
                 expected_type = tool.params[param_name].get("type")
-                if expected_type == "int":
-                    try:
+                try:
+                    if expected_type == "int":
                         params[param_name] = int(param_value)
-                    except (ValueError, TypeError):
-                        return False, f"参数{param_name}必须是整数"
-                elif expected_type == "float":
-                    try:
+                    elif expected_type == "float":
                         params[param_name] = float(param_value)
-                    except (ValueError, TypeError):
-                        return False, f"参数{param_name}必须是数字"
-                elif expected_type == "str":
-                    params[param_name] = str(param_value)
+                    elif expected_type == "str":
+                        params[param_name] = str(param_value)
+                except (ValueError, TypeError):
+                    return False, f"参数 {param_name} 类型错误，应为 {expected_type}"
 
-        # 特殊验证：do_experiment的转速限制
-        if tool_name == "do_experiment":
-            spin_speed = params.get("spin_speed", 0)
-            if spin_speed > 6000:
+        if tool_name in ("do_experiment", "save_experiment_step"):
+            if params.get("spin_speed", 0) > 6000:
                 return False, "转速不能超过6000rpm"
 
         return True, ""
@@ -349,17 +279,13 @@ class HardwareAgent:
 
 class HardwareController:
     """
-    硬件控制器类 - 负责硬件设备控制
+    硬件控制器 - HardwareAgent 的高层封装
 
-    职责：
-    - 智能硬件选择和调用
-    - 支持简单和复杂硬件操作
-    - 参数验证和错误处理
-    - 与LLM交互进行硬件控制
+    提供防重复提交、实验确认信息生成、硬件状态查询等功能。
+    由 app.py 的 "硬件控制：" 前缀命令触发。
     """
 
     def __init__(self):
-        """初始化硬件控制器"""
         self.agent = HardwareAgent()
         self.config = Config()
         self.is_running = False
@@ -369,62 +295,43 @@ class HardwareController:
         self._duplicate_window_seconds = 2.0
 
     def is_hardware_running(self) -> bool:
-        """硬件是否正在执行"""
+        """硬件是否正在执行任务"""
         return self.is_running
 
     def control_hardware(self, user_command: str) -> tuple[bool, Dict[str, Any]]:
         """
-        控制硬件设备
+        处理用户硬件控制命令（主入口）
+
+        流程：LLM 解析命令 -> 参数验证 -> 执行
 
         Args:
-            user_command: 用户命令
+            user_command: 自然语言硬件命令
 
         Returns:
-            (成功状态, 执行结果)
+            (是否成功, 执行结果)
         """
-        # 解析复杂命令
         success, tool_calls = self.agent.parse_complex_command(user_command)
-
         if not success:
-            return False, {
-                "status": "error",
-                "message": "命令解析失败，请检查指令格式"
-            }
-
+            return False, {"status": "error", "message": "命令解析失败，请检查指令格式"}
         return self.execute_tool_calls(tool_calls)
 
     def execute_tool_calls(self, tool_calls: List[Dict[str, Any]]) -> tuple[bool, Dict[str, Any]]:
-        """
-        执行工具调用列表
-
-        Args:
-            tool_calls: 工具调用列表
-
-        Returns:
-            (成功状态, 执行结果)
-        """
+        """执行工具调用列表（带防重复提交保护）"""
         command_signature = json.dumps(tool_calls, sort_keys=True, ensure_ascii=False)
         now = time.monotonic()
 
         with self._state_lock:
             if self.is_running:
-                return False, {
-                    "status": "rejected",
-                    "message": "硬件任务正在执行，请勿重复提交。"
-                }
-
+                return False, {"status": "rejected", "message": "硬件任务正在执行，请勿重复提交。"}
             if (
                 self._last_command_signature == command_signature
                 and now - self._last_command_time < self._duplicate_window_seconds
             ):
-                return False, {
-                    "status": "rejected",
-                    "message": "检测到重复的硬件指令，已拦截本次重复发送。"
-                }
-
+                return False, {"status": "rejected", "message": "检测到重复的硬件指令，已拦截。"}
             self.is_running = True
             self._last_command_signature = command_signature
             self._last_command_time = now
+
         try:
             if len(tool_calls) == 1:
                 result = self.agent.execute_tool_call(tool_calls[0])
@@ -435,94 +342,55 @@ class HardwareController:
                 return all_success, {
                     "status": "success" if all_success else "partial_error",
                     "results": results,
-                    "message": "复杂命令执行完成"
+                    "message": "复杂命令执行完成",
                 }
         finally:
             with self._state_lock:
                 self.is_running = False
 
     def get_hardware_status(self) -> Dict[str, Any]:
-        """
-        获取硬件状态
-
-        Returns:
-            硬件状态信息
-        """
+        """获取硬件连接状态和可用工具列表"""
         try:
-            # 导入local_client变量（注意：这是一个模块级变量）
             from hardware.tools import local_client
             return {
                 "status": "connected" if local_client.is_connected else "disconnected",
                 "available_tools": len(self.agent.hardware_tools),
-                "tools": [tool.name for tool in self.agent.hardware_tools]
-            }
-        except ImportError as e:
-            return {
-                "status": "error",
-                "message": f"硬件工具模块导入失败: {str(e)}"
+                "tools": [tool.name for tool in self.agent.hardware_tools],
             }
         except Exception as e:
-            return {
-                "status": "error",
-                "message": f"获取硬件状态失败: {str(e)}"
-            }
+            return {"status": "error", "message": f"获取硬件状态失败: {str(e)}"}
 
     def ask_for_experiment_confirmation(self, tool_calls: List[Dict[str, Any]]) -> str:
-        """
-        生成实验确认信息
-
-        Args:
-            tool_calls: 工具调用列表
-
-        Returns:
-            确认信息
-        """
+        """根据工具调用列表生成人类可读的实验确认信息"""
         if not tool_calls:
             return "没有需要确认的实验操作"
 
-        confirmation_parts = []
-
-        for tool_call in tool_calls:
-            tool_name = tool_call.get("name")
-            params = tool_call.get("params", {})
-
-            if tool_name == "do_experiment":
-                reagent = params.get("reagent", "未知")
-                speed = params.get("spin_speed", "未知")
-                duration = params.get("spin_dur", "未知")
-                volume = params.get("volume", "未知")
-
-                confirmation_parts.append(
-                    f"🔬 执行实验：试剂={reagent}，转速={speed}rpm，持续时间={duration}ms，体积={volume}ul"
+        parts = []
+        for tc in tool_calls:
+            name = tc.get("name")
+            p = tc.get("params", {})
+            if name in ("do_experiment", "save_experiment_step"):
+                parts.append(
+                    f"  - 旋涂实验：试剂={p.get('reagent','未知')}, "
+                    f"转速={p.get('spin_speed','未知')}rpm, "
+                    f"时长={p.get('spin_dur','未知')}ms, "
+                    f"体积={p.get('volume','未知')}ul"
                 )
-            elif tool_name == "set_temperature":
-                temp = params.get("target", "未知")
-                confirmation_parts.append(f"🌡️ 设置温度：{temp}°C")
-            elif tool_name == "move_robot_arm":
-                x = params.get("x", "未知")
-                y = params.get("y", "未知")
-                z = params.get("z", "未知")
-                confirmation_parts.append(f"🦾 移动机械臂：X={x}, Y={y}, Z={z}")
+            elif name == "set_temperature":
+                parts.append(f"  - 设置温度：{p.get('target','未知')} ℃")
+            elif name == "move_robot_arm":
+                parts.append(f"  - 移动机械臂：X={p.get('x')}, Y={p.get('y')}, Z={p.get('z')}")
+            elif name == "start_experiment":
+                parts.append("  - 启动已注册的实验序列")
+            elif name == "collect_spectrum":
+                parts.append(f"  - 启动光谱仪采集（{p.get('duration',60)}秒）")
 
-        if confirmation_parts:
-            return "检测到以下硬件操作，请确认是否继续：\n" + "\n".join(confirmation_parts)
-        else:
-            return "检测到硬件操作，请确认是否继续"
+        return "检测到以下硬件操作，请确认是否继续：\n" + "\n".join(parts) if parts else "检测到硬件操作，请确认是否继续"
 
     def supports_complex_operations(self) -> bool:
-        """
-        是否支持复杂操作
-
-        Returns:
-            是否支持
-        """
+        """是否支持复杂操作（多工具调用）"""
         return True
 
     def get_available_hardware(self) -> List[str]:
-        """
-        获取可用的硬件列表
-
-        Returns:
-            硬件名称列表
-        """
+        """返回所有已注册的硬件工具名称"""
         return [tool.name for tool in self.agent.hardware_tools]

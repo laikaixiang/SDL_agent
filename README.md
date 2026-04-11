@@ -32,10 +32,13 @@ flowchart TD
     J --> L["硬件设备<br/>(温控/机械臂)"]
     L -->|硬件状态回传至前端| B
 
-    %% 软件
-    J --> N["软件算法<br/>(数据分析，算法推荐)"]
-    N --> |实验数据传值前端|K
-    N --> |分析结果回传|B
+    %% 实验设计Agent分支
+    B -->|分支3：实验设计| M["PydanticAI Agent"]
+    M -->|自主调用工具| N["read_pdf/save_experiment_step"]
+    N -->|注册实验序列| I
+    M -->|光谱数据采集| O["SpectrometerClient"]
+    O -->|3D可视化| P["visualization.py"]
+    P -->|图表回传前端| B
 ```
 
 ### 2. 流程拆解
@@ -46,7 +49,8 @@ flowchart TD
 
 - **普通问答模式**：基础对话交互，支持流式输出与中断生成；
 - **文献提取模式**：上传/选择PDF文献，输入提取任务描述（如"提取旋涂转速、试剂体积"），支持任务中断；
-- **硬件操控模式**：下发硬件控制指令（如"执行原位旋涂实验，转速3000rpm"），执行期间不可中断。
+- **硬件操控模式**：下发硬件控制指令（如"执行原位旋涂实验，转速3000rpm"），执行期间不可中断；
+- **实验设计模式**：上传文献后，AI自主读取并规划多步实验流程，支持光谱数据实时采集与可视化。
 
 界面支持PDF预览、提取进度实时展示、任务中断、结果可视化等能力。
 
@@ -62,12 +66,22 @@ flowchart TD
 
 1. **指令解析**：接收大模型输出的JSON格式指令，清洗并解析`action`（操作类型）和`params`（参数）；
 2. **路由分发**：
-   - `do_experiment`：解析旋涂实验参数（转速、加速度、时长、试剂、体积），读取试剂位置配置文件，通过MQTT协议（EMQX服务器，IP：192.168.120.129:1883）向自动化平台下发实验指令；
+   - `do_experiment`：解析旋涂实验参数（转速、加速度、时长、试剂、体积），读取试剂位置配置文件，通过MQTT协议（EMQX服务器）向自动化平台下发实验指令；
    - `set_temperature`：调用C/C++可执行文件控制温控设备；
    - `move_robot_arm`：调用Python脚本控制机械臂；
 3. **通信保障**：MQTT连接带超时机制，断连自动重连，确保指令可靠下发。
 
-#### （4）中断机制
+#### （4）实验设计智能体（PydanticAI）
+
+基于PydanticAI原生tool-use架构，AI自主选择工具并规划实验流程：
+
+1. **工具注册**：`read_pdf`、`save_experiment_step`、`start_experiment`、`get_all_reagents`；
+2. **自主决策**：AI根据用户意图和工具docstring，自主决定调用顺序和参数；
+3. **多步实验**：先读论文提取参数→注册多步旋涂实验→启动执行序列；
+4. **光谱采集**：`SpectrometerClient`通过MQTT订阅光谱仪实时数据，汇总为DataFrame；
+5. **3D可视化**：`visualization.py`将光谱数据绘制为曲面图，支持文件保存或base64输出。
+
+#### （5）中断机制
 
 | 场景 | 是否可中断 | 实现方式 |
 |------|-----------|---------|
@@ -84,23 +98,28 @@ SDL_agent/
 ├── app.py                      # Flask Web服务入口，路由与请求处理
 ├── core/                       # 核心业务逻辑模块
 │   ├── __init__.py             # 模块导出注册
-│   ├── config.py               # 全局配置（API密钥、模型、路径等）
+│   ├── config.py               # 全局配置（API密钥、模型、路径、光谱仪MQTT等）
 │   ├── llm_client.py           # LLM API封装（流式/非流式调用）
 │   ├── pdf_processor.py        # PDF解析与图像转换
 │   ├── field_inference.py      # 动态字段推断与Pydantic模型生成
 │   ├── extraction_engine.py    # 提取引擎核心（PDF遍历、LLM交互、结果汇总）
 │   ├── task_manager.py         # 任务队列管理（进度推送、取消控制）
 │   ├── hardware_controller.py  # 硬件控制智能体（指令解析、工具调用）
+│   ├── experiment_agent.py     # 实验设计智能体（PydanticAI原生tool-use）
 │   └── csv_writer.py           # CSV文件读写与合并
 ├── hardware/                   # 硬件通信层
-│   ├── tools.py                # 底层硬件函数（MQTT发布、子进程调用）
-│   └── agent_client.py         # MQTT连接器（EMQX客户端）
+│   ├── __init__.py             # 硬件模块导出
+│   ├── agent_client.py         # MQTT连接器（EMQX客户端）
+│   ├── tools.py                # 底层硬件函数（MQTT发布、子进程调用、PydanticAI工具）
+│   ├── spec_client.py          # 光谱仪数据采集客户端
+│   └── visualization.py        # 光谱数据3D可视化模块
 ├── templates/
 │   └── index.html              # 前端可视化界面
+├── pdf_cache/                  # 实验设计模式PDF临时缓存
 ├── extract/                    # 归档数据目录（按时间戳存储历史提取结果）
 ├── temporal/                   # 临时数据目录（extraction.csv供硬件模块调用）
+├── figures/                    # README插图 + 光谱可视化图表输出
 ├── reagent_layout.json         # 试剂位置配置文件
-├── figures/                    # README插图
 └── requirements.txt            # Python依赖
 ```
 
@@ -110,17 +129,20 @@ SDL_agent/
 
 | 文件路径 | 核心角色 | 关键能力 |
 |----------|----------|----------|
-| `app.py` | Flask Web服务主程序 | 路由分发、请求处理、任务调度、硬件模块集成 |
-| `core/config.py` | 全局配置 | API密钥、模型名称、PDF路径、超时参数 |
+| `app.py` | Flask Web服务主程序 | 路由分发、请求处理、任务调度、实验设计Agent集成 |
+| `core/config.py` | 全局配置 | API密钥、模型名称、PDF路径、光谱仪MQTT、实验Agent提示词 |
 | `core/llm_client.py` | LLM客户端 | 流式/非流式API调用、JSON校验、Pydantic验证 |
 | `core/pdf_processor.py` | PDF处理器 | PDF转Base64图片、文件列表、页面信息 |
 | `core/field_inference.py` | 字段推断 | 动态CSV列名生成、Pydantic模型构建 |
 | `core/extraction_engine.py` | 提取引擎 | 逐页提取、LLM视觉API调用、结果解析 |
 | `core/task_manager.py` | 任务管理 | SSE消息队列、任务生命周期、取消控制 |
 | `core/hardware_controller.py` | 硬件控制器 | LLM指令解析、工具路由、参数验证、执行状态 |
+| `core/experiment_agent.py` | 实验设计Agent | PydanticAI原生tool-use、多步实验规划、会话管理 |
 | `core/csv_writer.py` | CSV写入器 | 写入、追加、合并、验证CSV文件 |
-| `hardware/tools.py` | 硬件执行层 | MQTT发布实验指令、温控/机械臂调用 |
+| `hardware/tools.py` | 硬件执行层 | MQTT发布实验指令、温控/机械臂调用、PydanticAI异步工具 |
 | `hardware/agent_client.py` | MQTT连接器 | EMQX服务器连接、断连重连 |
+| `hardware/spec_client.py` | 光谱仪客户端 | MQTT订阅光谱数据、状态机控制、DataFrame汇总 |
+| `hardware/visualization.py` | 3D可视化 | 光谱数据曲面图绘制、文件保存/base64输出 |
 | `templates/index.html` | 前端界面 | 多模式交互、PDF预览、进度展示、任务中断控制 |
 | `temporal/extraction.csv` | 临时数据 | 最新提取结果，供硬件模块读取 |
 | `reagent_layout.json` | 试剂配置 | 自动化平台试剂物理位置（BPxx格式） |
@@ -146,6 +168,10 @@ pip install -r requirements.txt
 # requests==2.31.0
 # paho-mqtt==1.6.1
 # python-dotenv==1.0.0
+# pydantic-ai>=0.0.1
+# matplotlib>=3.5.0
+# numpy>=1.21.0
+# pandas>=1.3.0
 ```
 
 ### 3. 关键配置项
@@ -161,9 +187,18 @@ API_URL = "https://api.siliconflow.cn/v1/chat/completions"
 
 # PDF存储目录
 PDF_FOLDER = "本地PDF文件夹路径"
+
+# 光谱仪MQTT配置（连接光谱仪数据采集端）
+SPECTROMETER_BROKER_IP = "192.168.120.129"
+SPECTROMETER_BROKER_PORT = 1883
+SPECTROMETER_USERNAME = "你的MQTT用户名"
+SPECTROMETER_PASSWORD = "你的MQTT密码"
+
+# 实验设计智能体系统提示词
+EXPERIMENT_AGENT_SYSTEM_PROMPT = "You are an experienced materials scientist..."
 ```
 
-修改 `hardware/agent_client.py` 中MQTT配置：
+修改 `hardware/agent_client.py` 中硬件控制MQTT配置：
 
 ```python
 class Client_Conf:
@@ -184,10 +219,11 @@ class Client_Conf:
    ```bash
    python app.py
    ```
-3. 浏览器访问 `http://127.0.0.1:5000`，进入"AI Lab 智能中枢"界面；
+3. 浏览器自动打开或手动访问 `http://127.0.0.1:5000`，进入"AI Lab 智能中枢"界面；
 4. 选择模式使用：
-   - **文献提取**：点击回形针上传PDF，输入提取任务（如"提取所有原位旋涂实验的转速、试剂体积"），点击发送开始提取；
-   - **硬件控制**：输入硬件控制指令（如"执行旋涂实验，转速3000rpm"），确认后下发至自动化实验平台。
+   - **文献提取**：输入"帮我搜寻：提取FAPbI3钝化剂参数"；
+   - **硬件控制**：输入"硬件控制：执行旋涂实验，转速3000rpm"；
+   - **实验设计**：上传PDF后，与AI对话规划多步实验流程。
 
 ---
 
@@ -225,10 +261,12 @@ class Client_Conf:
 1. **多模态数据提取**：基于Qwen2.5-VL大模型，从PDF图片中精准提取结构化实验参数；
 2. **动态字段适配**：根据用户任务描述自动生成CSV列名，无需固定模板；
 3. **硬件控制闭环**：提取的实验参数可直接驱动自动化实验平台执行原位旋涂实验；
-4. **可视化交互**：全流程Web界面操作，支持PDF预览、进度实时展示；
-5. **灵活中断控制**：对话与提取任务支持随时中断，硬件执行期间自动锁定防止误操作；
-6. **数据持久化**：提取结果分归档/临时文件存储，方便追溯与硬件模块调用；
-7. **高可靠性**：MQTT通信带超时重连，任务支持手动中断，异常自动捕获。
+4. **实验设计Agent**：PydanticAI原生tool-use，AI自主读取文献、规划多步实验、启动执行；
+5. **光谱数据采集**：实时订阅光谱仪MQTT数据，3D曲面图可视化；
+6. **可视化交互**：全流程Web界面操作，支持PDF预览、进度实时展示；
+7. **灵活中断控制**：对话与提取任务支持随时中断，硬件执行期间自动锁定防止误操作；
+8. **数据持久化**：提取结果分归档/临时文件存储，方便追溯与硬件模块调用；
+9. **高可靠性**：MQTT通信带超时重连，任务支持手动中断，异常自动捕获。
 
 ---
 
@@ -369,6 +407,89 @@ elif tool_name == "ultrasonic_clean":
 
 ---
 
+### 3. 为实验设计Agent添加新工具（PydanticAI）
+
+以添加"查询实验历史"工具为例：
+
+**第一步**：在 `hardware/tools.py` 中定义异步工具函数
+
+```python
+from pydantic_ai import Tool
+
+@Tool
+async def query_experiment_history(experiment_id: str) -> str:
+    """
+    查询指定实验的历史执行记录
+
+    Args:
+        experiment_id: 实验唯一标识符
+
+    Returns:
+        实验历史记录摘要
+    """
+    # 从数据库或文件中查询历史记录
+    history = load_experiment_history(experiment_id)
+    return f"实验 {experiment_id} 的历史记录: {history}"
+```
+
+**第二步**：在 `core/experiment_agent.py` 的 `_create_agent()` 中注册工具
+
+```python
+from hardware.tools import query_experiment_history
+
+return Agent(
+    model,
+    system_prompt=self.config.EXPERIMENT_AGENT_SYSTEM_PROMPT,
+    deps_type=Deps,
+    tools=[read_pdf, save_experiment_step, start_experiment, get_all_reagents, query_experiment_history],
+)
+```
+
+**第三步**：更新 `config.py` 中的系统提示词，告知AI有新工具可用
+
+```python
+EXPERIMENT_AGENT_SYSTEM_PROMPT: str = (
+    "You are an experienced materials scientist. "
+    "Available tools: read_pdf, save_experiment_step, start_experiment, get_all_reagents, query_experiment_history. "
+    "..."
+)
+```
+
+> **PydanticAI特点**：AI通过函数docstring理解工具功能，自主决定调用时机和参数，无需硬编码路由逻辑。
+
+---
+
+### 4. 添加新的光谱数据可视化功能
+
+**第一步**：在 `hardware/visualization.py` 中添加新的绘图函数
+
+```python
+def save_heatmap(df: pd.DataFrame, output_path: str) -> str:
+    """
+    绘制光谱数据热力图
+
+    Args:
+        df: 包含 counts, wavelength, time 的 DataFrame
+        output_path: 输出文件路径
+
+    Returns:
+        保存的文件路径
+    """
+    # 数据提取与热力图绘制逻辑
+    ...
+    return output_path
+```
+
+**第二步**：在 `hardware/spec_client.py` 的 `_run_loop()` 中调用新可视化函数
+
+```python
+if not self._df.empty:
+    save_fig(self._df, output_dir=self.output_dir)
+    save_heatmap(self._df, output_dir=self.output_dir)  # 新增热力图
+```
+
+---
+
 ## 九、注意事项
 
 1. 确保MQTT服务器（EMQX）正常运行，自动化实验平台已接入对应Topic；
@@ -376,4 +497,6 @@ elif tool_name == "ultrasonic_clean":
 3. 硬件控制的C/C++可执行文件/Python脚本需放在项目根目录，确保路径正确；
 4. 试剂位置配置文件 `reagent_layout.json` 需与自动化实验平台的试剂摆放一致；
 5. 建议在Python 3.10+环境下运行，避免依赖兼容问题；
-6. 硬件执行期间系统会锁定操作界面，请勿强制关闭浏览器以免指令丢失。
+6. 硬件执行期间系统会锁定操作界面，请勿强制关闭浏览器以免指令丢失；
+7. 光谱仪客户端需与光谱仪控制端配合使用，控制端需发送 `continue`/`record`/`stop` 命令；
+8. PydanticAI Agent依赖异步运行环境，需确保 `asyncio` 事件循环正确初始化。

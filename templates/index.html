@@ -83,6 +83,15 @@
         .modal { background: #fff; width: 90%; max-width: 600px; border-radius: 16px; padding: 30px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); text-align: center; }
         .modal h2 { margin-bottom: 15px; color: #10b981; }
         .close-btn { background: var(--primary); color: white; border: none; padding: 10px 30px; border-radius: 8px; cursor: pointer; margin-top: 20px;}
+
+        /* 分析结果卡片 */
+        .analysis-card { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 16px; margin-top: 10px; font-size: 0.9rem; width: 100%; }
+        .analysis-algo { font-weight: bold; color: #1d4ed8; margin-bottom: 4px; font-size: 1rem; }
+        .analysis-reason { color: #6b7280; font-size: 0.85rem; margin-bottom: 10px; }
+        .analysis-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        .analysis-table td { padding: 4px 10px; border-bottom: 1px solid #dbeafe; }
+        .analysis-table td:first-child { color: #1e40af; font-weight: bold; width: 50%; }
+        .analysis-filepath { font-size: 0.78rem; color: #9ca3af; margin-top: 10px; word-break: break-all; }
     </style>
 </head>
 <body>
@@ -104,6 +113,7 @@
         <div class="mode-item" onclick="setMode('normal', '', '')">💬 普通问答模式</div>
         <div class="mode-item" onclick="setMode('extract', '帮我搜寻：', '📄 文献提取')">📄 文献提取模式</div>
         <div class="mode-item" onclick="setMode('hardware', '硬件控制：', '⚙️ 硬件操控')">⚙️ 硬件操控模式</div>
+        <div class="mode-item" onclick="setMode('analyze', '数据分析：', '📊 数据分析')">📊 数据分析模式</div>
     </div>
 
     <div class="input-area">
@@ -203,6 +213,7 @@
             ? `<span style="background:rgba(255,255,255,0.2); padding:2px 6px; border-radius:6px; font-size:0.85em; margin-right:5px;">${currentMode.label}</span> ${text || '专门用于 FAPbI3 钙钛矿体系的钝化剂(Passivator)'}`
             : text;
 
+        console.log('[DEBUG] sendMessage called, text:', text, 'finalPayload:', finalPayload);
         appendMessageHtml(displayHtml, 'user');
         userInput.value = '';
         setNormalLoadingState(true);
@@ -210,6 +221,7 @@
         abortController = new AbortController();
 
         try {
+            console.log('[DEBUG] Sending request to /api/chat');
             const response = await fetch('/api/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -217,7 +229,9 @@
                 signal: abortController.signal
             });
 
+            console.log('[DEBUG] Response received, status:', response.status);
             const contentType = response.headers.get("content-type");
+            console.log('[DEBUG] Content-Type:', contentType);
 
             if (contentType && contentType.indexOf("application/json") !== -1) {
                 setNormalLoadingState(false);
@@ -238,18 +252,27 @@
                 }
             } else {
                 // 流式聊天响应 — 可中断
+                console.log('[DEBUG] Processing streaming response');
                 setChatStreamingState(true);
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder('utf-8');
                 const msgDiv = createMessageDiv('ai');
+                console.log('[DEBUG] Created message div:', msgDiv, 'chatBox:', chatBox);
                 try {
+                    let chunkCount = 0;
                     while (true) {
                         const { done, value } = await reader.read();
+                        chunkCount++;
+                        console.log('[DEBUG] Chunk', chunkCount, '- done:', done, 'value length:', value?.length);
                         if (done) break;
-                        msgDiv.textContent += decoder.decode(value, {stream: true});
+                        const decoded = decoder.decode(value, {stream: true});
+                        console.log('[DEBUG] Decoded text:', decoded);
+                        msgDiv.textContent += decoded;
                         scrollToBottom();
                     }
+                    console.log('[DEBUG] Streaming complete, total chunks:', chunkCount);
                 } catch (readErr) {
+                    console.error('[DEBUG] Read error:', readErr);
                     if (readErr.name !== 'AbortError') throw readErr;
                     msgDiv.textContent += '\n(已停止生成)';
                 }
@@ -389,6 +412,25 @@ ${replyMsg.replace(/\n/g, '<br>')}
                     imgEl.style.opacity = "1";
                 }
             }
+            else if (msg.type === 'analysis_result' && msg.data) {
+                const d = msg.data;
+                const summary = d.result_summary || {};
+                let rowsHtml = '';
+                for (const [k, v] of Object.entries(summary)) {
+                    const display = typeof v === 'number' ? v.toFixed(4) : v;
+                    rowsHtml += `<tr><td>${k}</td><td>${display}</td></tr>`;
+                }
+                const card = document.createElement('div');
+                card.className = 'message-row ai';
+                card.innerHTML = `<div class="analysis-card">
+                    <div class="analysis-algo">📊 ${d.algorithm}</div>
+                    <div class="analysis-reason">${d.reasoning}</div>
+                    <table class="analysis-table">${rowsHtml}</table>
+                    <div class="analysis-filepath">📁 ${d.filepath}</div>
+                </div>`;
+                chatBox.appendChild(card);
+                scrollToBottom();
+            }
             else if (msg.type === 'finding' && msg.data) {
                 const d = msg.data;
                 const findingDiv = document.createElement('div');
@@ -415,7 +457,15 @@ ${replyMsg.replace(/\n/g, '<br>')}
                 eventSource.close();
                 setTaskRunningState(false); // 恢复正常UI
                 const completeData = msg.data || {};
-                showSummaryModal(completeData.csv || '', completeData.count || 0);
+                if (completeData.error) {
+                    appendMessage(`❌ 分析失败：${completeData.error}`, 'ai');
+                } else if (completeData.algorithm) {
+                    // 数据分析任务完成
+                    appendMessage(`✅ 分析完成！结果已保存至：${completeData.file}`, 'ai');
+                } else {
+                    // 文献提取任务完成
+                    showSummaryModal(completeData.csv || '', completeData.count || 0);
+                }
             }
             scrollToBottom();
         };
@@ -514,6 +564,7 @@ ${replyMsg.replace(/\n/g, '<br>')}
         msg.className = `message ${sender}`;
         row.appendChild(msg);
         chatBox.appendChild(row);
+        console.log('[DEBUG] createMessageDiv - sender:', sender, 'row:', row, 'msg:', msg);
         return msg;
     }
 

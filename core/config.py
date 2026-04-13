@@ -49,7 +49,7 @@ class Config:
 
     # ======================== 模型配置 ========================
     MODEL_NAME_VL: str = "Qwen/Qwen2.5-VL-72B-Instruct"  # 视觉语言模型（文献图表识别）
-    MODEL_NAME_TALK: str = "Qwen/Qwen2.5-7B-Instruct"    # 对话模型（普通聊天、命令解析）
+    MODEL_NAME_TALK: str = "Qwen/Qwen2.5-7B-Instruct"  # 对话模型（普通聊天、命令解析）
 
     # ======================== 文件路径配置 ========================
     PDF_FOLDER: str = r"test"          # PDF 文件存储目录（用户上传的文献）

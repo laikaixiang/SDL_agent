@@ -39,18 +39,28 @@ flowchart TD
     M -->|光谱数据采集| O["SpectrometerClient"]
     O -->|3D可视化| P["visualization.py"]
     P -->|图表回传前端| B
+
+    %% 数据分析分支
+    B -->|分支4：数据分析| Q["读取CSV列名<br/>(temporal/extraction.csv)"]
+    Q --> R["LLM智能选择算法<br/>+ 读取方式"]
+    R --> S["执行数据分析算法<br/>(software_controller.py)"]
+    S --> T["保存结果至results/目录<br/>(覆盖写 + 时间戳存档)"]
+    T -->|分析结果推送至前端| B
 ```
+
+![image-20260412145931198](C:\Users\Administrator\AppData\Roaming\Typora\typora-user-images\image-20260412145931198.png)
 
 ### 2. 流程拆解
 
 #### （1）前端交互（index.html）
 
-用户通过可视化Web界面操作，支持3种核心模式：
+用户通过可视化Web界面操作，支持4种核心模式：
 
 - **普通问答模式**：基础对话交互，支持流式输出与中断生成；
 - **文献提取模式**：上传/选择PDF文献，输入提取任务描述（如"提取旋涂转速、试剂体积"），支持任务中断；
 - **硬件操控模式**：下发硬件控制指令（如"执行原位旋涂实验，转速3000rpm"），执行期间不可中断；
-- **实验设计模式**：上传文献后，AI自主读取并规划多步实验流程，支持光谱数据实时采集与可视化。
+- **实验设计模式**：上传文献后，AI自主读取并规划多步实验流程，支持光谱数据实时采集与可视化；
+- **数据分析模式**：自动分析CSV数据，LLM智能选择算法并执行分析，结果可视化展示。
 
 界面支持PDF预览、提取进度实时展示、任务中断、结果可视化等能力。
 
@@ -81,7 +91,16 @@ flowchart TD
 4. **光谱采集**：`SpectrometerClient`通过MQTT订阅光谱仪实时数据，汇总为DataFrame；
 5. **3D可视化**：`visualization.py`将光谱数据绘制为曲面图，支持文件保存或base64输出。
 
-#### （5）中断机制
+#### （5）数据分析模式
+
+	1. **CSV列名读取**：自动读取`temporal/extraction.csv`的列名列表；
+	2. **智能算法选择**：调用LLM分析列名，从可用算法列表中选择最适合的算法和读取方式；
+	3. **动态数据读取**：LLM指定读取函数（如`read_spectrum_format`或`read_numeric_columns`），Python通过`READER_REGISTRY`动态调用；
+	4. **算法执行**：调用`software_controller.py`执行选定算法，支持`data_statistics`、`data_normalization`、`spectrum_analysis`等；
+	5. **结果保存**：完整结果保存至`results/`目录，采用覆盖写（`analysis_{algorithm}.json`）+ 时间戳存档（`analysis_{algorithm}_{timestamp}.json`）模式；
+	6. **结果推送**：通过SSE向前端推送分析进度、结果摘要和文件路径，前端渲染蓝色结果卡片。
+	
+	#### （6）中断机制
 
 | 场景 | 是否可中断 | 实现方式 |
 |------|-----------|---------|
@@ -106,6 +125,7 @@ SDL_agent/
 │   ├── task_manager.py         # 任务队列管理（进度推送、取消控制）
 │   ├── hardware_controller.py  # 硬件控制智能体（指令解析、工具调用）
 │   ├── experiment_agent.py     # 实验设计智能体（PydanticAI原生tool-use）
+│   ├── software_manager.py     # 软件算法管理器（桥接software模块）
 │   └── csv_writer.py           # CSV文件读写与合并
 ├── hardware/                   # 硬件通信层
 │   ├── __init__.py             # 硬件模块导出
@@ -113,11 +133,21 @@ SDL_agent/
 │   ├── tools.py                # 底层硬件函数（MQTT发布、子进程调用、PydanticAI工具）
 │   ├── spec_client.py          # 光谱仪数据采集客户端
 │   └── visualization.py        # 光谱数据3D可视化模块
+├── software/                   # 纯软件算法与数据处理模块
+│   ├── __init__.py             # 包入口
+│   ├── software_controller.py  # 算法注册表与统一调用入口
+│   ├── readfile.py             # CSV读取工具（LLM动态调用接口）
+│   ├── auto_analyze.py         # 自动分析流水线（LLM选算法 + 执行）
+│   └── algorithms/             # 算法实现目录
+│       ├── base.py             # BaseAlgorithm基类
+│       ├── default/            # 内置算法
+│       └── extra_algorithms_fromProjects/  # 扩展算法
 ├── templates/
 │   └── index.html              # 前端可视化界面
 ├── pdf_cache/                  # 实验设计模式PDF临时缓存
 ├── extract/                    # 归档数据目录（按时间戳存储历史提取结果）
 ├── temporal/                   # 临时数据目录（extraction.csv供硬件模块调用）
+├── results/                    # 分析结果目录（JSON格式，覆盖写+时间戳存档）
 ├── figures/                    # README插图 + 光谱可视化图表输出
 ├── reagent_layout.json         # 试剂位置配置文件
 └── requirements.txt            # Python依赖
@@ -138,6 +168,7 @@ SDL_agent/
 | `core/task_manager.py` | 任务管理 | SSE消息队列、任务生命周期、取消控制 |
 | `core/hardware_controller.py` | 硬件控制器 | LLM指令解析、工具路由、参数验证、执行状态 |
 | `core/experiment_agent.py` | 实验设计Agent | PydanticAI原生tool-use、多步实验规划、会话管理 |
+| `core/software_manager.py` | 软件算法管理器 | 桥接app.py与software模块、提供CSV分析快捷接口 |
 | `core/csv_writer.py` | CSV写入器 | 写入、追加、合并、验证CSV文件 |
 | `hardware/tools.py` | 硬件执行层 | MQTT发布实验指令、温控/机械臂调用、PydanticAI异步工具 |
 | `hardware/agent_client.py` | MQTT连接器 | EMQX服务器连接、断连重连 |
@@ -223,7 +254,8 @@ class Client_Conf:
 4. 选择模式使用：
    - **文献提取**：输入"帮我搜寻：提取FAPbI3钝化剂参数"；
    - **硬件控制**：输入"硬件控制：执行旋涂实验，转速3000rpm"；
-   - **实验设计**：上传PDF后，与AI对话规划多步实验流程。
+   - **实验设计**：上传PDF后，与AI对话规划多步实验流程；
+   - **数据分析**：输入"数据分析："（默认使用temporal/extraction.csv）或指定CSV路径。
 
 ---
 
@@ -262,11 +294,12 @@ class Client_Conf:
 2. **动态字段适配**：根据用户任务描述自动生成CSV列名，无需固定模板；
 3. **硬件控制闭环**：提取的实验参数可直接驱动自动化实验平台执行原位旋涂实验；
 4. **实验设计Agent**：PydanticAI原生tool-use，AI自主读取文献、规划多步实验、启动执行；
-5. **光谱数据采集**：实时订阅光谱仪MQTT数据，3D曲面图可视化；
-6. **可视化交互**：全流程Web界面操作，支持PDF预览、进度实时展示；
-7. **灵活中断控制**：对话与提取任务支持随时中断，硬件执行期间自动锁定防止误操作；
-8. **数据持久化**：提取结果分归档/临时文件存储，方便追溯与硬件模块调用；
-9. **高可靠性**：MQTT通信带超时重连，任务支持手动中断，异常自动捕获。
+5. **智能数据分析**：LLM自动读取CSV列名，智能选择算法并执行分析，结果可视化展示；
+6. **光谱数据采集**：实时订阅光谱仪MQTT数据，3D曲面图可视化；
+7. **可视化交互**：全流程Web界面操作，支持PDF预览、进度实时展示；
+8. **灵活中断控制**：对话与提取任务支持随时中断，硬件执行期间自动锁定防止误操作；
+9. **数据持久化**：提取结果分归档/临时文件存储，分析结果覆盖写+时间戳存档；
+10. **高可靠性**：MQTT通信带超时重连，任务支持手动中断，异常自动捕获。
 
 ---
 

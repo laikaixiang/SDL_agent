@@ -30,6 +30,7 @@ from core import (
     ExtractionEngine,
     CSVWriter,
     ExperimentDesignAgent,
+    SoftwareManager,
 )
 
 # 初始化Flask应用
@@ -45,6 +46,7 @@ task_manager = TaskManager()
 extraction_engine = ExtractionEngine(task_manager)
 csv_writer = CSVWriter()
 experiment_agent = ExperimentDesignAgent()  # 实验设计智能体（PydanticAI 原生 tool-use）
+software_manager = SoftwareManager()        # 软件算法管理器
 
 
 def open_browser():
@@ -144,6 +146,10 @@ def chat():
     # 硬件控制
     if user_message.startswith("硬件控制："):
         return handle_hardware_control(user_message)
+
+    # 自动数据分析
+    if user_message.startswith("数据分析："):
+        return handle_auto_analyze(user_message)
 
     # 普通聊天流式输出
     return handle_normal_chat(user_message)
@@ -302,6 +308,47 @@ def handle_hardware_execute(data: dict) -> Response:
         return jsonify({'status': 'error', 'reply': f'硬件执行异常: {str(e)}'})
 
 
+def handle_auto_analyze(user_message: str) -> Response:
+    """
+    处理自动数据分析请求
+
+    用户消息格式："数据分析：<csv_path>"
+    csv_path 为空时默认使用 temporal/extraction.csv
+
+    Args:
+        user_message: 用户消息
+
+    Returns:
+        JSON响应（task_trigger 类型，触发前端 SSE 监听）
+    """
+    if task_manager.task_running:
+        return jsonify({'type': 'system', 'reply': '⚠️ 当前已有任务正在运行，请等待完成后再试。'})
+
+    csv_path = user_message.replace("数据分析：", "").strip()
+    if not csv_path:
+        csv_path = "temporal/extraction.csv"
+
+    # 清空任务队列
+    while not task_manager.is_queue_empty():
+        task_manager.get_task_message()
+
+    # 启动任务状态
+    task_id = task_manager.generate_task_id()
+    task_manager.current_task_id = task_id
+    task_manager.task_running = True
+
+    # 在后台线程中运行分析流水线
+    threading.Thread(
+        target=software_manager.auto_analyze,
+        args=(csv_path, task_manager)
+    ).start()
+
+    return jsonify({
+        'type' : 'task_trigger',
+        'reply': f'正在分析 `{csv_path}`，实时进度见下方...'
+    })
+
+
 def handle_normal_chat(user_message: str) -> Response:
     """
     处理普通聊天
@@ -436,6 +483,104 @@ def experiment_upload():
 
     experiment_agent.set_pdf_path(session_id, path)
     return jsonify({'filename': safe_name, 'path': path})
+
+
+# =============================================================================
+# 软件算法路由（SoftwareManager 统一管理）
+# =============================================================================
+
+@app.route('/api/software/algorithms', methods=['GET'])
+def software_algorithms():
+    """
+    获取所有可用软件算法列表
+    返回每个算法的名称、描述和参数规格
+    """
+    algorithms = software_manager.list_algorithms()
+    return jsonify({"algorithms": algorithms})
+
+
+@app.route('/api/software/run', methods=['POST'])
+def software_run():
+    """
+    运行指定算法
+
+    请求体：
+        {
+            "algorithm": "data_statistics",
+            "data"     : {"col_a": [1, 2, 3], "col_b": [4, 5, 6]},
+            "params"   : {"include_correlation": true}
+        }
+    """
+    data = request.json
+    algorithm_name = data.get('algorithm', '').strip()
+    input_data     = data.get('data')
+    params         = data.get('params', {})
+
+    if not algorithm_name:
+        return jsonify({'success': False, 'message': '缺少 algorithm 字段'}), 400
+    if input_data is None:
+        return jsonify({'success': False, 'message': '缺少 data 字段'}), 400
+
+    result = software_manager.run_algorithm(algorithm_name, input_data, params)
+    return jsonify(result)
+
+
+@app.route('/api/software/run_on_csv', methods=['POST'])
+def software_run_on_csv():
+    """
+    对 temporal/extraction.csv 中的数值列运行算法（提取任务完成后可直接使用）
+
+    请求体：
+        {
+            "algorithm": "data_statistics",
+            "params"   : {"include_correlation": true}
+        }
+    """
+    data           = request.json
+    algorithm_name = data.get('algorithm', '').strip()
+    params         = data.get('params', {})
+
+    if not algorithm_name:
+        return jsonify({'success': False, 'message': '缺少 algorithm 字段'}), 400
+
+    result = software_manager.run_on_csv(algorithm_name, params)
+    return jsonify(result)
+
+
+@app.route('/api/software/generate_algorithm', methods=['POST'])
+def software_generate_algorithm():
+    """
+    使用 LLM 根据自然语言描述自动生成新算法并保存到项目
+
+    请求体：
+        {
+            "description": "我需要一个对光谱数据做高斯平滑的算法，输入是 wavelength 和 intensity 列表，窗口大小可配置"
+        }
+
+    生成成功后调用 /api/software/reload 使新算法立即生效。
+    """
+    data        = request.json
+    description = data.get('description', '').strip()
+
+    if not description:
+        return jsonify({'success': False, 'message': '缺少 description 字段'}), 400
+
+    result = software_manager.generate_algorithm(description)
+    return jsonify(result)
+
+
+@app.route('/api/software/reload', methods=['POST'])
+def software_reload():
+    """
+    重新扫描并注册算法（生成新算法后调用，使其立即可用）
+    """
+    algorithms = software_manager.reload_algorithms()
+    return jsonify({
+        'success'   : True,
+        'count'     : len(algorithms),
+        'algorithms': algorithms,
+        'message'   : f'已重新加载，共注册 {len(algorithms)} 个算法',
+    })
 
 
 if __name__ == '__main__':

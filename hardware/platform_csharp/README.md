@@ -48,3 +48,5 @@ platform_csharp/
 - 这些文件仅供参考和独立编译，Python 端不会直接调用它们
 - Python 与 C# 平台之间通过 MQTT 消息通信（EMQX 服务器 192.168.120.129:1883）
 - 编译运行需要 .NET 8.0 SDK 和 Windows 环境
+
+贡献者：https://github.com/Raymondm0

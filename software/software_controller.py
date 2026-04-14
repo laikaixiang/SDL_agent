@@ -125,6 +125,41 @@ class SoftwareController:
         """返回算法加载时的错误信息（调试用）"""
         return list(self._load_errors)
 
+    def generate_algorithm(self, user_description: str) -> dict:
+        """
+        使用 LLM 根据用户自然语言描述自动生成新算法
+
+        生成完成后会自动重新加载算法注册表。
+
+        Args:
+            user_description: 用户对算法功能的自然语言描述
+
+        Returns:
+            {"success": bool, "name": str, "filepath": str, "spec": dict, "message": str}
+        """
+        try:
+            from software.algorithms.extra_algorithms_fromProjects.prompt_template import (
+                generate_algorithm as _generate,
+            )
+            result = _generate(user_description, verbose=False)
+
+            # 如果生成成功，重新加载算法
+            if result.get("success"):
+                self._registry.clear()
+                self._load_errors.clear()
+                self._discover_algorithms()
+                result["message"] += f"\n算法已自动注册，当前共有 {len(self._registry)} 个算法可用。"
+
+            return result
+        except Exception as e:
+            return {
+                "success" : False,
+                "name"    : "",
+                "filepath": "",
+                "spec"    : {},
+                "message" : f"算法生成失败: {str(e)}",
+            }
+
     # ------------------------------------------------------------------
     # 内部：自动发现与注册算法
     # ------------------------------------------------------------------
@@ -150,9 +185,9 @@ class SoftwareController:
         try:
             module = importlib.import_module(module_path)
         except Exception as e:
-            msg = f"加载模块 {module_path} 失败: {e}\n{traceback.format_exc()}"
+            msg = f"Failed to load module {module_path}: {e}\n{traceback.format_exc()}"
             self._load_errors.append(msg)
-            print(f"[SoftwareController] ⚠️  {msg}")
+            print(f"[SoftwareController] [WARN] {msg}")
             return
 
         for attr_name in dir(module):
@@ -170,12 +205,12 @@ class SoftwareController:
                 continue
 
             if instance.name in self._registry:
-                print(f"[SoftwareController] ⚠️  算法名冲突: '{instance.name}' "
-                      f"已注册，跳过 {module_path}.{attr_name}")
+                print(f"[SoftwareController] [WARN] Algorithm name conflict: '{instance.name}' "
+                      f"already registered, skipping {module_path}.{attr_name}")
                 continue
 
             self._registry[instance.name] = instance
-            print(f"[SoftwareController] ✓  注册算法: {instance.name} ({module_path})")
+            print(f"[SoftwareController] [OK] Registered algorithm: {instance.name} ({module_path})")
 
 
 # ==============================================================================

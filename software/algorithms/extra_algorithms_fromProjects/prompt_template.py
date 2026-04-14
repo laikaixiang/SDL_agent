@@ -36,14 +36,22 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 
 # 从 core 复用 API 配置
 try:
-    from core.config import Config
-    _API_KEY = Config.API_KEY
-    _API_URL = Config.API_URL + "/chat/completions"
-    _MODEL   = Config.MODEL_NAME_TALK
+    # 直接导入 config 模块，避免 core.__init__ 中的 pydantic_ai 依赖
+    _config_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'core', 'config.py')
+    if os.path.exists(_config_path):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("config", _config_path)
+        config_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(config_module)
+        _API_KEY = config_module.Config.API_KEY
+        _API_URL = config_module.Config.API_URL  # 已包含完整路径，不需要拼接
+        _MODEL   = config_module.Config.MODEL_NAME_TALK
+    else:
+        raise ImportError("Config file not found")
 except Exception:
     # 如果 core 不可用（独立运行时），使用默认值
     _API_KEY = ""
-    _API_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+    _API_URL = "https://api.longcat.chat/openai/v1/chat/completions"
     _MODEL   = "Qwen/Qwen2.5-7B-Instruct"
 
 # 生成的算法文件存放到当前目录（extra_algorithms_fromProjects/）

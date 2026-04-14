@@ -40,16 +40,19 @@ class Config:
 
     # ======================== API 配置 ========================
     # 用于文献提取（视觉语言模型）和普通对话（文本模型）
-    API_KEY: str = "sk-zskagakurneevlklkhhzbaxunehikfyeinnjvyizyfstvtci"
-    API_URL: str = "https://api.siliconflow.cn/v1/chat/completions"
+    API_KEY: str = "ak_2hX7A491t2kw4Oy9Ae8Bi77e1kQ3J"
+    # 注意：API_URL 是完整的 endpoint，已包含 /chat/completions 路径
+    # 直接使用即可，不需要再拼接 /chat/completions
+    # 如果需要 base_url（如 PydanticAI），使用 API_URL.rsplit('/chat/completions', 1)[0]
+    API_URL: str = "https://api.longcat.chat/openai/v1/chat/completions"
 
     # ======================== 实验设计智能体模型配置 ========================
     # 实验设计智能体使用的API，使用对话模型
-    EXPERIMENT_MODEL_NAME: str = "Qwen/Qwen2.5-7B-Instruct"
+    EXPERIMENT_MODEL_NAME: str = "LongCat-Flash-Thinking-2601"
 
     # ======================== 模型配置 ========================
-    MODEL_NAME_VL: str = "Qwen/Qwen2.5-VL-72B-Instruct"  # 视觉语言模型（文献图表识别）
-    MODEL_NAME_TALK: str = "Qwen/Qwen2.5-7B-Instruct"  # 对话模型（普通聊天、命令解析）
+    MODEL_NAME_VL: str = "LongCat-Flash-Omni-2603"  # 视觉语言模型（文献图表识别）
+    MODEL_NAME_TALK: str = "LongCat-Flash-Thinking-2601"  # 对话模型（普通聊天、命令解析）
 
     # ======================== 文件路径配置 ========================
     PDF_FOLDER: str = r"test"          # PDF 文件存储目录（用户上传的文献）
@@ -63,6 +66,13 @@ class Config:
     MAX_RETRIES: int = 3               # API 请求最大重试次数
     TIMEOUT: int = 60                  # 普通 API 请求超时时间（秒）
     STREAM_TIMEOUT: int = 90           # 流式 API 请求超时时间（秒）
+
+    # ======================== PDF提取模式配置 ========================
+    # 提取模式：
+    #   - "vision": 纯视觉模式，将PDF转图片后用Vision API分析（准确但贵）
+    #   - "text": 纯文本模式，提取PDF文本后用文本API分析（快速便宜但可能丢失图表）
+    #   - "hybrid": 混合模式，先提取文本判断复杂度，复杂内容用Vision，简单内容用文本（推荐）
+    EXTRACTION_MODE: str = "hybrid"
 
     # ======================== 硬件控制配置 ========================
     HARDWARE_TIMEOUT: int = 20         # 硬件控制操作超时时间（秒）

@@ -11,6 +11,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from PIL import Image
 
 from .config import Config
+from .pdf_to_markdown import pdf_page_to_markdown, detect_complex_content
 
 
 class PDFProcessor:
@@ -217,3 +218,55 @@ class PDFProcessor:
             print(f"批量转换图片失败: {e}")
 
         return images
+
+    def extract_page_content(self, pdf_path: str, page_num: int, mode: str = "hybrid") -> Tuple[Optional[str], Optional[str], bool]:
+        """
+        提取PDF页面内容（支持多种模式）
+
+        Args:
+            pdf_path: PDF文件路径
+            page_num: 页码（从0开始）
+            mode: 提取模式 - "vision"(纯图片), "text"(纯文本), "hybrid"(混合)
+
+        Returns:
+            (markdown_text, image_base64, use_vision) 元组
+            - markdown_text: Markdown格式的文本（如果提取了文本）
+            - image_base64: Base64编码的图片（如果需要视觉分析）
+            - use_vision: 是否建议使用Vision API
+        """
+        if mode == "vision":
+            # 纯视觉模式：只返回图片
+            img_base64 = self.pdf_page_to_image(pdf_path, page_num)
+            return None, img_base64, True
+
+        elif mode == "text":
+            # 纯文本模式：只返回文本
+            markdown_text = pdf_page_to_markdown(pdf_path, page_num)
+            return markdown_text, None, False
+
+        elif mode == "hybrid":
+            # 混合模式：先提取文本，判断是否需要视觉分析
+            markdown_text = pdf_page_to_markdown(pdf_path, page_num)
+
+            # 检测是否包含复杂内容
+            needs_vision = detect_complex_content(markdown_text)
+
+            if needs_vision:
+                # 需要视觉分析，同时返回文本和图片
+                img_base64 = self.pdf_page_to_image(pdf_path, page_num)
+                return markdown_text, img_base64, True
+            else:
+                # 纯文本即可
+                return markdown_text, None, False
+
+        else:
+            raise ValueError(f"不支持的提取模式: {mode}")
+
+    def get_extraction_mode(self) -> str:
+        """
+        获取当前配置的提取模式
+
+        Returns:
+            提取模式字符串
+        """
+        return self.config.EXTRACTION_MODE

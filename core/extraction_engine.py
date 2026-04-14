@@ -208,7 +208,7 @@ class ExtractionEngine:
         task_id: str
     ) -> None:
         """
-        处理单个PDF页面
+        处理单个PDF页面（支持混合提取模式）
 
         Args:
             pdf_path: PDF文件路径
@@ -220,63 +220,170 @@ class ExtractionEngine:
             task_id: 任务ID
         """
         try:
-            # 转换页面为图片
-            img_base64 = self.pdf_processor.pdf_page_to_image(pdf_path, page_num)
-            if not img_base64:
-                self.task_manager.put_task_message("error", f"无法转换页面 {page_num + 1} 为图片")
-                return
+            # 获取提取模式
+            extraction_mode = self.pdf_processor.get_extraction_mode()
 
-            self.task_manager.put_task_message("page_reading", {
-                "filename": os.path.basename(pdf_path),
-                "page": page_num + 1,
-                "image": img_base64
-            })
-
-            # 构建示例JSON
-            example_item = {f: "提取的内容" for f in fields}
-            example_json = json.dumps({"data": [example_item]}, ensure_ascii=False)
-
-            # 构建系统提示词
-            sys_prompt = (
-                f"你是一个专业的学术文献分析专家。你的任务是从提供的文献页面图像中提取：\n【目标】：{fields}\n\n"
-                "提取规则：\n"
-                "1. 复合材料（含+、and等）不可拆分，需提取比例，若无比例标注（未说明比例）。若已提取过则不重复。\n"
-                "2. 溶剂量/浓度/转速/温度必须包含单位。\n"
-                "3. 忽略参考文献条目中的数据。\n\n"
-                "🚨 你必须直接输出一个 JSON 对象，绝不要包含 Markdown 标记（如 ```json）或任何其他解释性文字！\n"
-                f"🚨 必须严格遵循以下 JSON 格式：\n{example_json}"
+            # 提取页面内容
+            markdown_text, img_base64, use_vision = self.pdf_processor.extract_page_content(
+                pdf_path, page_num, extraction_mode
             )
 
-            # 构建消息
-            messages = [
-                {"role": "system", "content": sys_prompt},
-                {"role": "user", "content": [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_base64}"}}]}
-            ]
-
-            # 调用LLM API
-            result = self._call_vision_api_with_stream(
-                messages=messages,
-                schema_str=schema_str,
-                page_num=page_num,
-                filename=os.path.basename(pdf_path),
-                task_id=task_id
-            )
-
-            # 处理结果
-            if result and isinstance(result, dict) and "data" in result:
-                for item in result["data"]:
-                    item_dict = item if isinstance(item, dict) else item.model_dump()
-                    item_dict['_source_doc'] = doc_id
-                    all_extracted_data.append(item_dict)
-
-                    self.task_manager.put_task_message("finding", {
-                        "page": page_num + 1,
-                        "filename": os.path.basename(pdf_path),
-                        "details": item_dict
-                    })
+            # 根据模式选择处理方式
+            if use_vision:
+                # 使用Vision API处理
+                self._process_with_vision(
+                    pdf_path=pdf_path,
+                    page_num=page_num,
+                    doc_id=doc_id,
+                    fields=fields,
+                    schema_str=schema_str,
+                    all_extracted_data=all_extracted_data,
+                    task_id=task_id,
+                    img_base64=img_base64,
+                    markdown_text=markdown_text
+                )
+            else:
+                # 使用文本API处理
+                self._process_with_text(
+                    pdf_path=pdf_path,
+                    page_num=page_num,
+                    doc_id=doc_id,
+                    fields=fields,
+                    schema_str=schema_str,
+                    all_extracted_data=all_extracted_data,
+                    task_id=task_id,
+                    markdown_text=markdown_text
+                )
 
         except Exception as e:
             self.task_manager.put_task_message("error", f"处理页面 {page_num + 1} 失败: {str(e)}")
+
+    def _process_with_vision(
+        self,
+        pdf_path: str,
+        page_num: int,
+        doc_id: str,
+        fields: List[str],
+        schema_str: str,
+        all_extracted_data: List[Dict[str, Any]],
+        task_id: str,
+        img_base64: str,
+        markdown_text: Optional[str] = None
+    ) -> None:
+        """使用Vision API处理页面"""
+        if not img_base64:
+            self.task_manager.put_task_message("error", f"无法转换页面 {page_num + 1} 为图片")
+            return
+
+        self.task_manager.put_task_message("page_reading", {
+            "filename": os.path.basename(pdf_path),
+            "page": page_num + 1,
+            "image": img_base64
+        })
+
+        # 构建示例JSON
+        example_item = {f: "提取的内容" for f in fields}
+        example_json = json.dumps({"data": [example_item]}, ensure_ascii=False)
+
+        # 构建系统提示词
+        sys_prompt = (
+            f"你是一个专业的学术文献分析专家。你的任务是从提供的文献页面图像中提取：\n【目标】：{fields}\n\n"
+            "提取规则：\n"
+            "1. 复合材料（含+、and等）不可拆分，需提取比例，若无比例标注（未说明比例）。若已提取过则不重复。\n"
+            "2. 溶剂量/浓度/转速/温度必须包含单位。\n"
+            "3. 忽略参考文献条目中的数据。\n\n"
+            "🚨 你必须直接输出一个 JSON 对象，绝不要包含 Markdown 标记（如 ```json）或任何其他解释性文字！\n"
+            f"🚨 必须严格遵循以下 JSON 格式：\n{example_json}"
+        )
+
+        # 构建消息
+        messages = [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_base64}"}}]}
+        ]
+
+        # 调用LLM API
+        result = self._call_vision_api_with_stream(
+            messages=messages,
+            schema_str=schema_str,
+            page_num=page_num,
+            filename=os.path.basename(pdf_path),
+            task_id=task_id
+        )
+
+        # 处理结果
+        if result and isinstance(result, dict) and "data" in result:
+            for item in result["data"]:
+                item_dict = item if isinstance(item, dict) else item.model_dump()
+                item_dict['_source_doc'] = doc_id
+                all_extracted_data.append(item_dict)
+
+                self.task_manager.put_task_message("finding", {
+                    "page": page_num + 1,
+                    "filename": os.path.basename(pdf_path),
+                    "details": item_dict
+                })
+
+    def _process_with_text(
+        self,
+        pdf_path: str,
+        page_num: int,
+        doc_id: str,
+        fields: List[str],
+        schema_str: str,
+        all_extracted_data: List[Dict[str, Any]],
+        task_id: str,
+        markdown_text: str
+    ) -> None:
+        """使用文本API处理页面"""
+        if not markdown_text or len(markdown_text.strip()) < 50:
+            # 文本太少，跳过
+            return
+
+        self.task_manager.put_task_message("info", f"📄 使用文本模式处理第 {page_num + 1} 页（节省成本）")
+
+        # 构建示例JSON
+        example_item = {f: "提取的内容" for f in fields}
+        example_json = json.dumps({"data": [example_item]}, ensure_ascii=False)
+
+        # 构建系统提示词
+        sys_prompt = (
+            f"你是一个专业的学术文献分析专家。你的任务是从提供的文献页面文本中提取：\n【目标】：{fields}\n\n"
+            "提取规则：\n"
+            "1. 复合材料（含+、and等）不可拆分，需提取比例，若无比例标注（未说明比例）。若已提取过则不重复。\n"
+            "2. 溶剂量/浓度/转速/温度必须包含单位。\n"
+            "3. 忽略参考文献条目中的数据。\n\n"
+            "🚨 你必须直接输出一个 JSON 对象，绝不要包含 Markdown 标记（如 ```json）或任何其他解释性文字！\n"
+            f"🚨 必须严格遵循以下 JSON 格式：\n{example_json}"
+        )
+
+        # 构建消息
+        messages = [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": f"文献页面内容：\n\n{markdown_text}"}
+        ]
+
+        # 调用文本API
+        result = self._call_text_api_with_stream(
+            messages=messages,
+            schema_str=schema_str,
+            page_num=page_num,
+            filename=os.path.basename(pdf_path),
+            task_id=task_id
+        )
+
+        # 处理结果
+        if result and isinstance(result, dict) and "data" in result:
+            for item in result["data"]:
+                item_dict = item if isinstance(item, dict) else item.model_dump()
+                item_dict['_source_doc'] = doc_id
+                all_extracted_data.append(item_dict)
+
+                self.task_manager.put_task_message("finding", {
+                    "page": page_num + 1,
+                    "filename": os.path.basename(pdf_path),
+                    "details": item_dict
+                })
 
     def _call_vision_api_with_stream(
         self,
@@ -303,6 +410,82 @@ class ExtractionEngine:
 
         payload = {
             "model": self.config.MODEL_NAME_VL,
+            "messages": messages,
+            "temperature": 0.1,
+            "max_tokens": 1024,
+            "stream": True
+        }
+
+        max_retries = self.config.MAX_RETRIES
+
+        for attempt in range(max_retries):
+            try:
+                response = requests.post(
+                    self.config.API_URL,
+                    headers=headers,
+                    json=payload,
+                    timeout=self.config.STREAM_TIMEOUT,
+                    stream=True
+                )
+                response.raise_for_status()
+
+                self.task_manager.put_task_message("reading_start")
+
+                result_text = ""
+                for line in response.iter_lines():
+                    if line:
+                        decoded_line = line.decode('utf-8')
+                        if decoded_line.startswith("data: "):
+                            data_str = decoded_line[6:]
+                            if data_str.strip() == "[DONE]":
+                                break
+                            try:
+                                chunk_json = json.loads(data_str)
+                                content = chunk_json['choices'][0]['delta'].get('content', '')
+                                if content:
+                                    result_text += content
+                                    self.task_manager.put_task_message("reading_chunk", content)
+                            except Exception:
+                                pass
+
+                # 清理和解析结果
+                return self._parse_llm_response(result_text, schema_str)
+
+            except requests.exceptions.Timeout:
+                self.task_manager.put_task_message("error", f"⚠️ 第 {page_num + 1} 页 (第{attempt + 1}次尝试) API 请求超时！")
+            except Exception as e:
+                self.task_manager.put_task_message("error", f"⚠️ 第 {page_num + 1} 页 (第{attempt + 1}次尝试) 解析失败: {str(e)}")
+
+            if attempt < max_retries - 1:
+                time.sleep(2.0)
+
+        return None
+
+    def _call_text_api_with_stream(
+        self,
+        messages: List[Dict[str, Any]],
+        schema_str: str,
+        page_num: int,
+        filename: str,
+        task_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        调用文本API（带流式响应）
+
+        Args:
+            messages: 消息列表
+            schema_str: Schema字符串
+            page_num: 页码
+            filename: 文件名
+            task_id: 任务ID
+
+        Returns:
+            API响应或None
+        """
+        headers = self.llm_client.get_default_headers()
+
+        payload = {
+            "model": self.config.MODEL_NAME_TALK,  # 使用文本模型
             "messages": messages,
             "temperature": 0.1,
             "max_tokens": 1024,

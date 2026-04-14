@@ -65,6 +65,14 @@ def home():
     return render_template('index.html')
 
 
+@app.route('/extraction_mode')
+def extraction_mode_page():
+    """
+    提取模式设置页面
+    """
+    return render_template('extraction_mode.html')
+
+
 @app.route('/api/upload', methods=['POST'])
 def upload_file():
     """
@@ -152,6 +160,10 @@ def chat():
     # 自动数据分析
     if user_message.startswith("数据分析："):
         return handle_auto_analyze(user_message)
+
+    # 算法生成
+    if user_message.startswith("生成算法："):
+        return handle_generate_algorithm(user_message)
 
     # 普通聊天流式输出
     return handle_normal_chat(user_message)
@@ -365,6 +377,47 @@ def handle_normal_chat(user_message: str) -> Response:
     return adaptive_handler.generate_response(user_message)
 
 
+def handle_generate_algorithm(user_message: str) -> Response:
+    """
+    处理算法生成请求
+
+    用户消息格式："生成算法：<算法描述>"
+
+    Args:
+        user_message: 用户消息
+
+    Returns:
+        JSON响应
+    """
+    description = user_message.replace("生成算法：", "").strip()
+
+    if not description:
+        return jsonify({
+            'type': 'system',
+            'reply': '请描述你需要的算法功能，例如：\n"对数值列表做移动平均，窗口大小可配置"'
+        })
+
+    try:
+        result = software_manager.generate_algorithm(description)
+
+        if result.get("success"):
+            reply = f"✅ 算法生成成功！\n\n"
+            reply += f"算法名称: {result['name']}\n"
+            reply += f"文件路径: {result['filepath']}\n\n"
+            reply += result.get('message', '')
+            reply += f"\n\n你现在可以在数据分析模式中使用这个算法了。"
+        else:
+            reply = f"❌ 算法生成失败\n\n{result.get('message', '未知错误')}"
+
+        return jsonify({'type': 'system', 'reply': reply})
+
+    except Exception as e:
+        return jsonify({
+            'type': 'system',
+            'reply': f'❌ 算法生成异常: {str(e)}'
+        })
+
+
 @app.route('/api/hardware_status', methods=['GET'])
 def hardware_status():
     """
@@ -390,6 +443,51 @@ def streaming_status():
     """
     status = adaptive_handler.get_status()
     return jsonify(status)
+
+
+@app.route('/api/extraction_mode', methods=['GET'])
+def get_extraction_mode():
+    """
+    获取当前PDF提取模式
+    """
+    return jsonify({
+        "mode": config.EXTRACTION_MODE,
+        "available_modes": {
+            "vision": "纯视觉模式（准确但贵）",
+            "text": "纯文本模式（快速便宜）",
+            "hybrid": "混合模式（推荐）"
+        }
+    })
+
+
+@app.route('/api/extraction_mode', methods=['POST'])
+def set_extraction_mode():
+    """
+    设置PDF提取模式
+    """
+    data = request.json
+    mode = data.get('mode', '').strip()
+
+    valid_modes = ['vision', 'text', 'hybrid']
+    if mode not in valid_modes:
+        return jsonify({
+            'success': False,
+            'message': f'无效的模式，请选择: {", ".join(valid_modes)}'
+        }), 400
+
+    config.EXTRACTION_MODE = mode
+
+    mode_names = {
+        'vision': '纯视觉模式',
+        'text': '纯文本模式',
+        'hybrid': '混合模式'
+    }
+
+    return jsonify({
+        'success': True,
+        'mode': mode,
+        'message': f'已切换到 {mode_names[mode]}'
+    })
 
 
 @app.route('/api/streaming_recheck', methods=['POST'])

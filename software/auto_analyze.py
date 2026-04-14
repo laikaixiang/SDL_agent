@@ -43,13 +43,24 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 # 复用 API 配置
 try:
-    from core.config import Config
-    _API_KEY = Config.API_KEY
-    _API_URL = Config.API_URL + "/chat/completions"
-    _MODEL   = Config.MODEL_NAME_TALK
-except Exception:
+    # 直接导入 config 模块，避免 core.__init__ 中的 pydantic_ai 依赖
+    import sys
+    import os
+    _config_path = os.path.join(os.path.dirname(__file__), '..', 'core', 'config.py')
+    if os.path.exists(_config_path):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("config", _config_path)
+        config_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(config_module)
+        _API_KEY = config_module.Config.API_KEY
+        _API_URL = config_module.Config.API_URL  # 已包含完整路径，不需要拼接
+        _MODEL   = config_module.Config.MODEL_NAME_TALK
+    else:
+        raise ImportError("Config file not found")
+except Exception as e:
+    # 备用配置（仅在无法加载 config.py 时使用）
     _API_KEY = ""
-    _API_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+    _API_URL = "https://api.longcat.chat/openai/v1/chat/completions"
     _MODEL   = "Qwen/Qwen2.5-7B-Instruct"
 
 # 结果保存目录（项目根目录下的 results/）
@@ -97,6 +108,94 @@ CSV 文件: {csv_path}
 # ==============================================================================
 # 内部工具
 # ==============================================================================
+
+def _find_csv_file(csv_path: str) -> str:
+    """
+    智能查找 CSV 文件，支持多种路径格式和自动搜索
+
+    Args:
+        csv_path: 用户提供的文件路径（可能是相对路径、文件名或不存在）
+
+    Returns:
+        找到的文件绝对路径
+
+    Raises:
+        FileNotFoundError: 找不到文件时抛出，包含详细的搜索信息
+    """
+    # 1. 直接路径存在
+    if os.path.exists(csv_path):
+        return os.path.abspath(csv_path)
+
+    # 2. 尝试在常见目录中查找
+    search_dirs = [
+        "temporal",
+        "results",
+        "extract",
+        ".",
+        os.path.dirname(csv_path) if os.path.dirname(csv_path) else ".",
+    ]
+
+    filename = os.path.basename(csv_path)
+
+    for search_dir in search_dirs:
+        if not os.path.exists(search_dir):
+            continue
+        candidate = os.path.join(search_dir, filename)
+        if os.path.exists(candidate):
+            return os.path.abspath(candidate)
+
+    # 3. 在 temporal 目录中查找所有 CSV 文件（模糊匹配）
+    temporal_dir = "temporal"
+    if os.path.exists(temporal_dir):
+        csv_files = [f for f in os.listdir(temporal_dir) if f.endswith('.csv')]
+        if csv_files:
+            # 优先匹配 extraction.csv
+            if 'extraction.csv' in csv_files:
+                return os.path.abspath(os.path.join(temporal_dir, 'extraction.csv'))
+            # 返回第一个找到的 CSV
+            return os.path.abspath(os.path.join(temporal_dir, csv_files[0]))
+
+    # 4. 未找到，抛出详细错误
+    searched = ", ".join([d for d in search_dirs if os.path.exists(d)])
+    raise FileNotFoundError(
+        f"找不到文件 '{csv_path}'。已搜索目录: {searched}。"
+        f"请确保文件存在或将 CSV 文件放入 temporal/ 目录。"
+    )
+
+
+def _try_alternative_readers(csv_path: str, failed_reader: str, read_params: dict) -> tuple:
+    """
+    当指定的读取函数失败时，尝试其他读取函数
+
+    Args:
+        csv_path: CSV 文件路径
+        failed_reader: 失败的读取函数名
+        read_params: 原始读取参数
+
+    Returns:
+        (data, reader_name) 或 (None, None) 如果所有方法都失败
+    """
+    from software.readfile import READER_REGISTRY
+
+    # 定义备选读取顺序
+    fallback_order = [
+        ("read_numeric_columns", {}),
+        ("read_as_columns_dict", {}),
+    ]
+
+    for reader_name, params in fallback_order:
+        if reader_name == failed_reader:
+            continue
+        try:
+            reader_fn = READER_REGISTRY[reader_name]
+            data = reader_fn(csv_path, **params)
+            if data:  # 确保读取到了数据
+                return data, reader_name
+        except Exception:
+            continue
+
+    return None, None
+
 
 def _call_llm(system_prompt: str, user_message: str) -> str:
     """调用 LLM，返回模型回复文本"""
@@ -223,11 +322,14 @@ def run_pipeline(
         read_column_names, READER_REGISTRY, FUNCTIONS_DESCRIPTION
     )
 
-    # ---- Step 1: 读取列名 ----
-    send_msg("info", "正在读取 CSV 文件列名...")
+    # ---- Step 1: 智能查找并读取列名 ----
+    send_msg("info", "正在查找并读取 CSV 文件...")
 
-    if not os.path.exists(csv_path):
-        send_msg("complete", {"error": f"文件不存在: {csv_path}"})
+    try:
+        csv_path = _find_csv_file(csv_path)
+        send_msg("info", f"已找到文件: {csv_path}")
+    except FileNotFoundError as e:
+        send_msg("complete", {"error": str(e)})
         return
 
     try:
@@ -284,15 +386,21 @@ def run_pipeline(
 
     send_msg("info", f"已选定算法：{algorithm} — {reasoning}")
 
-    # ---- Step 3: 读取数据 ----
+    # ---- Step 3: 读取数据（带容错重试）----
     send_msg("info", f"正在读取数据（使用 {read_function}）...")
 
     try:
         reader_fn = READER_REGISTRY[read_function]
         data      = reader_fn(csv_path, **read_params)
     except Exception as e:
-        send_msg("complete", {"error": f"数据读取失败: {e}"})
-        return
+        send_msg("info", f"⚠️ {read_function} 读取失败: {e}，尝试备用方法...")
+        # 尝试其他读取函数
+        data, alternative_reader = _try_alternative_readers(csv_path, read_function, read_params)
+        if data is None:
+            send_msg("complete", {"error": f"所有读取方法均失败。原始错误: {e}"})
+            return
+        send_msg("info", f"✓ 使用 {alternative_reader} 成功读取数据")
+        read_function = alternative_reader  # 更新为实际使用的读取函数
 
     # ---- Step 4: 运行算法 ----
     send_msg("progress", f"正在执行 {algorithm} 算法...")

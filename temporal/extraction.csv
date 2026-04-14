@@ -1,1 +1,22 @@
-作用机理,钝化剂名称,文献来源,原文原句
+分子量,化学式,钝化剂名称,_source_doc
+160.03,C2H5NH3I,乙基铵碘化物,nature_articles_s41467-019-10985-5
+164.00,C3H5N2I,咪唑鎓碘化物,nature_articles_s41467-019-10985-5
+128.00,CH5N3I,胍碘化物,nature_articles_s41467-019-10985-5
+180.04,[(C2H5)NH3]I,ethylammonium iodide,nature_articles_s41467-019-10985-5
+158.02,[C3N2H5]I,imidazolium iodide,nature_articles_s41467-019-10985-5
+135.02,[C(NH2)3]I,guanidinium iodide,nature_articles_s41467-019-10985-5
+118.09,C4H6O4,Gual,nature_articles_s41467-019-10985-5
+114.10,C4H6N2O2,IAI,nature_articles_s41467-019-10985-5
+114.10,C4H6N2O2,EAI,nature_articles_s41467-019-10985-5
+119.12,C6H5N3,EAI,nature_articles_s41467-019-10985-5
+119.12,C6H5N3,IAI,nature_articles_s41467-019-10985-5
+119.12,C6H5N3,GuAI,nature_articles_s41467-019-10985-5
+158.20,C10H10N2,EAI,nature_articles_s41467-019-10985-5
+158.20,C10H10N2,IAI,nature_articles_s41467-019-10985-5
+158.20,C10H10N2,Gual,nature_articles_s41467-019-10985-5
+191.23,C10H13N3O2,EAI,nature_articles_s41467-019-10985-5
+191.23,C10H13N3O2,IAI,nature_articles_s41467-019-10985-5
+191.23,C10H13N3O2,Gual,nature_articles_s41467-019-10985-5
+179.27,C12H17N,EAI,nature_articles_s41467-019-10985-5
+179.27,C12H17N,IAI,nature_articles_s41467-019-10985-5
+179.27,C12H17N,Gual,nature_articles_s41467-019-10985-5

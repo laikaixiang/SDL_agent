@@ -25,6 +25,7 @@ from core import (
     LLMClient,
     PDFProcessor,
     FieldInference,
+    IntentRecognizer,
     HardwareController,
     TaskManager,
     ExtractionEngine,
@@ -42,6 +43,7 @@ config = Config()
 llm_client = LLMClient()
 pdf_processor = PDFProcessor()
 field_inference = FieldInference()
+intent_recognizer = IntentRecognizer(llm_client)  # 意图识别器
 hardware_controller = HardwareController()
 task_manager = TaskManager()
 extraction_engine = ExtractionEngine(task_manager)
@@ -141,6 +143,10 @@ def chat():
     user_message = data.get('message', '').strip()
     action = data.get('action', 'chat')  # 用于区分普通对话还是特殊指令
 
+    # 特殊流程：用户已确认数据分析参数，正式开始分析
+    if action == 'start_data_analysis':
+        return handle_data_analysis_execute(data)
+
     # 特殊流程：用户已确认字段，正式开始提取
     if action == 'start_extraction':
         return handle_extraction_start(data)
@@ -153,13 +159,13 @@ def chat():
     if user_message.startswith("帮我搜寻："):
         return handle_extraction_request(user_message)
 
-    # 硬件控制
-    if user_message.startswith("硬件控制："):
-        return handle_hardware_control(user_message)
+    # 硬件控制（智能意图识别）
+    if user_message.startswith("硬件控制：") or user_message.startswith("硬件控制") or user_message.startswith("实验设计：") or user_message.startswith("实验设计"):
+        return handle_hardware_or_experiment(user_message)
 
-    # 自动数据分析
-    if user_message.startswith("数据分析："):
-        return handle_auto_analyze(user_message)
+    # 数据分析（智能交互模式）
+    if user_message.startswith("数据分析"):
+        return handle_data_analysis(user_message)
 
     # 算法生成
     if user_message.startswith("生成算法："):
@@ -265,6 +271,70 @@ def handle_extraction_request(user_message: str) -> Response:
         })
 
 
+def handle_hardware_or_experiment(user_message: str) -> Response:
+    """
+    智能判断用户意图：设计实验 vs 单步控制硬件
+
+    Args:
+        user_message: 用户消息
+
+    Returns:
+        JSON响应
+    """
+    # 清理消息前缀
+    cmd_text = user_message.replace("硬件控制：", "").replace("硬件控制", "")
+    cmd_text = cmd_text.replace("实验设计：", "").replace("实验设计", "").strip()
+
+    if not cmd_text:
+        return jsonify({
+            'type': 'system',
+            'reply': '请描述你的需求，例如：\n'
+                     '  • "设计一个旋涂实验，转速3000rpm"\n'
+                     '  • "移动到位置A并测量光谱"\n'
+                     '  • "设置加热台温度为150度"'
+        })
+
+    # 使用意图识别器判断用户意图
+    intent, confidence = intent_recognizer.recognize(cmd_text)
+
+    # 根据意图分发到不同的处理流程
+    if intent == "experiment_design":
+        return jsonify({
+            'type': 'experiment_design_mode',
+            'command': cmd_text,
+            'confidence': confidence,
+            'reply': f'🔬 **实验设计模式** (置信度: {confidence:.0%})\n\n'
+                     f'我将使用 AI 自主规划实验流程来完成你的需求：\n'
+                     f'"{cmd_text}"\n\n'
+                     f'AI 将自动选择合适的工具和参数，规划完整的实验步骤。\n'
+                     f'实验流程规划完成后，我会推送给你确认。\n\n'
+                     f'💡 如果这不是你想要的，请使用"硬件控制：<具体操作>"来执行单步操作。'
+        })
+    else:
+        # 硬件控制模式
+        success, tool_calls = hardware_controller.agent.parse_complex_command(cmd_text)
+
+        if not success or not tool_calls:
+            return jsonify({
+                'type': 'system',
+                'reply': f'❌ 硬件指令解析失败 (置信度: {confidence:.0%})\n\n'
+                         f'无法理解命令："{cmd_text}"\n\n'
+                         f'请检查指令格式，或使用"实验设计：<需求描述>"让 AI 自动规划。'
+            })
+
+        # 生成确认信息
+        confirmation_msg = hardware_controller.ask_for_experiment_confirmation(tool_calls)
+        confirmation_msg = f'⚙️ **硬件控制模式** (置信度: {confidence:.0%})\n\n' + confirmation_msg
+
+        return jsonify({
+            'type': 'field_confirm',
+            'task_desc': "硬件控制",
+            'fields': tool_calls,
+            'confidence': confidence,
+            'reply': confirmation_msg
+        })
+
+
 def handle_hardware_control(user_message: str) -> Response:
     """
     处理硬件控制
@@ -322,9 +392,156 @@ def handle_hardware_execute(data: dict) -> Response:
         return jsonify({'status': 'error', 'reply': f'硬件执行异常: {str(e)}'})
 
 
+def handle_data_analysis(user_message: str) -> Response:
+    """
+    处理数据分析请求（智能交互模式）
+
+    支持三种格式：
+    1. "数据分析" - 触发交互式选择器（推荐）
+    2. "数据分析：<算法名称>" - 使用指定算法分析默认文件
+    3. "数据分析：<算法名称> <csv_path>" - 使用指定算法分析指定文件
+
+    Args:
+        user_message: 用户消息
+
+    Returns:
+        JSON响应
+    """
+    content = user_message.replace("数据分析：", "").replace("数据分析", "").strip()
+
+    # 场景1：用户只输入"数据分析"，触发交互式选择器
+    if not content:
+        available_algorithms = software_manager.list_algorithms()
+
+        # 获取可用的CSV文件列表
+        csv_files = []
+        for folder in ["temporal", "extract"]:
+            if os.path.exists(folder):
+                for file in os.listdir(folder):
+                    if file.endswith('.csv'):
+                        csv_files.append(os.path.join(folder, file))
+
+        return jsonify({
+            'type': 'data_analysis_selector',
+            'algorithms': available_algorithms,
+            'csv_files': csv_files,
+            'reply': '📊 **数据分析模式**\n\n'
+                     '请选择要使用的算法和目标CSV文件：\n\n'
+                     '**可用算法：**\n' +
+                     '\n'.join([f'  • {algo["name"]}: {algo["description"]}' for algo in available_algorithms]) +
+                     '\n\n**可用数据文件：**\n' +
+                     ('\n'.join([f'  • {f}' for f in csv_files]) if csv_files else '  （暂无CSV文件）') +
+                     '\n\n💡 你也可以直接输入：\n'
+                     '  "数据分析：算法名称 文件路径"\n'
+                     '  例如："数据分析：data_statistics temporal/extraction.csv"'
+        })
+
+    # 场景2和3：解析算法名称和CSV路径
+    parts = content.split(maxsplit=1)
+    algorithm_name = parts[0] if parts else ""
+    csv_path = parts[1] if len(parts) > 1 else "temporal/extraction.csv"
+
+    if not algorithm_name:
+        return jsonify({
+            'type': 'system',
+            'reply': '❌ 请指定要使用的算法名称，例如：\n"数据分析：data_statistics temporal/extraction.csv"'
+        })
+
+    # 检查算法是否存在
+    available_algorithms = software_manager.list_algorithms()
+    algorithm_exists = any(algo['name'] == algorithm_name for algo in available_algorithms)
+
+    if not algorithm_exists:
+        # 算法不存在，询问用户是否需要生成
+        return jsonify({
+            'type': 'algorithm_not_found',
+            'algorithm_name': algorithm_name,
+            'reply': f'❌ 算法 "{algorithm_name}" 不存在。\n\n'
+                     f'**当前可用的算法：**\n' +
+                     '\n'.join([f'  • {algo["name"]}: {algo["description"]}' for algo in available_algorithms]) +
+                     f'\n\n💡 是否需要生成新算法 "{algorithm_name}"？\n'
+                     f'请使用：生成算法：<算法描述>'
+        })
+
+    # 检查CSV文件是否存在
+    if not os.path.exists(csv_path):
+        return jsonify({
+            'type': 'system',
+            'reply': f'❌ 文件 "{csv_path}" 不存在。\n\n'
+                     f'请检查文件路径是否正确，或使用"数据分析"命令查看可用文件。'
+        })
+
+    # 算法和文件都存在，执行分析
+    if task_manager.task_running:
+        return jsonify({'type': 'system', 'reply': '⚠️ 当前已有任务正在运行，请等待完成后再试。'})
+
+    # 清空任务队列
+    while not task_manager.is_queue_empty():
+        task_manager.get_task_message()
+
+    # 启动任务状态
+    task_id = task_manager.generate_task_id()
+    task_manager.current_task_id = task_id
+    task_manager.task_running = True
+
+    # 在后台线程中运行分析
+    threading.Thread(
+        target=software_manager.run_algorithm_on_csv,
+        args=(algorithm_name, csv_path, task_manager)
+    ).start()
+
+    return jsonify({
+        'type': 'task_trigger',
+        'reply': f'✅ 正在使用算法 **{algorithm_name}** 分析文件 `{csv_path}`\n\n实时进度见下方...'
+    })
+
+
+def handle_data_analysis_execute(data: dict) -> Response:
+    """
+    执行用户确认的数据分析任务
+
+    Args:
+        data: 请求数据，包含 algorithm_name 和 csv_path
+
+    Returns:
+        JSON响应
+    """
+    algorithm_name = data.get('algorithm_name', '').strip()
+    csv_path = data.get('csv_path', 'temporal/extraction.csv').strip()
+
+    if not algorithm_name:
+        return jsonify({'status': 'error', 'reply': '缺少算法名称'})
+
+    if not os.path.exists(csv_path):
+        return jsonify({'status': 'error', 'reply': f'文件 "{csv_path}" 不存在'})
+
+    if task_manager.task_running:
+        return jsonify({'status': 'error', 'reply': '当前已有任务正在运行'})
+
+    # 清空任务队列
+    while not task_manager.is_queue_empty():
+        task_manager.get_task_message()
+
+    # 启动任务
+    task_id = task_manager.generate_task_id()
+    task_manager.current_task_id = task_id
+    task_manager.task_running = True
+
+    # 在后台线程中运行分析
+    threading.Thread(
+        target=software_manager.run_algorithm_on_csv,
+        args=(algorithm_name, csv_path, task_manager)
+    ).start()
+
+    return jsonify({
+        'type': 'task_trigger',
+        'reply': f'✅ 正在使用算法 **{algorithm_name}** 分析文件 `{csv_path}`\n\n实时进度见下方...'
+    })
+
+
 def handle_auto_analyze(user_message: str) -> Response:
     """
-    处理自动数据分析请求
+    处理自动数据分析请求（旧版本，保留兼容性）
 
     用户消息格式："数据分析：<csv_path>"
     csv_path 为空时默认使用 temporal/extraction.csv

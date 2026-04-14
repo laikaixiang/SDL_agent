@@ -1,0 +1,27 @@
+{
+  "algorithms": [
+    {
+      "name": "data_statistics",
+      "description": "对数值数据进行描述性统计分析（均值、中位数、标准差、最值、分位数、相关性矩阵）",
+      "category": "统计分析",
+      "input_type": "dict或list",
+      "keywords": ["统计", "均值", "标准差", "相关性", "描述性统计"]
+    },
+    {
+      "name": "data_normalization",
+      "description": "对数值数据进行归一化或标准化处理，支持 Min-Max、Z-Score、Robust 三种方法",
+      "category": "数据预处理",
+      "input_type": "dict或list",
+      "keywords": ["归一化", "标准化", "minmax", "zscore", "robust"]
+    },
+    {
+      "name": "spectrum_analysis",
+      "description": "光谱数据分析：检测最高峰波长/强度、计算半高宽（FWHM）和峰面积（梯形积分）",
+      "category": "光谱分析",
+      "input_type": "dict",
+      "keywords": ["光谱", "峰值", "FWHM", "半高宽", "峰面积", "波长"]
+    }
+  ],
+  "version": "1.0.0",
+  "last_updated": "2026-04-15"
+}

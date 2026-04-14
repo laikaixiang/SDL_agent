@@ -31,6 +31,7 @@ from core import (
     CSVWriter,
     ExperimentDesignAgent,
     SoftwareManager,
+    AdaptiveStreamHandler,
 )
 
 # 初始化Flask应用
@@ -47,6 +48,7 @@ extraction_engine = ExtractionEngine(task_manager)
 csv_writer = CSVWriter()
 experiment_agent = ExperimentDesignAgent()  # 实验设计智能体（PydanticAI 原生 tool-use）
 software_manager = SoftwareManager()        # 软件算法管理器
+adaptive_handler = AdaptiveStreamHandler(config, llm_client)  # 自适应流式响应处理器
 
 
 def open_browser():
@@ -357,43 +359,10 @@ def handle_normal_chat(user_message: str) -> Response:
         user_message: 用户消息
 
     Returns:
-        流式响应
+        流式响应（自适应：支持流式则使用流式，否则使用非流式模拟）
     """
-    def generate_chat():
-        headers = llm_client.get_default_headers()
-        payload = {
-            "model": config.MODEL_NAME_TALK,
-            "messages": [{"role": "user", "content": user_message}],
-            "stream": True
-        }
-
-        try:
-            response = requests.post(
-                config.API_URL,
-                headers=headers,
-                json=payload,
-                stream=True,
-                timeout=30
-            )
-
-            for line in response.iter_lines():
-                if line:
-                    decoded_line = line.decode('utf-8')
-                    if decoded_line.startswith("data: "):
-                        data_str = decoded_line[6:]
-                        if data_str == "[DONE]":
-                            break
-                        try:
-                            chunk = json.loads(data_str)
-                            content = chunk['choices'][0]['delta'].get('content', '')
-                            if content:
-                                yield content
-                        except:
-                            pass
-        except Exception as e:
-            yield f"\n[请求失败: {str(e)}]"
-
-    return Response(generate_chat(), content_type='text/plain; charset=utf-8')
+    # 使用自适应流式处理器
+    return adaptive_handler.generate_response(user_message)
 
 
 @app.route('/api/hardware_status', methods=['GET'])
@@ -412,6 +381,27 @@ def available_hardware():
     """
     hardware_list = hardware_controller.get_available_hardware()
     return jsonify({"hardware": hardware_list})
+
+
+@app.route('/api/streaming_status', methods=['GET'])
+def streaming_status():
+    """
+    获取流式响应状态
+    """
+    status = adaptive_handler.get_status()
+    return jsonify(status)
+
+
+@app.route('/api/streaming_recheck', methods=['POST'])
+def streaming_recheck():
+    """
+    强制重新检测流式支持
+    """
+    result = adaptive_handler.force_recheck()
+    return jsonify({
+        "supports_streaming": result,
+        "message": "流式支持已重新检测" if result else "API不支持流式响应"
+    })
 
 
 @app.errorhandler(404)

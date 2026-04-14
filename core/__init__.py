@@ -14,6 +14,7 @@ from .extraction_engine import ExtractionEngine
 from .csv_writer import CSVWriter
 from .experiment_agent import ExperimentDesignAgent
 from .software_manager import SoftwareManager
+from .adaptive_stream import AdaptiveStreamHandler
 
 __all__ = [
     'Config',
@@ -26,4 +27,5 @@ __all__ = [
     'CSVWriter',
     'ExperimentDesignAgent',
     'SoftwareManager',
+    'AdaptiveStreamHandler',
 ]

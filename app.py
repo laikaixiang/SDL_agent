@@ -785,15 +785,37 @@ def experiment_chat():
 
     def run_agent_thread():
         """后台线程：运行实验设计 Agent"""
-        # 将异步 send_event 桥接到 task_manager 消息队列
-        async def send_event_async(event):
-            task_manager.put_task_message(event)
-
-        loop = asyncio.new_event_loop()
         try:
+            # 立即推送初始状态消息
+            print(f"[实验设计] 线程已启动，会话ID: {session_id}")
+            task_manager.put_task_message({
+                "type": "info",
+                "data": "正在初始化实验设计引擎..."
+            })
+
+            # 将异步 send_event 桥接到 task_manager 消息队列
+            async def send_event_async(event):
+                task_manager.put_task_message(event)
+
+            # 创建事件循环
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            print("[实验设计] 事件循环已创建")
+
+            # 推送就绪消息
+            task_manager.put_task_message({
+                "type": "info",
+                "data": "引擎已就绪，开始分析需求..."
+            })
+            print(f"[实验设计] 开始运行agent，用户消息: {user_message[:50]}...")
+
+            # 运行agent
             result = loop.run_until_complete(
                 experiment_agent.run(session_id, user_message, send_event_async)
             )
+
+            print(f"[实验设计] Agent执行成功，结果长度: {len(result)} 字符")
+
             # Agent 正常完成，推送 complete 事件携带 AI 回复
             task_manager.put_task_message({
                 "type": "complete",
@@ -801,6 +823,11 @@ def experiment_chat():
             })
         except Exception as e:
             # Agent 异常，推送 complete 事件携带错误信息
+            import traceback
+            error_detail = traceback.format_exc()
+            print(f"[错误] 实验设计Agent线程失败:")
+            print(error_detail)
+
             task_manager.put_task_message({
                 "type": "complete",
                 "data": {"error": f"实验设计Agent错误: {str(e)}"}
@@ -808,6 +835,7 @@ def experiment_chat():
         finally:
             task_manager.task_running = False
             loop.close()
+            print("[实验设计] 线程已结束")
 
     threading.Thread(target=run_agent_thread, daemon=True).start()
 

@@ -6,11 +6,15 @@ import json
 import re
 import threading
 import time
+import logging
 from typing import Dict, Any, Optional, List, Tuple
 from pydantic import BaseModel, Field
 
 from .config import Config
 from .llm_client import LLMClient
+
+# 配置日志
+logger = logging.getLogger(__name__)
 
 
 class HardwareTool(BaseModel):
@@ -200,6 +204,10 @@ class HardwareAgent:
             tool_name = tool_call.get("name")
             params = tool_call.get("params", {})
 
+            # 记录硬件函数调用
+            logger.info(f"[硬件调用] 工具: {tool_name}, 参数: {params}")
+            print(f"[硬件调用] 工具: {tool_name}, 参数: {params}")
+
             if tool_name == "set_temperature":
                 result = execute_set_temperature(float(params["target"]))
             elif tool_name == "move_robot_arm":
@@ -219,8 +227,10 @@ class HardwareAgent:
             elif tool_name == "collect_spectrum":
                 result = execute_collect_spectrum(int(params.get("duration", 60)))
             else:
+                logger.warning(f"[硬件调用] 未知工具: {tool_name}")
                 return {"status": "error", "message": f"未知工具: {tool_name}"}
 
+            logger.info(f"[硬件调用] 工具 {tool_name} 执行完成")
             return {"status": "success", "result": result}
 
         except ImportError as e:

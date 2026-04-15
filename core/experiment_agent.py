@@ -82,24 +82,33 @@ class ExperimentDesignAgent:
         Returns:
             str: AI 生成的回复文本
         """
+        print(f"[ExperimentAgent] 开始处理会话 {session_id}")
+        print(f"[ExperimentAgent] 用户消息: {user_message[:100]}...")
+
         session = self._get_or_create_session(session_id)
 
         # 如果有关联的 PDF，在消息前附加路径提示，让 AI 知道文件位置
         if session["pdf_path"]:
             full_input = f"[Current PDF is at: {session['pdf_path']}]\n\n{user_message}"
+            print(f"[ExperimentAgent] PDF路径: {session['pdf_path']}")
         else:
             full_input = user_message
+            print(f"[ExperimentAgent] 无关联PDF")
 
         # 创建依赖容器，将 send_event 回调、agent 引用和 session_id 注入到所有工具函数中
         deps = Deps(send_event=send_event, agent=self, session_id=session_id)
+        print(f"[ExperimentAgent] 依赖容器已创建")
 
         # 调用 PydanticAI Agent：AI 自主选择工具、决定参数、规划调用顺序
+        print(f"[ExperimentAgent] 开始调用PydanticAI Agent...")
         result = await self._agent.run(
             full_input, deps=deps, message_history=session["history"],
         )
+        print(f"[ExperimentAgent] Agent调用完成")
 
         # 更新会话的对话历史（包含本轮的工具调用记录）
         session["history"] = list(result.all_messages())
+        print(f"[ExperimentAgent] 会话历史已更新，共 {len(session['history'])} 条消息")
 
         return result.output
 

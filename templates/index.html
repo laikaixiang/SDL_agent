@@ -380,6 +380,15 @@
     </div>
 </div>
 
+<!-- PDF阅读面板 -->
+<!--
+    右侧面板系统说明：
+    1. 所有右侧面板都是 app-wrapper 的直接子元素
+    2. 面板应该是独立的，不应该互相调用
+    3. 使用 bringPanelToFront(panelId) 来管理z-index
+    4. 使用 removePanelFromTracking(panelId) 来移除跟踪
+    5. 详细文档请参考: templates/how_to_add_Right_Panel.md
+-->
 <div class="pdf-panel" id="pdf-panel">
     <div class="pdf-header">
         <span>AI正在阅读...</span>
@@ -395,6 +404,12 @@
 </div>
 
 <!-- 单步控制面板 -->
+<!--
+    面板特性：
+    - 独立打开/关闭，不影响其他面板
+    - 使用 z-index 管理系统确保后打开的面板在上面
+    - 只有当所有面板都关闭时才退出 split-mode
+-->
 <div class="step-control-panel" id="step-control-panel">
     <div class="step-panel-header">
         <span>🔧 单步控制</span>
@@ -403,7 +418,7 @@
     <div class="step-panel-body" id="step-panel-body">
         <div style="text-align:center;color:#9ca3af;padding:40px 20px;">加载中...</div>
     </div>
-    <div class="step-status-bar" id="step-status-bar">就绪 — 双击展开工具，点击 ▶ 执行</div>
+    <div class="step-status-bar" id="step-status-bar">就绪 — 单击 ▶ 展开工具，点击右侧 ▶ 执行</div>
 </div>
 
 <div class="modal-overlay" id="summary-modal">
@@ -473,6 +488,44 @@
     let stepPanelTools = [];
     let stepRunning = false;
     let stepExpandedTool = null;
+
+    // =====================================
+    // 🎯 面板z-index管理系统
+    // =====================================
+    // 用于管理多个右侧面板的层级关系，确保后打开的面板显示在上面
+    let panelZIndexCounter = 100;        // 面板z-index计数器，从100开始递增
+    const activePanels = new Set();      // 跟踪当前打开的面板ID集合
+
+    /**
+     * 将面板带到最前面
+     * 每次打开面板时调用此函数，确保新打开的面板显示在所有其他面板上面
+     *
+     * @param {string} panelId - 面板的DOM元素ID
+     */
+    function bringPanelToFront(panelId) {
+        const panel = document.getElementById(panelId);
+        if (panel) {
+            // 递增计数器并设置z-index
+            panelZIndexCounter++;
+            panel.style.zIndex = panelZIndexCounter;
+
+            // 添加到活跃面板集合
+            activePanels.add(panelId);
+
+            console.log(`[面板管理] ${panelId} 已带到前面，z-index: ${panelZIndexCounter}`);
+        }
+    }
+
+    /**
+     * 从跟踪中移除面板
+     * 关闭面板时调用此函数，从活跃面板集合中移除
+     *
+     * @param {string} panelId - 面板的DOM元素ID
+     */
+    function removePanelFromTracking(panelId) {
+        activePanels.delete(panelId);
+        console.log(`[面板管理] ${panelId} 已从跟踪中移除，剩余面板: ${activePanels.size}`);
+    }
 
     toolBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -757,9 +810,13 @@ ${replyMsg.replace(/\n/g, '<br>')}
                 logEl.textContent = `> ${msg.data || ''}`;
             }
             else if (msg.type === 'page_reading' && msg.data) {
+                // 打开PDF面板显示正在阅读的页面
                 document.getElementById('app-wrapper').classList.add('split-mode');
                 document.getElementById('pdf-viewer').classList.add('is-scanning');
                 document.getElementById('pdf-title').textContent = `${msg.data.filename || ''} (第 ${msg.data.page || ''} 页)`;
+
+                // 将PDF面板带到最前面（z-index管理）
+                bringPanelToFront('pdf-panel');
 
                 const imgEl = document.getElementById('pdf-image');
                 if (msg.data.image) {
@@ -950,7 +1007,16 @@ ${replyMsg.replace(/\n/g, '<br>')}
     // 关闭 PDF 面板
     // =====================================
     document.getElementById('close-pdf-btn').addEventListener('click', () => {
-        document.getElementById('app-wrapper').classList.remove('split-mode');
+        const pdfPanel = document.getElementById('pdf-panel');
+
+        // 隐藏PDF面板（通过移除split-mode，PDF面板会自动隐藏）
+        // 从面板跟踪中移除
+        removePanelFromTracking('pdf-panel');
+
+        // 只有当所有面板都关闭时才退出分屏模式
+        if (activePanels.size === 0) {
+            document.getElementById('app-wrapper').classList.remove('split-mode');
+        }
     });
 
     // =====================================
@@ -1449,6 +1515,10 @@ ${replyMsg.replace(/\n/g, '<br>')}
     // =====================================
     // 🔧 单步控制面板
     // =====================================
+    /**
+     * 打开单步控制面板
+     * 注意：不会自动打开PDF面板，保持面板独立性
+     */
     async function openStepPanel() {
         modeMenu.style.display = 'none';
         hideHardwareSubmenu();
@@ -1456,7 +1526,11 @@ ${replyMsg.replace(/\n/g, '<br>')}
         const panel = document.getElementById('step-control-panel');
         panel.classList.add('open');
 
+        // 启用分屏模式
         document.getElementById('app-wrapper').classList.add('split-mode');
+
+        // 将此面板带到最前面（z-index管理）
+        bringPanelToFront('step-control-panel');
 
         if (stepPanelTools.length === 0) {
             await fetchStepTools();
@@ -1465,15 +1539,23 @@ ${replyMsg.replace(/\n/g, '<br>')}
         }
     }
 
+    /**
+     * 关闭单步控制面板
+     * 只有当所有面板都关闭时才退出分屏模式
+     */
     function closeStepPanel() {
         const panel = document.getElementById('step-control-panel');
         panel.classList.remove('open');
 
+        // 从面板跟踪中移除
+        removePanelFromTracking('step-control-panel');
+
         setTimeout(() => {
             const wrapper = document.getElementById('app-wrapper');
-            const pdfPanel = document.getElementById('pdf-panel');
-            const pdfVisible = pdfPanel && parseFloat(getComputedStyle(pdfPanel).opacity || '0') > 0;
-            if (!pdfVisible) {
+
+            // 检查是否还有其他面板打开
+            // 只有当所有面板都关闭时才退出分屏模式
+            if (activePanels.size === 0) {
                 wrapper.classList.remove('split-mode');
             }
         }, 400);
@@ -1506,7 +1588,7 @@ ${replyMsg.replace(/\n/g, '<br>')}
 <div class="tool-row ${isExpanded ? 'expanded' : ''}"
      id="tool-row-${tool.name}"
      ondblclick="toggleToolExpand('${tool.name}')">
-    <span class="tool-arrow">▶</span>
+    <span class="tool-arrow" onclick="event.stopPropagation(); toggleToolExpand('${tool.name}')">▶</span>
     <div style="flex:1">
         <div class="tool-name">${tool.name}</div>
         <div class="tool-desc">${tool.description}</div>

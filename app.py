@@ -643,6 +643,27 @@ def hardware_status():
     return jsonify(status)
 
 
+@app.route('/api/hardware_tools', methods=['GET'])
+def get_hardware_tools():
+    """返回所有注册的硬件工具及其参数 Schema，供单步控制面板使用"""
+    tools_data = []
+    for tool in hardware_controller.agent.hardware_tools:
+        tools_data.append({
+            "name": tool.name,
+            "description": tool.description,
+            "params": {
+                param_name: {
+                    "type": param_info.get("type"),
+                    "description": param_info.get("description"),
+                    "required": param_info.get("required", False),
+                    "default": param_info.get("default"),
+                }
+                for param_name, param_info in tool.params.items()
+            }
+        })
+    return jsonify({"tools": tools_data})
+
+
 @app.route('/api/available_hardware', methods=['GET'])
 def available_hardware():
     """

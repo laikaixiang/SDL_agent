@@ -63,7 +63,7 @@
 
         /* 左右分屏布局 */
         body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background-color: var(--bg); display: flex; justify-content: center; align-items: center; }
-        .app-wrapper { display: flex; justify-content: center; margin: 0 auto; width: 100%; max-width: 1400px; height: 100vh; padding: 20px; gap: 20px; transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
+        .app-wrapper { display: flex; justify-content: center; margin: 0 auto; width: 100%; max-width: 1400px; height: 100vh; padding: 20px; gap: 20px; transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); position: relative; }
 
         /* PDF 预览面板 */
         .pdf-panel { flex: 0; width: 0; background: #fff; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); overflow: hidden; display: flex; flex-direction: column; opacity: 0; transform: translateX(20px); transition: all 0.4s ease; position: relative; }
@@ -235,6 +235,105 @@
         .btn-edit:hover {
             background: #2563eb;
         }
+
+        /* 单步控制面板 */
+        .step-control-panel {
+            position: absolute;
+            top: 0; right: 0;
+            width: 50%;
+            height: 100%;
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+            display: flex;
+            flex-direction: column;
+            z-index: 50;
+            transform: translateX(100%);
+            opacity: 0;
+            transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow: hidden;
+        }
+        .step-control-panel.open {
+            transform: translateX(0);
+            opacity: 1;
+        }
+        .step-panel-header {
+            padding: 15px 20px;
+            background: #1f2937;
+            color: #fff;
+            font-weight: bold;
+            font-size: 0.95rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        .step-panel-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+        }
+        .tool-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 14px;
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.15s;
+        }
+        .tool-row:hover { background: #eff6ff; border-color: #bfdbfe; }
+        .tool-row.expanded { background: #f0fdf4; border-color: #86efac; border-bottom-left-radius: 0; border-bottom-right-radius: 0; margin-bottom: 0; }
+        .tool-arrow { font-size: 0.75rem; color: #9ca3af; transition: transform 0.2s; flex-shrink: 0; }
+        .tool-row.expanded .tool-arrow { transform: rotate(90deg); }
+        .tool-name { font-weight: bold; color: #1f2937; font-size: 0.9rem; }
+        .tool-desc { font-size: 0.8rem; color: #6b7280; flex: 1; }
+        .run-btn {
+            width: 32px; height: 32px;
+            background: #10b981;
+            border: none;
+            border-radius: 50%;
+            color: white;
+            font-size: 1rem;
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0;
+            transition: background 0.2s, transform 0.15s;
+        }
+        .run-btn:hover:not(:disabled) { background: #059669; transform: scale(1.1); }
+        .run-btn:disabled { background: #9ca3af; cursor: not-allowed; transform: none; }
+        .run-btn.running { background: #f59e0b; animation: pulse-btn 1s infinite; }
+        @keyframes pulse-btn { 0%,100%{opacity:1} 50%{opacity:0.5} }
+        .tool-params-area {
+            background: #f0fdf4;
+            border: 1px solid #86efac;
+            border-top: none;
+            border-radius: 0 0 8px 8px;
+            padding: 14px;
+            margin-bottom: 8px;
+            display: none;
+        }
+        .tool-params-area.visible { display: block; }
+        .param-field { margin-bottom: 10px; }
+        .param-label { font-size: 0.8rem; font-weight: bold; color: #065f46; margin-bottom: 3px; display: flex; gap: 6px; align-items: center; }
+        .param-badge-req { background: #fca5a5; color: #7f1d1d; font-size: 0.65rem; padding: 1px 5px; border-radius: 4px; }
+        .param-badge-opt { background: #d1fae5; color: #065f46; font-size: 0.65rem; padding: 1px 5px; border-radius: 4px; }
+        .param-hint { font-size: 0.72rem; color: #6b7280; margin-bottom: 4px; }
+        .param-input { width: 100%; padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.88rem; }
+        .param-input:focus { outline: none; border-color: #10b981; }
+        .step-status-bar {
+            padding: 8px 16px;
+            background: #f3f4f6;
+            border-top: 1px solid #e5e7eb;
+            font-size: 0.82rem;
+            color: #6b7280;
+            flex-shrink: 0;
+        }
+        .step-status-bar.running { background: #fef3c7; color: #92400e; }
     </style>
 </head>
 <body>
@@ -263,7 +362,7 @@
 
     <!-- 硬件子菜单 -->
     <div class="hardware-submenu" id="hardware-submenu" onmouseenter="keepHardwareSubmenu()" onmouseleave="hideHardwareSubmenu()">
-        <div class="submenu-item" onclick="setMode('hardware_single', '硬件控制：', '🔧 单步控制')">🔧 单步控制</div>
+        <div class="submenu-item" onclick="openStepPanel()">🔧 单步控制</div>
         <div class="submenu-item" onclick="setMode('hardware_design', '实验设计：', '🔬 实验设计（默认）')">🔬 实验设计（默认）</div>
     </div>
 
@@ -293,6 +392,18 @@
         <div class="scan-line"></div>
         <img id="pdf-image" src="" alt="等待 AI 读取画面..." style="opacity: 0;">
     </div>
+</div>
+
+<!-- 单步控制面板 -->
+<div class="step-control-panel" id="step-control-panel">
+    <div class="step-panel-header">
+        <span>🔧 单步控制</span>
+        <button onclick="closeStepPanel()" style="background:none;border:none;color:#fff;font-size:1.5rem;cursor:pointer;padding:0;line-height:1;">×</button>
+    </div>
+    <div class="step-panel-body" id="step-panel-body">
+        <div style="text-align:center;color:#9ca3af;padding:40px 20px;">加载中...</div>
+    </div>
+    <div class="step-status-bar" id="step-status-bar">就绪 — 双击展开工具，点击 ▶ 执行</div>
 </div>
 
 <div class="modal-overlay" id="summary-modal">
@@ -357,6 +468,11 @@
     let selectedAlgorithm = null;
     let selectedFilePath = null;
     let algorithmParams = {};
+
+    // 单步控制面板
+    let stepPanelTools = [];
+    let stepRunning = false;
+    let stepExpandedTool = null;
 
     toolBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -1327,6 +1443,202 @@ ${replyMsg.replace(/\n/g, '<br>')}
                 action: 'skip'
             })
         });
+    }
+
+
+    // =====================================
+    // 🔧 单步控制面板
+    // =====================================
+    async function openStepPanel() {
+        modeMenu.style.display = 'none';
+        hideHardwareSubmenu();
+
+        const panel = document.getElementById('step-control-panel');
+        panel.classList.add('open');
+
+        document.getElementById('app-wrapper').classList.add('split-mode');
+
+        if (stepPanelTools.length === 0) {
+            await fetchStepTools();
+        } else {
+            renderStepTools();
+        }
+    }
+
+    function closeStepPanel() {
+        const panel = document.getElementById('step-control-panel');
+        panel.classList.remove('open');
+
+        setTimeout(() => {
+            const wrapper = document.getElementById('app-wrapper');
+            const pdfPanel = document.getElementById('pdf-panel');
+            const pdfVisible = pdfPanel && parseFloat(getComputedStyle(pdfPanel).opacity || '0') > 0;
+            if (!pdfVisible) {
+                wrapper.classList.remove('split-mode');
+            }
+        }, 400);
+    }
+
+    async function fetchStepTools() {
+        const body = document.getElementById('step-panel-body');
+        body.innerHTML = '<div style="text-align:center;color:#9ca3af;padding:40px 20px;">加载中...</div>';
+        try {
+            const res = await fetch('/api/hardware_tools');
+            const data = await res.json();
+            stepPanelTools = data.tools || [];
+            renderStepTools();
+        } catch (e) {
+            body.innerHTML = '<div style="text-align:center;color:#ef4444;padding:20px;">加载失败，请刷新重试</div>';
+        }
+    }
+
+    function renderStepTools() {
+        const body = document.getElementById('step-panel-body');
+        if (stepPanelTools.length === 0) {
+            body.innerHTML = '<div style="text-align:center;color:#9ca3af;padding:20px;">没有可用的硬件工具</div>';
+            return;
+        }
+
+        let html = '';
+        for (const tool of stepPanelTools) {
+            const isExpanded = stepExpandedTool === tool.name;
+            html += `
+<div class="tool-row ${isExpanded ? 'expanded' : ''}"
+     id="tool-row-${tool.name}"
+     ondblclick="toggleToolExpand('${tool.name}')">
+    <span class="tool-arrow">▶</span>
+    <div style="flex:1">
+        <div class="tool-name">${tool.name}</div>
+        <div class="tool-desc">${tool.description}</div>
+    </div>
+    <button class="run-btn" id="run-btn-${tool.name}"
+            onclick="event.stopPropagation(); runTool('${tool.name}')"
+            title="执行 ${tool.name}">▶</button>
+</div>
+<div class="tool-params-area ${isExpanded ? 'visible' : ''}" id="params-area-${tool.name}">
+    ${renderParamFields(tool)}
+</div>`;
+        }
+        body.innerHTML = html;
+
+        if (stepRunning) disableAllRunBtns();
+    }
+
+    function renderParamFields(tool) {
+        const params = tool.params;
+        if (Object.keys(params).length === 0) {
+            return '<div style="color:#6b7280;font-size:0.85rem;font-style:italic;">此工具无需参数，直接点击 ▶ 执行</div>';
+        }
+        let html = '';
+        for (const [pName, pInfo] of Object.entries(params)) {
+            const badge = pInfo.required
+                ? '<span class="param-badge-req">必填</span>'
+                : '<span class="param-badge-opt">可选</span>';
+            const defaultStr = pInfo.default !== null && pInfo.default !== undefined ? ` 默认:${pInfo.default}` : '';
+            html += `
+<div class="param-field">
+    <div class="param-label">${pName} ${badge}</div>
+    <div class="param-hint">${pInfo.description}（${pInfo.type}${defaultStr}）</div>
+    <input class="param-input"
+           id="param-${tool.name}-${pName}"
+           type="text"
+           placeholder="${pInfo.default !== null && pInfo.default !== undefined ? pInfo.default : ''}"
+           value="${pInfo.default !== null && pInfo.default !== undefined ? pInfo.default : ''}">
+</div>`;
+        }
+        return html;
+    }
+
+    function toggleToolExpand(toolName) {
+        if (stepExpandedTool === toolName) {
+            stepExpandedTool = null;
+        } else {
+            stepExpandedTool = toolName;
+        }
+        renderStepTools();
+    }
+
+    async function runTool(toolName) {
+        if (stepRunning) return;
+
+        const tool = stepPanelTools.find(t => t.name === toolName);
+        if (!tool) return;
+
+        const params = {};
+        for (const [pName, pInfo] of Object.entries(tool.params)) {
+            const inputEl = document.getElementById(`param-${toolName}-${pName}`);
+            let val = inputEl ? inputEl.value.trim() : '';
+            if (val === '' && pInfo.default !== null && pInfo.default !== undefined) {
+                val = String(pInfo.default);
+            }
+            if (pInfo.type === 'int') params[pName] = parseInt(val) || 0;
+            else if (pInfo.type === 'float') params[pName] = parseFloat(val) || 0.0;
+            else params[pName] = val;
+        }
+
+        for (const [pName, pInfo] of Object.entries(tool.params)) {
+            if (pInfo.required && (params[pName] === '' || params[pName] === undefined)) {
+                setStepStatus(`❌ 参数 "${pName}" 为必填项`, false);
+                return;
+            }
+        }
+
+        const toolCalls = [{ name: toolName, params }];
+
+        stepRunning = true;
+        disableAllRunBtns(toolName);
+        setStepStatus(`⏳ 正在执行 ${toolName}...`, true);
+
+        try {
+            const res = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'start_hardware', tool_calls: toolCalls })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                setStepStatus(`✅ ${toolName} 执行成功`, false);
+                appendMessage(`✅ 单步执行完成 [${toolName}]: ${data.reply || ''}`, 'ai');
+            } else {
+                setStepStatus(`❌ 执行失败: ${data.reply || '未知错误'}`, false);
+                appendMessage(`❌ 单步执行失败 [${toolName}]: ${data.reply || data.error || ''}`, 'ai');
+            }
+        } catch (e) {
+            setStepStatus(`❌ 网络错误`, false);
+        } finally {
+            stepRunning = false;
+            enableAllRunBtns();
+        }
+    }
+
+    function disableAllRunBtns(activeToolName) {
+        for (const tool of stepPanelTools) {
+            const btn = document.getElementById(`run-btn-${tool.name}`);
+            if (!btn) continue;
+            if (tool.name === activeToolName) {
+                btn.classList.add('running');
+                btn.textContent = '⏳';
+            } else {
+                btn.disabled = true;
+            }
+        }
+    }
+
+    function enableAllRunBtns() {
+        for (const tool of stepPanelTools) {
+            const btn = document.getElementById(`run-btn-${tool.name}`);
+            if (!btn) continue;
+            btn.disabled = false;
+            btn.classList.remove('running');
+            btn.textContent = '▶';
+        }
+    }
+
+    function setStepStatus(msg, isRunning) {
+        const bar = document.getElementById('step-status-bar');
+        if (!bar) return;
+        bar.textContent = msg;
+        bar.className = 'step-status-bar' + (isRunning ? ' running' : '');
     }
 
 

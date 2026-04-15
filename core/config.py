@@ -72,7 +72,7 @@ class Config:
     #   - "vision": 纯视觉模式，将PDF转图片后用Vision API分析（准确但贵）
     #   - "text": 纯文本模式，提取PDF文本后用文本API分析（快速便宜但可能丢失图表）
     #   - "hybrid": 混合模式，先提取文本判断复杂度，复杂内容用Vision，简单内容用文本（推荐）
-    EXTRACTION_MODE: str = "hybrid"
+    EXTRACTION_MODE: str = "vision"
 
     # ======================== 硬件控制配置 ========================
     HARDWARE_TIMEOUT: int = 20         # 硬件控制操作超时时间（秒）

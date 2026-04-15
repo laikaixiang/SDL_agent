@@ -186,6 +186,112 @@ class SoftwareManager:
         finally:
             task_manager.task_running = False
 
+    def run_algorithm_on_csv(self, algorithm_name: str, csv_path: str, params: dict, task_manager) -> None:
+        """
+        读取指定CSV文件并执行算法，通过 task_manager 推送进度
+
+        Args:
+            algorithm_name: 算法名称
+            csv_path      : CSV 文件路径
+            params        : 算法参数
+            task_manager  : TaskManager 实例，用于推送进度
+        """
+        import json
+        from datetime import datetime
+
+        try:
+            # 推送开始消息
+            task_manager.put_task_message("progress", {
+                "stage": "开始分析",
+                "message": f"正在读取文件: {csv_path}"
+            })
+
+            # 读取CSV数据
+            try:
+                data = self._read_csv_as_columns(csv_path)
+            except Exception as e:
+                task_manager.put_task_message("complete", {
+                    "success": False,
+                    "error": f"读取CSV失败: {str(e)}"
+                })
+                return
+
+            if not data:
+                task_manager.put_task_message("complete", {
+                    "success": False,
+                    "error": "CSV文件中没有可解析的数值列"
+                })
+                return
+
+            # 推送数据读取完成
+            task_manager.put_task_message("progress", {
+                "stage": "数据读取完成",
+                "message": f"成功读取 {len(data)} 列数据",
+                "columns": list(data.keys())
+            })
+
+            # 执行算法
+            task_manager.put_task_message("progress", {
+                "stage": "执行算法",
+                "message": f"正在运行算法: {algorithm_name}"
+            })
+
+            result = self.run_algorithm(algorithm_name, data, params)
+
+            if not result.get("success"):
+                task_manager.put_task_message("complete", {
+                    "success": False,
+                    "error": result.get("message", "算法执行失败")
+                })
+                return
+
+            # 保存结果到 results/ 目录
+            os.makedirs('results', exist_ok=True)
+            timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+
+            # 覆盖写（最新结果）
+            output_filename_latest = f"analysis_{algorithm_name}.json"
+            output_path_latest = os.path.join('results', output_filename_latest)
+
+            # 时间戳存档
+            output_filename_archive = f"analysis_{algorithm_name}_{timestamp}.json"
+            output_path_archive = os.path.join('results', output_filename_archive)
+
+            # 保存结果
+            result_with_meta = {
+                "algorithm": algorithm_name,
+                "file_path": csv_path,
+                "params": params,
+                "timestamp": timestamp,
+                "result": result.get("result"),
+                "success": True
+            }
+
+            with open(output_path_latest, 'w', encoding='utf-8') as f:
+                json.dump(result_with_meta, f, ensure_ascii=False, indent=2)
+
+            with open(output_path_archive, 'w', encoding='utf-8') as f:
+                json.dump(result_with_meta, f, ensure_ascii=False, indent=2)
+
+            # 推送完成消息
+            task_manager.put_task_message("complete", {
+                "success": True,
+                "algorithm": algorithm_name,
+                "file_path": csv_path,
+                "result": result.get("result"),
+                "output_path_latest": output_path_latest,
+                "output_path_archive": output_path_archive,
+                "message": f"算法 {algorithm_name} 执行完成"
+            })
+
+        except Exception as e:
+            task_manager.put_task_message("complete", {
+                "success": False,
+                "error": f"执行异常: {str(e)}"
+            })
+        finally:
+            task_manager.task_running = False
+
     # ------------------------------------------------------------------
     # 内部辅助
     # ------------------------------------------------------------------

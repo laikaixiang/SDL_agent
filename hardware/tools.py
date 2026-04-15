@@ -51,6 +51,7 @@ from typing import Optional
 import os
 import base64
 import logging
+import uuid
 
 import PyPDF2
 import fitz  # PyMuPDF - 用于将 PDF 页面渲染为图片
@@ -153,15 +154,20 @@ class Deps:
         send_event (callable): 异步回调函数，用于向前端推送 JSON 事件
                                签名: async def send_event(event: dict) -> None
                                event 格式: {"type": "...", "name": "...", ...}
+        agent: ExperimentDesignAgent 实例引用，用于等待用户确认
+        session_id: 会话ID，用于区分不同用户的确认请求
 
     事件类型说明：
         - {"type": "tool_call", "name": "xxx", "args": {...}}     : 工具被调用（通知前端显示加载状态）
         - {"type": "tool_result", "name": "xxx", "result": "..."}  : 工具执行结果
         - {"type": "pdf_page_image", "page": N, "image": "base64"}: PDF 页面图片（渲染后的base64）
         - {"type": "warning", "content": "..."}                    : 警告信息
+        - {"type": "experiment_confirm", "tool": "xxx", "request_id": "...", "params": {...}}: 请求用户确认
     """
-    def __init__(self, send_event):
+    def __init__(self, send_event, agent=None, session_id=None):
         self.send_event = send_event  # 异步回调，用于将工具执行状态推送给前端
+        self.agent = agent  # ExperimentDesignAgent 实例引用
+        self.session_id = session_id  # 会话ID
 
 
 # =============================================================================
@@ -223,7 +229,7 @@ async def read_pdf(
     page_number: Optional[int] = None,
 ) -> str:
     """
-    从 PDF 文件中提取文本内容
+    从 PDF 文件中提取文本内容（需用户确认页码范围）
 
     如果指定了 page_number，除了提取文本外还会将该页渲染为图片，
     通过 WebSocket 事件发送给前端展示在页面右侧。
@@ -241,6 +247,36 @@ async def read_pdf(
         - 可以先不指定 page_number 读取全文概览
         - 再指定具体页码深入阅读某一页
     """
+    # 生成唯一请求ID
+    request_id = str(uuid.uuid4())
+
+    # 推送确认请求到前端
+    await ctx.deps.send_event({
+        "type": "experiment_confirm",
+        "tool": "read_pdf",
+        "request_id": request_id,
+        "session_id": ctx.deps.session_id,
+        "params": {
+            "file_path": file_path,
+            "page_number": page_number,
+        }
+    })
+
+    # 等待用户响应
+    if ctx.deps.agent:
+        response = await ctx.deps.agent.wait_for_response(request_id)
+
+        if response["action"] == "skip":
+            return "用户跳过读取PDF"
+        elif response["action"] == "cancel":
+            return "用户取消读取PDF"
+        elif response["action"] == "timeout":
+            return "等待用户确认超时"
+        elif response["action"] == "confirm":
+            # 使用修改后的参数（如果有）
+            params = response.get("params", {})
+            page_number = params.get("page_number", page_number)
+
     # 通知前端：read_pdf 工具被调用
     await ctx.deps.send_event({
         "type": "tool_call",
@@ -373,7 +409,7 @@ async def save_experiment_step(
     volume: int = 10,
 ) -> str:
     """
-    注册一步旋涂实验参数到自动化平台
+    注册一步旋涂实验参数到自动化平台（需用户确认）
 
     此函数将实验参数格式化为 MQTT 消息发送给 C# 平台保存。
     一轮完整实验可能包含多个步骤（如先涂底层、再涂活性层），
@@ -403,6 +439,43 @@ async def save_experiment_step(
         - 如果收到 "Reagent is missing"，可调用 get_all_reagents() 检查拼写
     """
     try:
+        # 生成唯一请求ID
+        request_id = str(uuid.uuid4())
+
+        # 推送确认请求到前端
+        await ctx.deps.send_event({
+            "type": "experiment_confirm",
+            "tool": "save_experiment_step",
+            "request_id": request_id,
+            "session_id": ctx.deps.session_id,
+            "params": {
+                "spin_speed": spin_speed,
+                "spin_acc": spin_acc,
+                "spin_dur": spin_dur,
+                "reagent": reagent,
+                "volume": volume,
+            }
+        })
+
+        # 等待用户响应
+        if ctx.deps.agent:
+            response = await ctx.deps.agent.wait_for_response(request_id)
+
+            if response["action"] == "skip":
+                return "用户跳过此步骤"
+            elif response["action"] == "cancel":
+                return "用户取消操作"
+            elif response["action"] == "timeout":
+                return "等待用户确认超时"
+            elif response["action"] == "confirm":
+                # 使用修改后的参数（如果有）
+                params = response.get("params", {})
+                spin_speed = params.get("spin_speed", spin_speed)
+                spin_acc = params.get("spin_acc", spin_acc)
+                spin_dur = params.get("spin_dur", spin_dur)
+                reagent = params.get("reagent", reagent)
+                volume = params.get("volume", volume)
+
         # 通知前端：save_experiment_step 工具被调用，附带参数详情
         await ctx.deps.send_event({
             "type": "tool_call",
@@ -465,7 +538,7 @@ async def start_experiment(
     ctx: RunContext[Deps],
 ) -> bool:
     """
-    启动已注册的多步实验序列
+    启动已注册的多步实验序列（需用户确认）
 
     向 C# 自动化平台发送 "pstart" 命令，平台会按照之前通过
     save_experiment_step() 注册的步骤顺序，依次执行所有实验操作。
@@ -486,6 +559,29 @@ async def start_experiment(
         - 确认后再调用此函数启动实验
     """
     try:
+        # 生成唯一请求ID
+        request_id = str(uuid.uuid4())
+
+        # 推送确认请求到前端
+        await ctx.deps.send_event({
+            "type": "experiment_confirm",
+            "tool": "start_experiment",
+            "request_id": request_id,
+            "session_id": ctx.deps.session_id,
+            "params": {}
+        })
+
+        # 等待用户响应
+        if ctx.deps.agent:
+            response = await ctx.deps.agent.wait_for_response(request_id)
+
+            if response["action"] == "skip":
+                return False
+            elif response["action"] == "cancel":
+                return False
+            elif response["action"] == "timeout":
+                return False
+
         # 通知前端：start_experiment 工具被调用
         await ctx.deps.send_event({
             "type": "tool_call",

@@ -3,6 +3,8 @@
 """
 
 import os
+import asyncio
+import queue as thread_queue
 from typing import Dict
 
 from pydantic_ai import Agent
@@ -39,6 +41,7 @@ class ExperimentDesignAgent:
         self.config = Config()
         self._agent = self._create_agent()       # PydanticAI Agent（全局单例）
         self._sessions: Dict[str, dict] = {}     # 每个会话独立的对话历史
+        self._response_queues: Dict[str, thread_queue.Queue] = {}  # {request_id: queue} 线程安全队列，用于等待用户确认
 
     def _create_agent(self) -> Agent:
         """创建 PydanticAI Agent，绑定 API 和实验工具"""
@@ -87,8 +90,8 @@ class ExperimentDesignAgent:
         else:
             full_input = user_message
 
-        # 创建依赖容器，将 send_event 回调注入到所有工具函数中
-        deps = Deps(send_event=send_event)
+        # 创建依赖容器，将 send_event 回调、agent 引用和 session_id 注入到所有工具函数中
+        deps = Deps(send_event=send_event, agent=self, session_id=session_id)
 
         # 调用 PydanticAI Agent：AI 自主选择工具、决定参数、规划调用顺序
         result = await self._agent.run(
@@ -111,3 +114,55 @@ class ExperimentDesignAgent:
     def get_active_sessions(self) -> list:
         """获取所有活跃会话 ID"""
         return list(self._sessions.keys())
+
+    def create_response_queue(self, request_id: str) -> thread_queue.Queue:
+        """创建一个线程安全队列用于等待用户响应"""
+        q = thread_queue.Queue()
+        self._response_queues[request_id] = q
+        return q
+
+    async def wait_for_response(self, request_id: str, timeout: int = 300) -> dict:
+        """
+        等待用户响应，带超时保护（默认5分钟）
+
+        使用 run_in_executor 将阻塞式 queue.get() 放到线程池执行，
+        既不阻塞事件循环，又能安全地跨线程通信。
+
+        Args:
+            request_id: 请求ID
+            timeout: 超时时间（秒）
+
+        Returns:
+            dict: 用户响应 {"action": "confirm"|"skip"|"cancel"|"timeout", "params": {...}}
+        """
+        # 如果队列不存在则自动创建（工具函数在 send_event 之后立即调用此方法）
+        if request_id not in self._response_queues:
+            self._response_queues[request_id] = thread_queue.Queue()
+        q = self._response_queues[request_id]
+
+        loop = asyncio.get_event_loop()
+        try:
+            # 在线程池中阻塞等待，不阻塞事件循环
+            response = await loop.run_in_executor(
+                None, lambda: q.get(timeout=timeout)
+            )
+            return response
+        except thread_queue.Empty:
+            return {"action": "timeout"}
+        finally:
+            self._response_queues.pop(request_id, None)
+
+    def submit_response(self, request_id: str, response: dict):
+        """
+        提交用户响应到等待队列（由 Flask 请求线程同步调用）
+
+        使用线程安全的 queue.Queue.put()，可安全地从任意线程调用。
+
+        Args:
+            request_id: 请求ID
+            response: 用户响应数据
+        """
+        # 防御性创建：极端情况下 submit 可能先于 wait_for_response 执行
+        if request_id not in self._response_queues:
+            self._response_queues[request_id] = thread_queue.Queue()
+        self._response_queues[request_id].put(response)

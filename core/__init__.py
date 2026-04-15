@@ -7,7 +7,7 @@
 from .config import Config
 from .llm_client import LLMClient
 from .pdf_processor import PDFProcessor
-from .field_inference import FieldInference, IntentRecognizer
+from .field_inference import FieldInference, AlgorithmParser
 from .hardware_controller import HardwareController
 from .task_manager import TaskManager
 from .extraction_engine import ExtractionEngine
@@ -21,7 +21,7 @@ __all__ = [
     'LLMClient',
     'PDFProcessor',
     'FieldInference',
-    'IntentRecognizer',
+    'AlgorithmParser',
     'HardwareController',
     'TaskManager',
     'ExtractionEngine',

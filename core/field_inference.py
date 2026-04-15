@@ -167,132 +167,135 @@ class FieldInference:
         return create_model('DynamicRecord', **field_definitions)
 
 
-class IntentRecognizer:
+
+
+class AlgorithmParser:
     """
-    意图识别器 - 判断用户是想要"设计实验"还是"单步控制硬件"
+    算法解析器 - 解析用户输入的算法名称
 
     职责：
-    - 分析用户输入，判断意图类型
-    - 返回意图类型和置信度
-    - 使用 LLM 进行智能识别，关键词匹配作为后备
+    - 从用户输入中识别算法名称
+    - 提供算法标签和图标映射
+    - 支持关键词匹配和模糊识别
     """
 
     def __init__(self, llm_client: LLMClient = None):
         """
-        初始化意图识别器
+        初始化算法解析器
 
         Args:
-            llm_client: LLM 客户端实例（可选，不传则创建新实例）
+            llm_client: LLM 客户端实例（可选）
         """
         self.llm_client = llm_client or LLMClient()
         self.config = Config()
 
-        # 意图关键词
-        self.experiment_keywords = [
-            "实验", "设计", "流程", "方案", "规划",
-            "步骤", "完整", "自动", "帮我做", "帮我完成"
-        ]
-        self.hardware_keywords = [
-            "移动", "转速", "温度", "测量", "设置",
-            "控制", "执行", "启动", "停止", "调整"
-        ]
+        # 算法关键词映射
+        self.algo_keywords = {
+            'data_statistics': ['统计', 'statistics', '均值', '标准差', '相关性', '方差'],
+            'data_normalization': ['归一化', 'normalization', '标准化', 'minmax', 'zscore', '正规化'],
+            'spectrum_analysis': ['光谱', 'spectrum', '峰值', '基线', '波长', '吸收']
+        }
 
-    def recognize(self, user_input: str) -> Tuple[str, float]:
+        # 算法标签映射
+        self.algo_tags = {
+            'data_statistics': ['数值数据', '多列支持'],
+            'data_normalization': ['预处理', '单列'],
+            'spectrum_analysis': ['光谱数据', '波长-强度']
+        }
+
+        # 算法图标映射
+        self.algo_icons = {
+            'data_statistics': '📈',
+            'data_normalization': '🔧',
+            'spectrum_analysis': '🌈'
+        }
+
+    def parse(self, user_input: str, available_algorithms: List[Dict]) -> Dict[str, Any]:
         """
-        识别用户意图
+        解析用户输入，判断是否指定了算法名称
 
         Args:
             user_input: 用户输入文本
+            available_algorithms: 可用算法列表
 
         Returns:
-            (intent, confidence) 元组
-            - intent: "experiment_design" 或 "hardware_control"
-            - confidence: 置信度 (0.0-1.0)
+            解析结果字典：
+            {
+                "algorithm_found": bool,
+                "algorithm": str (如果找到),
+                "description": str (如果找到),
+                "params": dict (如果找到),
+                "icon": str (如果找到),
+                "tags": list (如果找到),
+                "available_algorithms": list (如果未找到)
+            }
         """
-        # 首先尝试使用 LLM 进行意图识别
-        try:
-            intent, confidence = self._recognize_with_llm(user_input)
-            return intent, confidence
-        except Exception:
-            # LLM 调用失败，使用关键词匹配
-            return self._recognize_with_keywords(user_input)
+        user_input_lower = user_input.lower().strip()
 
-    def _recognize_with_llm(self, user_input: str) -> Tuple[str, float]:
+        # 尝试关键词匹配
+        for algo_name, keywords in self.algo_keywords.items():
+            if any(kw in user_input_lower for kw in keywords):
+                # 在可用算法中查找
+                algo_info = self._find_algorithm_info(algo_name, available_algorithms)
+                if algo_info:
+                    return {
+                        "algorithm_found": True,
+                        "algorithm": algo_name,
+                        "description": algo_info.get('description', ''),
+                        "params": algo_info.get('params_schema', {}),
+                        "icon": self.get_icon(algo_name),
+                        "tags": self.get_tags(algo_name)
+                    }
+
+        # 未找到匹配算法，返回所有可用算法（带标签和图标）
+        enriched_algorithms = []
+        for algo in available_algorithms:
+            algo_copy = algo.copy()
+            algo_copy['tags'] = self.get_tags(algo['name'])
+            algo_copy['icon'] = self.get_icon(algo['name'])
+            enriched_algorithms.append(algo_copy)
+
+        return {
+            "algorithm_found": False,
+            "available_algorithms": enriched_algorithms
+        }
+
+    def _find_algorithm_info(self, algo_name: str, available_algorithms: List[Dict]) -> Dict | None:
         """
-        使用 LLM 进行意图识别
+        在可用算法列表中查找指定算法的信息
 
         Args:
-            user_input: 用户输入文本
+            algo_name: 算法名称
+            available_algorithms: 可用算法列表
 
         Returns:
-            (intent, confidence) 元组
+            算法信息字典或None
         """
-        prompt = f"""
-请判断用户的意图是"实验设计"还是"硬件控制"。
+        for algo in available_algorithms:
+            if algo.get('name') == algo_name:
+                return algo
+        return None
 
-用户输入：{user_input}
-
-判断标准：
-- 实验设计：用户想要规划一个完整的实验流程，包含多个步骤，需要AI自主选择工具和参数
-  特征：描述性需求、多步骤、需要规划、希望AI自动完成
-  示例："设计一个旋涂实验"、"帮我做一个温度测试"、"规划一个光谱测量流程"
-
-- 硬件控制：用户想要执行具体的单步硬件操作，明确指定了操作和参数
-  特征：具体操作、明确参数、单步执行
-  示例："移动到位置A"、"设置转速3000rpm"、"测量光谱"
-
-请只返回 JSON 格式（不要用markdown代码块包裹）：
-{{"intent": "experiment_design" 或 "hardware_control", "confidence": 0.0-1.0}}
-"""
-
-        messages = [{"role": "user", "content": prompt}]
-
-        result = self.llm_client.call_api(
-            model=self.config.MODEL_NAME_TALK,
-            messages=messages,
-            temperature=0.1,
-            max_tokens=100
-        )
-
-        if result:
-            content = result['choices'][0]['message']['content'].strip()
-
-            # 去除可能的 markdown 代码块包裹
-            if content.startswith("```"):
-                content = content.split("\n", 1)[1] if "\n" in content else content
-                content = content.rsplit("```", 1)[0]
-
-            data = json.loads(content)
-            intent = data.get("intent", "hardware_control")
-            confidence = float(data.get("confidence", 0.5))
-
-            return intent, confidence
-
-        # 如果 API 调用失败，抛出异常让外层捕获
-        raise Exception("LLM API call failed")
-
-    def _recognize_with_keywords(self, user_input: str) -> Tuple[str, float]:
+    def get_tags(self, algo_name: str) -> List[str]:
         """
-        使用关键词匹配进行意图识别（后备方案）
+        获取算法标签
 
         Args:
-            user_input: 用户输入文本
+            algo_name: 算法名称
 
         Returns:
-            (intent, confidence) 元组
+            标签列表
         """
-        exp_score = sum(1 for kw in self.experiment_keywords if kw in user_input)
-        hw_score = sum(1 for kw in self.hardware_keywords if kw in user_input)
+        return self.algo_tags.get(algo_name, ['通用'])
 
-        if exp_score > hw_score:
-            intent = "experiment_design"
-            confidence = min(0.6 + exp_score * 0.1, 0.9)
-        elif hw_score > exp_score:
-            intent = "hardware_control"
-            confidence = min(0.6 + hw_score * 0.1, 0.9)
-        else:
-            # 无法判断，默认为硬件控制
-            intent = "hardware_control"
-            confidence = 0.5
+    def get_icon(self, algo_name: str) -> str:
+        """
+        获取算法图标
 
-        return intent, confidence
+        Args:
+            algo_name: 算法名称
+
+        Returns:
+            图标emoji
+        """
+        return self.algo_icons.get(algo_name, '📊')

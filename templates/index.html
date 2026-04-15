@@ -41,8 +41,15 @@
         .tool-btn:hover { background: #e5e7eb; color: var(--primary); }
         .mode-menu { position: absolute; bottom: 70px; left: 20px; background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); width: 180px; display: none; flex-direction: column; overflow: hidden; z-index: 10; transform-origin: bottom left; animation: popup 0.2s ease-out; }
         @keyframes popup { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
-        .mode-item { padding: 12px 16px; font-size: 0.95rem; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: background 0.2s; border-bottom: 1px solid #f3f4f6; }
+        .mode-item { padding: 12px 16px; font-size: 0.95rem; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: background 0.2s; border-bottom: 1px solid #f3f4f6; position: relative; }
         .mode-item:hover { background: #eff6ff; color: var(--primary); }
+        .hardware-parent { justify-content: space-between; }
+
+        /* 硬件子菜单 */
+        .hardware-submenu { position: absolute; bottom: 70px; left: 210px; background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); width: 220px; display: none; flex-direction: column; overflow: hidden; z-index: 11; transform-origin: bottom left; animation: popup 0.2s ease-out; }
+        .submenu-item { padding: 12px 16px; font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: background 0.2s; border-bottom: 1px solid #f3f4f6; }
+        .submenu-item:hover { background: #eff6ff; color: var(--primary); }
+        .submenu-item:last-child { border-bottom: none; }
 
         .input-container { flex: 1; display: flex; align-items: center; background: #fff; border: 1px solid #d1d5db; border-radius: 24px; padding: 4px 14px; transition: border 0.2s; overflow: hidden; }
         .input-container.disabled { background: #f3f4f6; cursor: not-allowed; }
@@ -92,6 +99,142 @@
         .analysis-table td { padding: 4px 10px; border-bottom: 1px solid #dbeafe; }
         .analysis-table td:first-child { color: #1e40af; font-weight: bold; width: 50%; }
         .analysis-filepath { font-size: 0.78rem; color: #9ca3af; margin-top: 10px; word-break: break-all; }
+
+        /* 算法列表卡片 */
+        .algorithm-list-card { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; margin-top: 10px; width: 100%; }
+        .algorithm-list-card .card-header { font-size: 1.1rem; font-weight: bold; color: #1f2937; margin-bottom: 8px; }
+        .algorithm-list-card .card-hint { font-size: 0.85rem; color: #6b7280; margin-bottom: 16px; }
+        .algorithm-grid { display: flex; flex-direction: column; gap: 12px; }
+        .algo-item { display: flex; align-items: center; gap: 12px; background: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px; transition: all 0.2s; cursor: pointer; }
+        .algo-item:hover { border-color: #10b981; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.1); }
+        .algo-icon { font-size: 2rem; flex-shrink: 0; }
+        .algo-content { flex: 1; }
+        .algo-name { font-weight: bold; color: #1f2937; font-size: 0.95rem; margin-bottom: 4px; }
+        .algo-desc { font-size: 0.8rem; color: #6b7280; margin-bottom: 6px; }
+        .algo-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+        .algo-tag { background: #dbeafe; color: #1e40af; font-size: 0.7rem; padding: 2px 8px; border-radius: 4px; }
+        .algo-run-btn { background: #10b981; color: white; border: none; width: 40px; height: 40px; border-radius: 50%; font-size: 1.2rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; flex-shrink: 0; }
+        .algo-run-btn:hover { background: #059669; transform: scale(1.1); }
+
+        /* 算法确认卡片 */
+        .algorithm-confirm-card { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 18px; margin-top: 10px; width: 100%; }
+        .selected-algo { margin-bottom: 16px; }
+        .algo-badge { display: flex; align-items: center; gap: 8px; background: #1e40af; color: white; padding: 8px 14px; border-radius: 8px; font-weight: bold; font-size: 0.95rem; width: fit-content; margin-bottom: 8px; }
+        .algo-description { font-size: 0.85rem; color: #6b7280; }
+        .param-config { background: white; border: 1px solid #dbeafe; border-radius: 6px; padding: 12px; margin-bottom: 16px; }
+        .param-title { font-weight: bold; font-size: 0.85rem; color: #1e40af; margin-bottom: 8px; }
+        .param-checkbox { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: #374151; cursor: pointer; }
+        .param-checkbox input { width: 16px; height: 16px; cursor: pointer; }
+
+        /* 文件选择器模态框 */
+        .file-selector-modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 2000; display: none; justify-content: center; align-items: center; }
+        .modal-backdrop { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px); }
+        .file-selector-content { position: relative; background: white; width: 90%; max-width: 600px; max-height: 70vh; border-radius: 16px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); display: flex; flex-direction: column; overflow: hidden; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 24px; border-bottom: 1px solid #e5e7eb; }
+        .modal-header h3 { margin: 0; font-size: 1.1rem; color: #1f2937; }
+        .close-icon { background: none; border: none; font-size: 2rem; color: #9ca3af; cursor: pointer; line-height: 1; padding: 0; }
+        .close-icon:hover { color: #374151; }
+        .file-tabs { display: flex; border-bottom: 1px solid #e5e7eb; padding: 0 24px; }
+        .tab-btn { background: none; border: none; padding: 12px 20px; font-size: 0.9rem; color: #6b7280; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; }
+        .tab-btn.active { color: #10b981; border-bottom-color: #10b981; font-weight: bold; }
+        .file-list { flex: 1; overflow-y: auto; padding: 16px 24px; }
+        .file-item { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 10px; cursor: pointer; transition: all 0.2s; }
+        .file-item:hover { border-color: #10b981; background: #f0fdf4; }
+        .file-icon { font-size: 1.8rem; flex-shrink: 0; }
+        .file-info { flex: 1; }
+        .file-name { font-weight: bold; color: #1f2937; font-size: 0.9rem; margin-bottom: 2px; }
+        .file-path { font-size: 0.75rem; color: #6b7280; font-family: monospace; margin-bottom: 2px; }
+        .file-meta { font-size: 0.7rem; color: #9ca3af; }
+        .file-check { font-size: 1.5rem; color: #10b981; opacity: 0; transition: opacity 0.2s; }
+        .file-item:hover .file-check { opacity: 1; }
+        .upload-btn { width: 100%; padding: 40px; background: #f9fafb; border: 2px dashed #d1d5db; border-radius: 8px; font-size: 1rem; color: #6b7280; cursor: pointer; transition: all 0.2s; }
+        .upload-btn:hover { border-color: #10b981; background: #f0fdf4; color: #10b981; }
+        .upload-hint { text-align: center; font-size: 0.8rem; color: #9ca3af; margin-top: 12px; }
+        .default-path-input { display: flex; gap: 10px; }
+        .default-path-input input { flex: 1; padding: 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 0.9rem; }
+        .btn-confirm-path { background: #10b981; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: bold; }
+        .btn-confirm-path:hover { background: #059669; }
+
+        /* 实验确认卡片样式 */
+        .experiment-confirm-card {
+            background: #fef3c7;
+            border: 1px solid #fbbf24;
+            border-radius: 12px;
+            padding: 18px;
+            margin-top: 10px;
+            width: 100%;
+        }
+
+        .experiment-confirm-card .card-header {
+            font-size: 1.1rem;
+            font-weight: bold;
+            color: #92400e;
+            margin-bottom: 8px;
+        }
+
+        .experiment-confirm-card .card-tool-name {
+            font-size: 0.85rem;
+            color: #78350f;
+            font-family: monospace;
+            margin-bottom: 12px;
+        }
+
+        .param-list {
+            background: white;
+            border: 1px solid #fde68a;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 16px;
+        }
+
+        .param-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 8px;
+        }
+
+        .param-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .param-row span:first-child {
+            font-weight: bold;
+            color: #92400e;
+            min-width: 120px;
+        }
+
+        .param-row input {
+            flex: 1;
+            padding: 6px 10px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 0.9rem;
+        }
+
+        .param-hint {
+            background: white;
+            border: 1px solid #fde68a;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 16px;
+            color: #78350f;
+            font-size: 0.9rem;
+        }
+
+        .btn-edit {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .btn-edit:hover {
+            background: #2563eb;
+        }
     </style>
 </head>
 <body>
@@ -112,8 +255,16 @@
     <div class="mode-menu" id="mode-menu">
         <div class="mode-item" onclick="setMode('normal', '', '')">💬 普通问答模式</div>
         <div class="mode-item" onclick="setMode('extract', '帮我搜寻：', '📄 文献提取')">📄 文献提取模式</div>
-        <div class="mode-item" onclick="setMode('hardware', '硬件控制：', '⚙️ 硬件操控')">⚙️ 硬件操控模式</div>
+        <div class="mode-item hardware-parent" onmouseenter="showHardwareSubmenu(event)" onmouseleave="hideHardwareSubmenu()">
+            ⚙️ 硬件操控模式 ▶
+        </div>
         <div class="mode-item" onclick="setMode('analyze', '数据分析：', '📊 数据分析')">📊 数据分析模式</div>
+    </div>
+
+    <!-- 硬件子菜单 -->
+    <div class="hardware-submenu" id="hardware-submenu" onmouseenter="keepHardwareSubmenu()" onmouseleave="hideHardwareSubmenu()">
+        <div class="submenu-item" onclick="setMode('hardware_single', '硬件控制：', '🔧 单步控制')">🔧 单步控制</div>
+        <div class="submenu-item" onclick="setMode('hardware_design', '实验设计：', '🔬 实验设计（默认）')">🔬 实验设计（默认）</div>
     </div>
 
     <div class="input-area">
@@ -152,6 +303,42 @@
     </div>
 </div>
 
+<!-- 文件选择器模态框 -->
+<div class="file-selector-modal" id="file-selector-modal">
+    <div class="modal-backdrop" onclick="closeFileSelector()"></div>
+    <div class="file-selector-content">
+        <div class="modal-header">
+            <h3>📁 选择数据文件</h3>
+            <button class="close-icon" onclick="closeFileSelector()">×</button>
+        </div>
+
+        <div class="file-tabs">
+            <button class="tab-btn active" onclick="switchFileTab('recent')">最近使用</button>
+            <button class="tab-btn" onclick="switchFileTab('browse')">浏览文件</button>
+            <button class="tab-btn" onclick="switchFileTab('custom')">自定义路径</button>
+        </div>
+
+        <div class="file-list" id="file-list-recent">
+            <div style="text-align: center; color: #9ca3af; padding: 20px;">加载中...</div>
+        </div>
+
+        <div class="file-list" id="file-list-browse" style="display:none;">
+            <input type="file" id="file-upload-csv" accept=".csv" style="display:none;" onchange="handleCSVUpload(event)">
+            <button class="upload-btn" onclick="document.getElementById('file-upload-csv').click()">
+                📤 上传本地CSV文件
+            </button>
+            <div class="upload-hint">或将CSV文件拖拽到此处</div>
+        </div>
+
+        <div class="file-list" id="file-list-custom" style="display:none;">
+            <div class="default-path-input">
+                <input type="text" id="custom-path-input" placeholder="输入文件路径，如: temporal/extraction.csv" />
+                <button class="btn-confirm-path" onclick="confirmCustomPath()">确认</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
     const chatBox = document.getElementById('chat-box');
     const userInput = document.getElementById('user-input');
@@ -166,15 +353,43 @@
     let chatStreaming = false;        // 聊天流式响应中
     let hardwareRunning = false;      // 硬件执行中（不可中断）
 
+    // 算法交互相关全局变量
+    let selectedAlgorithm = null;
+    let selectedFilePath = null;
+    let algorithmParams = {};
+
     toolBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         modeMenu.style.display = modeMenu.style.display === 'flex' ? 'none' : 'flex';
     });
-    document.addEventListener('click', () => modeMenu.style.display = 'none');
+    document.addEventListener('click', () => {
+        modeMenu.style.display = 'none';
+        hideHardwareSubmenu();
+    });
+
+    // 硬件子菜单控制
+    let hardwareSubmenuTimer = null;
+
+    function showHardwareSubmenu(event) {
+        event.stopPropagation();
+        clearTimeout(hardwareSubmenuTimer);
+        document.getElementById('hardware-submenu').style.display = 'flex';
+    }
+
+    function hideHardwareSubmenu() {
+        hardwareSubmenuTimer = setTimeout(() => {
+            document.getElementById('hardware-submenu').style.display = 'none';
+        }, 200);
+    }
+
+    function keepHardwareSubmenu() {
+        clearTimeout(hardwareSubmenuTimer);
+    }
 
     function setMode(id, prefix, label) {
         currentMode = { id, prefix, label };
         modeMenu.style.display = 'none';
+        hideHardwareSubmenu();
         if (id === 'normal') {
             modeBadge.style.display = 'none';
             userInput.placeholder = '输入问题或指令...';
@@ -218,6 +433,13 @@
         userInput.value = '';
         setNormalLoadingState(true);
 
+        // 特殊处理：数据分析模式
+        if (currentMode.id === 'analyze') {
+            await handleAnalyzeMode(text);
+            setNormalLoadingState(false);
+            return;
+        }
+
         abortController = new AbortController();
 
         try {
@@ -237,12 +459,20 @@
                 setNormalLoadingState(false);
                 const data = await response.json();
 
-                if (data.type === 'field_confirm') {
+                if (data.type === 'hardware_confirm') {
+                    renderHardwareConfirm(data.tool_calls, data.reply);
+                }
+                else if (data.type === 'field_confirm') {
                     if (data.task_desc === '硬件控制') {
                         renderHardwareConfirm(data.fields, data.reply);
                     } else {
                         renderFieldConfirm(data.task_desc, data.fields, data.reply);
                     }
+                }
+                else if (data.type === 'experiment_design_mode') {
+                    // 实验设计模式：显示提示后自动启动实验设计 Agent
+                    appendMessage(data.reply, 'ai');
+                    startExperimentChat(data.command);
                 }
                 else if (data.type === 'task_trigger') {
                     appendMessage(data.reply, 'ai');
@@ -339,8 +569,9 @@ ${replyMsg.replace(/\n/g, '<br>')}
         const html = `<div>
 ${replyMsg.replace(/\n/g, '<br>')}
 <div class="agent-actions">
-    <button class="btn-yes" onclick='confirmHardware(${JSON.stringify(toolCalls)}, this)'>确认执行硬件操作</button>
-    <button class="btn-no" onclick='cancelHardware(this)'>取消</button>
+    <button class="btn-yes" onclick='confirmHardware(${JSON.stringify(toolCalls)}, this)'>✅ 确认执行</button>
+    <button class="btn-no" onclick='cancelHardware(this)'>❌ 取消</button>
+    <button class="btn-no" onclick='supplementHardware(this)'>💬 补充</button>
 </div>
 </div>`;
         appendMessageHtml(html, 'ai');
@@ -351,7 +582,7 @@ ${replyMsg.replace(/\n/g, '<br>')}
 
         btnElement.disabled = true;
         btnElement.parentElement.innerHTML = '<i>(用户已确认)</i>';
-        appendMessageHtml("确认，请执行硬件操作。", "user");
+        appendMessageHtml("✅ 确认，请执行硬件操作。", "user");
 
         setHardwareRunningState(true);
         try {
@@ -362,19 +593,27 @@ ${replyMsg.replace(/\n/g, '<br>')}
             });
             const data = await res.json();
             if (data.status === 'success') {
-                appendMessage('硬件操作执行完成。\n' + (data.reply || ''), 'ai');
+                appendMessage('✅ 硬件操作执行完成。\n' + (data.reply || ''), 'ai');
             } else {
-                appendMessage('硬件操作执行失败: ' + (data.reply || data.error || '未知错误'), 'ai');
+                appendMessage('❌ 硬件操作执行失败: ' + (data.reply || data.error || '未知错误'), 'ai');
             }
         } catch (e) {
-            appendMessage('硬件通信异常: ' + e.message, 'ai');
+            appendMessage('❌ 硬件通信异常: ' + e.message, 'ai');
         }
         setHardwareRunningState(false);
     }
 
     function cancelHardware(btnElement) {
         btnElement.parentElement.innerHTML = '<i>(用户已取消)</i>';
-        appendMessageHtml("已取消硬件操作。", "user");
+        appendMessageHtml("❌ 已取消硬件操作。", "user");
+    }
+
+    function supplementHardware(btnElement) {
+        btnElement.parentElement.innerHTML = '<i>(用户要求补充)</i>';
+        appendMessageHtml("💬 我需要补充说明。", "user");
+        setMode('hardware_single', '硬件控制：', '🔧 单步控制');
+        userInput.placeholder = "请输入补充说明，例如：修改转速为4000rpm...";
+        userInput.focus();
     }
 
     // =====================================
@@ -412,6 +651,10 @@ ${replyMsg.replace(/\n/g, '<br>')}
                     imgEl.style.opacity = "1";
                 }
             }
+            else if (msg.type === 'experiment_confirm') {
+                // 新增：处理实验确认请求
+                renderExperimentConfirm(msg);
+            }
             else if (msg.type === 'analysis_result' && msg.data) {
                 const d = msg.data;
                 const summary = d.result_summary || {};
@@ -447,7 +690,7 @@ ${replyMsg.replace(/\n/g, '<br>')}
 
                 findingsEl.appendChild(findingDiv); // 修复: 从下面插入
             } else if (msg.type === 'complete') {
-                logEl.textContent = `✅ 提取结束！`;
+                logEl.textContent = `✅ 任务结束！`;
                 logEl.style.color = '#047857';
 
                 // 完成时关闭扫描动画，但保留画面供复盘
@@ -457,11 +700,14 @@ ${replyMsg.replace(/\n/g, '<br>')}
                 eventSource.close();
                 setTaskRunningState(false); // 恢复正常UI
                 const completeData = msg.data || {};
-                if (completeData.error) {
-                    appendMessage(`❌ 分析失败：${completeData.error}`, 'ai');
+                if (completeData.agent_reply) {
+                    // 实验设计 Agent 完成，显示 AI 回复
+                    appendMessage(completeData.agent_reply, 'ai');
+                } else if (completeData.error) {
+                    appendMessage(`❌ 任务失败：${completeData.error}`, 'ai');
                 } else if (completeData.algorithm) {
                     // 数据分析任务完成
-                    appendMessage(`✅ 分析完成！结果已保存至：${completeData.file}`, 'ai');
+                    displayAnalysisResult(completeData);
                 } else {
                     // 文献提取任务完成
                     showSummaryModal(completeData.csv || '', completeData.count || 0);
@@ -643,6 +889,446 @@ ${replyMsg.replace(/\n/g, '<br>')}
 
         fileUpload.value = ''; // 清空选择器，允许重复上传同一文件
     }
+
+    // =====================================
+    // 🌟 算法交互逻辑
+    // =====================================
+
+    // 处理数据分析模式
+    async function handleAnalyzeMode(userInput) {
+        if (!userInput || userInput.trim() === '') {
+            // 空输入，返回算法列表
+            try {
+                const res = await fetch('/api/list_algorithms');
+                const data = await res.json();
+                if (data.success) {
+                    displayAlgorithmList(data.algorithms);
+                } else {
+                    appendMessage('获取算法列表失败', 'ai');
+                }
+            } catch (e) {
+                appendMessage('网络异常：' + e.message, 'ai');
+            }
+        } else {
+            // 尝试解析算法名称
+            try {
+                const res = await fetch('/api/parse_algorithm', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_input: userInput })
+                });
+                const data = await res.json();
+
+                if (data.algorithm_found) {
+                    displayAlgorithmConfirm(data.algorithm, data.description, data.icon, data.tags);
+                } else {
+                    appendMessage('未识别到算法名称，请从列表中选择：', 'ai');
+                    displayAlgorithmList(data.available_algorithms);
+                }
+            } catch (e) {
+                appendMessage('网络异常：' + e.message, 'ai');
+            }
+        }
+    }
+
+    // 显示算法列表
+    function displayAlgorithmList(algorithms) {
+        let html = `
+            <div class="algorithm-list-card">
+                <div class="card-header">📊 可用算法列表</div>
+                <div class="card-hint">请选择要执行的算法</div>
+                <div class="algorithm-grid">`;
+
+        algorithms.forEach(algo => {
+            const tags = algo.tags || [];
+            const tagsHtml = tags.map(tag => `<span class="algo-tag">${tag}</span>`).join('');
+            html += `
+                <div class="algo-item">
+                    <div class="algo-icon">${algo.icon || '📊'}</div>
+                    <div class="algo-content">
+                        <div class="algo-name">${algo.description || algo.name}</div>
+                        <div class="algo-desc">${algo.name}</div>
+                        <div class="algo-tags">${tagsHtml}</div>
+                    </div>
+                    <button class="algo-run-btn" onclick="selectAlgorithm('${algo.name}', '${algo.description}', '${algo.icon}')">▶</button>
+                </div>`;
+        });
+
+        html += `
+                </div>
+            </div>`;
+
+        appendMessageHtml(html, 'ai');
+    }
+
+    // 显示算法确认卡片
+    function displayAlgorithmConfirm(algoName, description, icon, tags) {
+        const tagsHtml = (tags || []).map(tag => `<span class="algo-tag">${tag}</span>`).join('');
+        const html = `
+            <div class="algorithm-confirm-card">
+                <div class="card-header">🎯 算法已选择</div>
+                <div class="selected-algo">
+                    <div class="algo-badge">
+                        <span class="algo-icon">${icon || '📊'}</span>
+                        <span class="algo-name">${algoName}</span>
+                    </div>
+                    <div class="algo-description">${description || ''}</div>
+                    <div class="algo-tags" style="margin-top: 8px;">${tagsHtml}</div>
+                </div>
+                <div class="agent-actions">
+                    <button class="btn-yes" onclick="runAlgorithmWithFile('${algoName}')">▶ 选择数据文件并运行</button>
+                    <button class="btn-no" onclick="cancelAlgorithm()">✗ 取消</button>
+                </div>
+            </div>`;
+
+        appendMessageHtml(html, 'ai');
+    }
+
+    // 用户点击算法列表中的运行箭头
+    function selectAlgorithm(algoName, description, icon) {
+        selectedAlgorithm = algoName;
+        showFileSelector();
+    }
+
+    // 用户在确认卡片中点击"选择数据文件并运行"
+    function runAlgorithmWithFile(algoName) {
+        selectedAlgorithm = algoName;
+        showFileSelector();
+    }
+
+    // 取消算法选择
+    function cancelAlgorithm() {
+        appendMessage('已取消算法执行', 'user');
+        selectedAlgorithm = null;
+    }
+
+    // 显示文件选择器
+    async function showFileSelector() {
+        const modal = document.getElementById('file-selector-modal');
+        modal.style.display = 'flex';
+
+        // 加载最近使用的文件
+        try {
+            const res = await fetch('/api/recent_files');
+            const data = await res.json();
+            if (data.success) {
+                renderRecentFiles(data.files);
+            }
+        } catch (e) {
+            document.getElementById('file-list-recent').innerHTML =
+                '<div style="text-align: center; color: #ef4444; padding: 20px;">加载失败</div>';
+        }
+    }
+
+    // 渲染最近使用的文件列表
+    function renderRecentFiles(files) {
+        const container = document.getElementById('file-list-recent');
+
+        if (!files || files.length === 0) {
+            container.innerHTML = '<div style="text-align: center; color: #9ca3af; padding: 20px;">暂无最近使用的文件</div>';
+            return;
+        }
+
+        let html = '';
+        files.forEach(file => {
+            html += `
+                <div class="file-item" onclick="selectFile('${file.path}')">
+                    <span class="file-icon">📄</span>
+                    <div class="file-info">
+                        <div class="file-name">${file.name}</div>
+                        <div class="file-path">${file.path}</div>
+                        <div class="file-meta">最后修改: ${file.modified_str}</div>
+                    </div>
+                    <span class="file-check">✓</span>
+                </div>`;
+        });
+
+        container.innerHTML = html;
+    }
+
+    // 关闭文件选择器
+    function closeFileSelector() {
+        document.getElementById('file-selector-modal').style.display = 'none';
+    }
+
+    // 切换文件选择标签页
+    function switchFileTab(tabName) {
+        // 更新标签按钮状态
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        event.target.classList.add('active');
+
+        // 切换内容
+        document.getElementById('file-list-recent').style.display = 'none';
+        document.getElementById('file-list-browse').style.display = 'none';
+        document.getElementById('file-list-custom').style.display = 'none';
+        document.getElementById(`file-list-${tabName}`).style.display = 'block';
+    }
+
+    // 用户选择文件
+    function selectFile(filePath) {
+        selectedFilePath = filePath;
+        closeFileSelector();
+        executeAlgorithm(selectedAlgorithm, selectedFilePath, {});
+    }
+
+    // 处理CSV文件上传
+    function handleCSVUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        // 这里可以实现文件上传到服务器的逻辑
+        // 暂时使用文件名作为路径
+        appendMessage(`已选择文件: ${file.name}`, 'ai');
+        closeFileSelector();
+    }
+
+    // 确认自定义路径
+    function confirmCustomPath() {
+        const path = document.getElementById('custom-path-input').value.trim();
+        if (!path) {
+            alert('请输入文件路径');
+            return;
+        }
+        selectFile(path);
+    }
+
+    // 执行算法
+    async function executeAlgorithm(algoName, filePath, params) {
+        appendMessage(`正在执行算法 ${algoName}，数据文件: ${filePath}...`, 'ai');
+
+        try {
+            const res = await fetch('/api/run_algorithm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    algorithm: algoName,
+                    file_path: filePath,
+                    params: params
+                })
+            });
+
+            const data = await res.json();
+
+            if (data.success) {
+                // 启动SSE监听任务进度
+                startTaskStream();
+            } else {
+                appendMessage(`❌ 执行失败: ${data.message}`, 'ai');
+            }
+        } catch (e) {
+            appendMessage(`❌ 网络异常: ${e.message}`, 'ai');
+        }
+    }
+
+    // 显示算法执行结果
+    function displayAnalysisResult(data) {
+        const result = data.result || {};
+        let rowsHtml = '';
+
+        // 递归展开结果对象
+        function flattenObject(obj, prefix = '') {
+            for (const [key, value] of Object.entries(obj)) {
+                const fullKey = prefix ? `${prefix}.${key}` : key;
+                if (value && typeof value === 'object' && !Array.isArray(value)) {
+                    flattenObject(value, fullKey);
+                } else {
+                    const displayValue = Array.isArray(value)
+                        ? `[${value.length} items]`
+                        : (typeof value === 'number' ? value.toFixed(4) : String(value));
+                    rowsHtml += `<tr><td>${fullKey}</td><td>${displayValue}</td></tr>`;
+                }
+            }
+        }
+
+        flattenObject(result);
+
+        const html = `
+            <div class="analysis-card">
+                <div class="analysis-algo">✅ ${data.algorithm} 执行完成</div>
+                <div class="analysis-reason">数据文件: ${data.file_path}</div>
+                <table class="analysis-table">${rowsHtml}</table>
+                <div class="analysis-filepath">
+                    📁 最新结果: ${data.output_path_latest}<br>
+                    📁 存档结果: ${data.output_path_archive}
+                </div>
+            </div>`;
+
+        appendMessageHtml(html, 'ai');
+    }
+
+    // =====================================
+    // 🌟 实验设计 Agent 启动
+    // =====================================
+    async function startExperimentChat(command) {
+        // 为每次实验设计对话生成唯一会话ID
+        const sessionId = 'exp_' + Date.now();
+        window.currentExperimentSession = sessionId;
+
+        setNormalLoadingState(true);
+        try {
+            const res = await fetch('/api/experiment_chat', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    session_id: sessionId,
+                    message: command
+                })
+            });
+            const data = await res.json();
+            setNormalLoadingState(false);
+
+            if (data.type === 'task_trigger') {
+                appendMessage(data.reply, 'ai');
+                startTaskStream();  // 打开 SSE 监听 Agent 事件（含确认卡片）
+            } else if (data.type === 'error') {
+                appendMessage(data.reply, 'ai');
+            }
+        } catch (e) {
+            setNormalLoadingState(false);
+            appendMessage('实验设计通信异常: ' + e.message, 'ai');
+        }
+    }
+
+    // =====================================
+    // 🌟 实验确认逻辑
+    // =====================================
+    function renderExperimentConfirm(data) {
+        const tool = data.tool;
+        const params = data.params;
+        const requestId = data.request_id;
+        const sessionId = data.session_id;
+
+        let paramsHtml = '';
+
+        if (tool === 'save_experiment_step') {
+            paramsHtml = `
+                <div class="param-list">
+                    <div class="param-row">
+                        <span>试剂:</span>
+                        <input type="text" id="param-reagent-${requestId}" value="${params.reagent}" />
+                    </div>
+                    <div class="param-row">
+                        <span>体积 (μL):</span>
+                        <input type="number" id="param-volume-${requestId}" value="${params.volume}" />
+                    </div>
+                    <div class="param-row">
+                        <span>转速 (rpm):</span>
+                        <input type="number" id="param-spin_speed-${requestId}" value="${params.spin_speed}" />
+                    </div>
+                    <div class="param-row">
+                        <span>加速度 (rpm/s):</span>
+                        <input type="number" id="param-spin_acc-${requestId}" value="${params.spin_acc}" />
+                    </div>
+                    <div class="param-row">
+                        <span>时长 (ms):</span>
+                        <input type="number" id="param-spin_dur-${requestId}" value="${params.spin_dur}" />
+                    </div>
+                </div>
+            `;
+        } else if (tool === 'start_experiment') {
+            paramsHtml = `
+                <div class="param-hint">
+                    AI 准备启动已注册的实验序列。请确认是否继续。
+                </div>
+            `;
+        } else if (tool === 'read_pdf') {
+            paramsHtml = `
+                <div class="param-list">
+                    <div class="param-row">
+                        <span>文件路径:</span>
+                        <span style="font-family: monospace; font-size: 0.85rem;">${params.file_path}</span>
+                    </div>
+                    <div class="param-row">
+                        <span>页码:</span>
+                        <input type="number" id="param-page_number-${requestId}" value="${params.page_number || ''}"
+                               placeholder="留空读取全部" />
+                    </div>
+                </div>
+            `;
+        }
+
+        const html = `
+            <div class="experiment-confirm-card">
+                <div class="card-header">🧪 实验步骤待确认</div>
+                <div class="card-tool-name">工具: ${tool}</div>
+                ${paramsHtml}
+                <div class="agent-actions">
+                    <button class="btn-yes" onclick="confirmExperiment('${requestId}', '${sessionId}', '${tool}', this)">
+                        ✓ 确认
+                    </button>
+                    <button class="btn-edit" onclick="modifyExperiment('${requestId}', '${sessionId}', '${tool}', this)">
+                        ✏️ 修改并确认
+                    </button>
+                    <button class="btn-no" onclick="skipExperiment('${requestId}', '${sessionId}', this)">
+                        ✗ 跳过
+                    </button>
+                </div>
+            </div>
+        `;
+
+        appendMessageHtml(html, 'ai');
+    }
+
+    async function confirmExperiment(requestId, sessionId, tool, btnElement) {
+        btnElement.parentElement.innerHTML = '<i>(用户已确认)</i>';
+        appendMessageHtml("✅ 确认，请继续执行。", "user");
+
+        await fetch('/api/experiment_confirm', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                request_id: requestId,
+                session_id: sessionId,
+                action: 'confirm'
+            })
+        });
+    }
+
+    async function modifyExperiment(requestId, sessionId, tool, btnElement) {
+        // Collect modified parameters from input fields
+        const params = {};
+
+        if (tool === 'save_experiment_step') {
+            params.reagent = document.getElementById(`param-reagent-${requestId}`).value;
+            params.volume = parseInt(document.getElementById(`param-volume-${requestId}`).value);
+            params.spin_speed = parseInt(document.getElementById(`param-spin_speed-${requestId}`).value);
+            params.spin_acc = parseInt(document.getElementById(`param-spin_acc-${requestId}`).value);
+            params.spin_dur = parseInt(document.getElementById(`param-spin_dur-${requestId}`).value);
+        } else if (tool === 'read_pdf') {
+            const pageNum = document.getElementById(`param-page_number-${requestId}`).value;
+            params.page_number = pageNum ? parseInt(pageNum) : null;
+        }
+
+        btnElement.parentElement.innerHTML = '<i>(用户已修改并确认)</i>';
+        appendMessageHtml("✏️ 已修改参数并确认。", "user");
+
+        await fetch('/api/experiment_confirm', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                request_id: requestId,
+                session_id: sessionId,
+                action: 'confirm',
+                params: params
+            })
+        });
+    }
+
+    async function skipExperiment(requestId, sessionId, btnElement) {
+        btnElement.parentElement.innerHTML = '<i>(用户已跳过)</i>';
+        appendMessageHtml("✗ 跳过此步骤。", "user");
+
+        await fetch('/api/experiment_confirm', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                request_id: requestId,
+                session_id: sessionId,
+                action: 'skip'
+            })
+        });
+    }
+
 
 </script>
 </div>

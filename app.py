@@ -25,7 +25,7 @@ from core import (
     LLMClient,
     PDFProcessor,
     FieldInference,
-    IntentRecognizer,
+    AlgorithmParser,
     HardwareController,
     TaskManager,
     ExtractionEngine,
@@ -43,7 +43,7 @@ config = Config()
 llm_client = LLMClient()
 pdf_processor = PDFProcessor()
 field_inference = FieldInference()
-intent_recognizer = IntentRecognizer(llm_client)  # 意图识别器
+algorithm_parser = AlgorithmParser(llm_client)    # 算法解析器
 hardware_controller = HardwareController()
 task_manager = TaskManager()
 extraction_engine = ExtractionEngine(task_manager)
@@ -159,9 +159,9 @@ def chat():
     if user_message.startswith("帮我搜寻："):
         return handle_extraction_request(user_message)
 
-    # 硬件控制（智能意图识别）
-    if user_message.startswith("硬件控制：") or user_message.startswith("硬件控制") or user_message.startswith("实验设计：") or user_message.startswith("实验设计"):
-        return handle_hardware_or_experiment(user_message)
+    # 硬件控制（根据前端选择的模式直接分发）
+    if user_message.startswith("硬件控制：") or user_message.startswith("实验设计："):
+        return handle_hardware_request(user_message)
 
     # 数据分析（智能交互模式）
     if user_message.startswith("数据分析"):
@@ -271,19 +271,23 @@ def handle_extraction_request(user_message: str) -> Response:
         })
 
 
-def handle_hardware_or_experiment(user_message: str) -> Response:
+def handle_hardware_request(user_message: str) -> Response:
     """
-    智能判断用户意图：设计实验 vs 单步控制硬件
+    处理硬件请求：根据前端选择的模式直接分发
 
     Args:
-        user_message: 用户消息
+        user_message: 用户消息（带前缀："硬件控制：" 或 "实验设计："）
 
     Returns:
         JSON响应
     """
-    # 清理消息前缀
-    cmd_text = user_message.replace("硬件控制：", "").replace("硬件控制", "")
-    cmd_text = cmd_text.replace("实验设计：", "").replace("实验设计", "").strip()
+    # 判断模式
+    if user_message.startswith("实验设计："):
+        mode = "design"
+        cmd_text = user_message.replace("实验设计：", "").strip()
+    else:
+        mode = "single"
+        cmd_text = user_message.replace("硬件控制：", "").strip()
 
     if not cmd_text:
         return jsonify({
@@ -294,43 +298,38 @@ def handle_hardware_or_experiment(user_message: str) -> Response:
                      '  • "设置加热台温度为150度"'
         })
 
-    # 使用意图识别器判断用户意图
-    intent, confidence = intent_recognizer.recognize(cmd_text)
-
-    # 根据意图分发到不同的处理流程
-    if intent == "experiment_design":
+    # 实验设计模式
+    if mode == "design":
         return jsonify({
             'type': 'experiment_design_mode',
             'command': cmd_text,
-            'confidence': confidence,
-            'reply': f'🔬 **实验设计模式** (置信度: {confidence:.0%})\n\n'
+            'reply': f'🔬 **实验设计模式**\n\n'
                      f'我将使用 AI 自主规划实验流程来完成你的需求：\n'
                      f'"{cmd_text}"\n\n'
                      f'AI 将自动选择合适的工具和参数，规划完整的实验步骤。\n'
-                     f'实验流程规划完成后，我会推送给你确认。\n\n'
-                     f'💡 如果这不是你想要的，请使用"硬件控制：<具体操作>"来执行单步操作。'
+                     f'实验流程规划完成后，我会推送给你确认。'
         })
+
+    # 单步控制模式
     else:
-        # 硬件控制模式
         success, tool_calls = hardware_controller.agent.parse_complex_command(cmd_text)
 
         if not success or not tool_calls:
             return jsonify({
                 'type': 'system',
-                'reply': f'❌ 硬件指令解析失败 (置信度: {confidence:.0%})\n\n'
+                'reply': f'❌ 硬件指令解析失败\n\n'
                          f'无法理解命令："{cmd_text}"\n\n'
                          f'请检查指令格式，或使用"实验设计：<需求描述>"让 AI 自动规划。'
             })
 
         # 生成确认信息
         confirmation_msg = hardware_controller.ask_for_experiment_confirmation(tool_calls)
-        confirmation_msg = f'⚙️ **硬件控制模式** (置信度: {confidence:.0%})\n\n' + confirmation_msg
+        confirmation_msg = f'⚙️ **单步控制模式**\n\n' + confirmation_msg
 
         return jsonify({
-            'type': 'field_confirm',
+            'type': 'hardware_confirm',
             'task_desc': "硬件控制",
-            'fields': tool_calls,
-            'confidence': confidence,
+            'tool_calls': tool_calls,
             'reply': confirmation_msg
         })
 
@@ -742,7 +741,11 @@ def internal_error(error):
 @app.route('/api/experiment_chat', methods=['POST'])
 def experiment_chat():
     """
-    实验设计对话 - AI 自主选择工具规划实验流程
+    实验设计对话 - AI 自主选择工具规划实验流程（非阻塞）
+
+    将 Agent 放到后台线程运行，立即返回 task_trigger 让前端打开 SSE 监听。
+    Agent 运行过程中通过 task_manager 推送事件（工具调用、确认请求等），
+    完成后推送 complete 事件携带 AI 回复。
     """
     data = request.json
     session_id = data.get('session_id', 'default')
@@ -751,21 +754,46 @@ def experiment_chat():
     if not user_message:
         return jsonify({'type': 'error', 'reply': '消息不能为空'})
 
-    # 将异步 send_event 桥接到 task_manager 消息队列
-    async def send_event_async(event):
-        task_manager.put_task_message(event)
+    # 清空任务队列，准备新一轮事件推送
+    while not task_manager.is_queue_empty():
+        task_manager.get_task_message()
 
-    # 在同步 Flask 中运行异步 Agent
-    loop = asyncio.new_event_loop()
-    try:
-        result = loop.run_until_complete(
-            experiment_agent.run(session_id, user_message, send_event_async)
-        )
-        return jsonify({'type': 'assistant_response', 'reply': result})
-    except Exception as e:
-        return jsonify({'type': 'error', 'reply': f'实验设计Agent错误: {str(e)}'})
-    finally:
-        loop.close()
+    task_id = task_manager.generate_task_id()
+    task_manager.current_task_id = task_id
+    task_manager.task_running = True
+
+    def run_agent_thread():
+        """后台线程：运行实验设计 Agent"""
+        # 将异步 send_event 桥接到 task_manager 消息队列
+        async def send_event_async(event):
+            task_manager.put_task_message(event)
+
+        loop = asyncio.new_event_loop()
+        try:
+            result = loop.run_until_complete(
+                experiment_agent.run(session_id, user_message, send_event_async)
+            )
+            # Agent 正常完成，推送 complete 事件携带 AI 回复
+            task_manager.put_task_message({
+                "type": "complete",
+                "data": {"agent_reply": result}
+            })
+        except Exception as e:
+            # Agent 异常，推送 complete 事件携带错误信息
+            task_manager.put_task_message({
+                "type": "complete",
+                "data": {"error": f"实验设计Agent错误: {str(e)}"}
+            })
+        finally:
+            task_manager.task_running = False
+            loop.close()
+
+    threading.Thread(target=run_agent_thread, daemon=True).start()
+
+    return jsonify({
+        'type': 'task_trigger',
+        'reply': '🔬 实验设计 Agent 已启动，正在分析你的需求...'
+    })
 
 
 @app.route('/api/experiment_upload', methods=['POST'])
@@ -788,6 +816,38 @@ def experiment_upload():
 
     experiment_agent.set_pdf_path(session_id, path)
     return jsonify({'filename': safe_name, 'path': path})
+
+
+@app.route('/api/experiment_confirm', methods=['POST'])
+def experiment_confirm():
+    """
+    处理实验确认响应
+
+    请求体：
+    {
+        "request_id": "uuid",
+        "session_id": "session_id",
+        "action": "confirm" | "skip" | "cancel",
+        "params": {...}  # Modified parameters (optional)
+    }
+    """
+    data = request.json
+    request_id = data.get('request_id')
+    session_id = data.get('session_id')
+    action = data.get('action')
+    params = data.get('params', {})
+
+    if not request_id or not session_id:
+        return jsonify({'error': 'Missing request_id or session_id'}), 400
+
+    # Submit response to the agent's queue
+    response = {
+        "action": action,
+        "params": params
+    }
+    experiment_agent.submit_response(request_id, response)
+
+    return jsonify({'status': 'success'})
 
 
 # =============================================================================
@@ -885,6 +945,145 @@ def software_reload():
         'count'     : len(algorithms),
         'algorithms': algorithms,
         'message'   : f'已重新加载，共注册 {len(algorithms)} 个算法',
+    })
+
+
+# =============================================================================
+# 新增：算法交互式选择路由
+# =============================================================================
+
+@app.route('/api/list_algorithms', methods=['GET'])
+def list_algorithms():
+    """
+    获取算法列表（带标签和图标信息）
+    """
+    algorithms = software_manager.list_algorithms()
+
+    # 为每个算法添加标签和图标
+    for algo in algorithms:
+        algo['tags'] = algorithm_parser.get_tags(algo['name'])
+        algo['icon'] = algorithm_parser.get_icon(algo['name'])
+
+    return jsonify({
+        "success": True,
+        "algorithms": algorithms
+    })
+
+
+@app.route('/api/parse_algorithm', methods=['POST'])
+def parse_algorithm():
+    """
+    解析用户输入，判断是否指定了算法名称
+
+    输入: {"user_input": "使用数据统计分析"}
+    输出: {"algorithm_found": true, "algorithm": "data_statistics", ...}
+    """
+    data = request.json
+    user_input = data.get('user_input', '').strip()
+
+    # 获取可用算法列表
+    available_algorithms = software_manager.list_algorithms()
+
+    # 使用算法解析器解析
+    result = algorithm_parser.parse(user_input, available_algorithms)
+
+    return jsonify(result)
+
+
+@app.route('/api/recent_files', methods=['GET'])
+def get_recent_files():
+    """返回最近使用的CSV文件列表"""
+    import glob
+    import time
+
+    files = []
+
+    # 扫描 temporal/ 和 extract/ 目录
+    for pattern in ['temporal/*.csv', 'extract/*.csv']:
+        for filepath in glob.glob(pattern):
+            try:
+                stat = os.stat(filepath)
+                files.append({
+                    'path': filepath.replace('\\', '/'),
+                    'name': os.path.basename(filepath),
+                    'size': stat.st_size,
+                    'modified': stat.st_mtime,
+                    'modified_str': time.strftime('%Y-%m-%d %H:%M', time.localtime(stat.st_mtime))
+                })
+            except Exception:
+                continue
+
+    # 按修改时间倒序排序
+    files.sort(key=lambda x: x['modified'], reverse=True)
+
+    # 只返回最近10个
+    return jsonify({
+        "success": True,
+        "files": files[:10]
+    })
+
+
+@app.route('/api/run_algorithm', methods=['POST'])
+def run_algorithm_with_file():
+    """
+    执行指定算法（用户选择文件后）
+
+    输入: {
+        "algorithm": "data_statistics",
+        "file_path": "temporal/extraction.csv",
+        "params": {"include_correlation": true}
+    }
+    """
+    data = request.json
+    algo_name = data.get('algorithm', '').strip()
+    file_path = data.get('file_path', '').strip()
+    params = data.get('params', {})
+
+    if not algo_name:
+        return jsonify({
+            "success": False,
+            "message": "缺少算法名称"
+        }), 400
+
+    if not file_path:
+        return jsonify({
+            "success": False,
+            "message": "缺少文件路径"
+        }), 400
+
+    # 验证文件存在
+    if not os.path.exists(file_path):
+        return jsonify({
+            "success": False,
+            "message": f"文件不存在: {file_path}"
+        }), 404
+
+    # 检查是否有任务正在运行
+    if task_manager.task_running:
+        return jsonify({
+            "success": False,
+            "message": "当前已有任务正在运行，请等待完成后再试"
+        }), 409
+
+    # 清空任务队列
+    while not task_manager.is_queue_empty():
+        task_manager.get_task_message()
+
+    # 启动任务
+    task_id = task_manager.generate_task_id()
+    task_manager.current_task_id = task_id
+    task_manager.task_running = True
+
+    # 在后台线程中运行算法
+    threading.Thread(
+        target=software_manager.run_algorithm_on_csv,
+        args=(algo_name, file_path, params, task_manager)
+    ).start()
+
+    return jsonify({
+        "success": True,
+        "task_id": task_id,
+        "message": f"正在执行算法 {algo_name}..."
     })
 
 

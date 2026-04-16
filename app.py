@@ -1136,6 +1136,176 @@ def run_algorithm_with_file():
     })
 
 
+# =============================================================================
+# 实验设计画布路由
+# =============================================================================
+
+@app.route('/api/save_experiment_design', methods=['POST'])
+def save_experiment_design():
+    """
+    保存实验设计JSON到文件夹
+
+    请求体：
+    {
+        "experiment_name": "旋涂实验_v1",
+        "created_at": "2026-04-17T...",
+        "steps": [...]
+    }
+    """
+    data = request.json
+    experiment_name = data.get('experiment_name', '未命名实验')
+
+    # 创建实验设计保存目录
+    design_folder = 'experiment_designs'
+    os.makedirs(design_folder, exist_ok=True)
+
+    # 生成文件名（带时间戳避免覆盖）
+    timestamp = json.dumps(data.get('created_at', '')).strip('"').replace(':', '-').replace('.', '-')[:19]
+    safe_name = experiment_name.replace(' ', '_').replace('/', '_')
+    filename = f"{safe_name}_{timestamp}.json"
+    filepath = os.path.join(design_folder, filename)
+
+    try:
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+        return jsonify({
+            'success': True,
+            'filepath': filepath,
+            'message': f'实验设计已保存到 {filepath}'
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'保存失败: {str(e)}'
+        }), 500
+
+
+@app.route('/api/execute_experiment_design', methods=['POST'])
+def execute_experiment_design():
+    """
+    执行实验设计JSON中的步骤序列
+
+    请求体：
+    {
+        "experiment_name": "旋涂实验_v1",
+        "steps": [
+            {"type": "tool", "name": "spin_coating", "params": {...}},
+            {"type": "helper", "name": "WAIT", "params": {"duration": 5000}},
+            ...
+        ]
+    }
+    """
+    data = request.json
+    experiment_name = data.get('experiment_name', '未命名实验')
+    steps = data.get('steps', [])
+
+    if not steps:
+        return jsonify({
+            'type': 'error',
+            'reply': '实验设计中没有步骤'
+        }), 400
+
+    # 检查是否有任务正在运行
+    if task_manager.task_running:
+        return jsonify({
+            'type': 'error',
+            'reply': '当前已有任务正在运行，请等待完成后再试'
+        }), 409
+
+    # 清空任务队列
+    while not task_manager.is_queue_empty():
+        task_manager.get_task_message()
+
+    # 生成任务ID
+    task_id = task_manager.generate_task_id()
+    task_manager.current_task_id = task_id
+    task_manager.task_running = True
+
+    # 在后台线程中执行实验序列
+    def execute_experiment_thread():
+        try:
+            task_manager.put_task_message({
+                "type": "info",
+                "data": f"开始执行实验: {experiment_name}"
+            })
+
+            for i, step in enumerate(steps):
+                step_type = step.get('type')
+                step_name = step.get('name')
+                step_params = step.get('params', {})
+
+                task_manager.put_task_message({
+                    "type": "progress",
+                    "data": f"执行步骤 {i+1}/{len(steps)}: {step_name}"
+                })
+
+                if step_type == 'tool':
+                    # 执行硬件工具
+                    tool_calls = [{"name": step_name, "params": step_params}]
+                    success, result = hardware_controller.execute_tool_calls(tool_calls)
+
+                    if not success:
+                        task_manager.put_task_message({
+                            "type": "complete",
+                            "data": {"error": f"步骤 {i+1} 执行失败: {result}"}
+                        })
+                        return
+
+                    task_manager.put_task_message({
+                        "type": "info",
+                        "data": f"✅ 步骤 {i+1} 完成: {step_name}"
+                    })
+
+                elif step_type == 'helper':
+                    # 执行辅助函数
+                    if step_name == 'WAIT':
+                        duration = step_params.get('duration', 1000) / 1000.0  # 转换为秒
+                        task_manager.put_task_message({
+                            "type": "info",
+                            "data": f"⏱️ 等待 {duration} 秒..."
+                        })
+                        import time
+                        time.sleep(duration)
+
+                    elif step_name == 'LOOP':
+                        iterations = step_params.get('iterations', 1)
+                        task_manager.put_task_message({
+                            "type": "info",
+                            "data": f"🔁 循环 {iterations} 次（暂未实现嵌套步骤）"
+                        })
+
+                    elif step_name == 'GROUP':
+                        group_name = step_params.get('name', '步骤组')
+                        task_manager.put_task_message({
+                            "type": "info",
+                            "data": f"📦 进入步骤组: {group_name}"
+                        })
+
+            # 所有步骤执行完成
+            task_manager.put_task_message({
+                "type": "complete",
+                "data": {
+                    "message": f"✅ 实验 {experiment_name} 执行完成！共 {len(steps)} 个步骤"
+                }
+            })
+
+        except Exception as e:
+            task_manager.put_task_message({
+                "type": "complete",
+                "data": {"error": f"实验执行异常: {str(e)}"}
+            })
+        finally:
+            task_manager.task_running = False
+
+    threading.Thread(target=execute_experiment_thread, daemon=True).start()
+
+    return jsonify({
+        'type': 'task_trigger',
+        'reply': f'🚀 开始执行实验设计: {experiment_name}\n共 {len(steps)} 个步骤，实时进度见下方...'
+    })
+
+
 if __name__ == '__main__':
     print("服务即将启动...")
     Timer(1.5, open_browser).start()

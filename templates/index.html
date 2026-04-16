@@ -12,7 +12,7 @@
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; }
         body { background-color: var(--bg); display: flex; justify-content: center; height: 100vh; padding: 20px; }
 
-        .chat-container { width: 100%; max-width: 900px; background: var(--chat-bg); border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); display: flex; flex-direction: column; overflow: hidden; position: relative; }
+        .chat-container { width: 100%; max-width: 900px; background: var(--chat-bg); border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); display: flex; flex-direction: column; overflow: hidden; position: relative; transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
         .header { padding: 20px; background: #fff; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; }
         .header h1 { font-size: 1.25rem; color: var(--text-main); display: flex; align-items: center; }
         .status-dot { display: inline-block; width: 10px; height: 10px; background-color: #10b981; border-radius: 50%; margin-right: 8px; }
@@ -65,10 +65,23 @@
         body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background-color: var(--bg); display: flex; justify-content: center; align-items: center; }
         .app-wrapper { display: flex; justify-content: center; margin: 0 auto; width: 100%; max-width: 1400px; height: 100vh; padding: 20px; gap: 20px; transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); position: relative; }
 
+        /* 实验设计模式下的布局 */
+        .app-wrapper.experiment-design-mode {
+            justify-content: flex-start;
+            gap: 0;
+        }
+        .app-wrapper.experiment-design-mode .chat-container {
+            flex: 0 0 35%;
+            max-width: 35%;
+        }
+
         /* PDF 预览面板 */
         .pdf-panel { flex: 0; width: 0; background: #fff; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); overflow: hidden; display: flex; flex-direction: column; opacity: 0; transform: translateX(20px); transition: all 0.4s ease; position: relative; }
-        .app-wrapper.split-mode .pdf-panel { flex: 1; width: 50%; opacity: 1; transform: translateX(0); }
-        .app-wrapper.split-mode .chat-container { flex: 1; max-width: none; }
+        .app-wrapper.pdf-mode .pdf-panel { flex: 1; width: 50%; opacity: 1; transform: translateX(0); }
+        .app-wrapper.pdf-mode .chat-container { flex: 1; max-width: none; }
+
+        /* 单步控制模式布局 */
+        .app-wrapper.step-control-mode .chat-container { flex: 1; max-width: none; }
         .pdf-header { padding: 15px 20px; background: #1f2937; color: #fff; font-weight: bold; font-size: 0.95rem; display: flex; justify-content: space-between; align-items: center; z-index: 2; }
         .pdf-viewer { flex: 1; position: relative; background: #f3f4f6; display: flex; justify-content: center; align-items: center; overflow: hidden; padding: 20px; }
         .pdf-viewer img { max-width: 100%; max-height: 100%; object-fit: contain; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border-radius: 4px; transition: opacity 0.3s; }
@@ -257,6 +270,28 @@
             transform: translateX(0);
             opacity: 1;
         }
+        /* 单步控制模式下：相对定位，不覆盖对话区 */
+        .app-wrapper.step-control-mode .step-control-panel {
+            position: relative;
+            flex: 1;
+            width: auto;
+            transform: translateX(0);
+            opacity: 1;
+            margin: 0;
+        }
+        /* 实验设计模式下的布局调整 */
+        .app-wrapper.experiment-design-mode .step-control-panel {
+            position: relative;
+            flex: 0 0 22.75%;
+            width: auto;
+            transform: translateX(0);
+            opacity: 1;
+            margin: 0;
+            border-radius: 0;
+        }
+        .app-wrapper.experiment-design-mode .step-control-panel.collapsed {
+            flex: 0 0 60px;
+        }
         .step-panel-header {
             padding: 15px 20px;
             background: #1f2937;
@@ -334,6 +369,203 @@
             flex-shrink: 0;
         }
         .step-status-bar.running { background: #fef3c7; color: #92400e; }
+
+        /* 实验设计面板 */
+        .experiment-design-panel {
+            position: absolute;
+            top: 0; right: 0;
+            width: 65%;
+            height: 100%;
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+            display: flex;
+            flex-direction: column;
+            z-index: 50;
+            transform: translateX(100%);
+            opacity: 0;
+            transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow: hidden;
+        }
+        .experiment-design-panel.open {
+            transform: translateX(0);
+            opacity: 1;
+        }
+        /* 实验设计模式下的布局调整 */
+        .app-wrapper.experiment-design-mode .experiment-design-panel {
+            position: relative;
+            flex: 1;
+            width: auto;
+            transform: translateX(0);
+            opacity: 1;
+            margin: 0;
+            border-radius: 0;
+        }
+        .exp-panel-header {
+            padding: 15px 20px;
+            background: #7c3aed;
+            color: #fff;
+            font-weight: bold;
+            font-size: 0.95rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        .exp-panel-body {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .exp-canvas-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            background: #f9fafb;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .exp-step-item {
+            background: #fff;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+            cursor: move;
+            transition: all 0.2s;
+            position: relative;
+        }
+        .exp-step-item:hover {
+            border-color: #7c3aed;
+            box-shadow: 0 2px 8px rgba(124, 58, 237, 0.1);
+        }
+        .exp-step-item.dragging {
+            opacity: 0.5;
+        }
+        .exp-step-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .exp-step-type {
+            font-weight: bold;
+            color: #7c3aed;
+            font-size: 0.9rem;
+        }
+        .exp-step-controls {
+            display: flex;
+            gap: 6px;
+        }
+        .exp-step-btn {
+            background: none;
+            border: none;
+            color: #6b7280;
+            cursor: pointer;
+            font-size: 1rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+        .exp-step-btn:hover {
+            background: #f3f4f6;
+            color: #7c3aed;
+        }
+        .exp-step-params {
+            font-size: 0.85rem;
+            color: #374151;
+            line-height: 1.6;
+        }
+        .exp-code-area {
+            height: 250px;
+            background: #1f2937;
+            color: #e5e7eb;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.85rem;
+            padding: 16px;
+            overflow-y: auto;
+            flex-shrink: 0;
+        }
+        .exp-code-area pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .exp-toolbar {
+            padding: 12px 16px;
+            background: #fff;
+            border-top: 1px solid #e5e7eb;
+            display: flex;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+        .exp-toolbar-btn {
+            background: #7c3aed;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+        }
+        .exp-toolbar-btn:hover {
+            background: #6d28d9;
+        }
+        .exp-toolbar-btn.secondary {
+            background: #f3f4f6;
+            color: #374151;
+        }
+        .exp-toolbar-btn.secondary:hover {
+            background: #e5e7eb;
+        }
+        .exp-empty-state {
+            text-align: center;
+            color: #9ca3af;
+            padding: 60px 20px;
+        }
+        .exp-empty-state-icon {
+            font-size: 3rem;
+            margin-bottom: 12px;
+        }
+        .exp-drop-zone {
+            border: 2px dashed #d1d5db;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            color: #9ca3af;
+            margin-bottom: 10px;
+            transition: all 0.2s;
+        }
+        .exp-drop-zone.drag-over {
+            border-color: #7c3aed;
+            background: #f5f3ff;
+            color: #7c3aed;
+        }
+        /* 辅助函数按钮 */
+        .helper-functions {
+            display: flex;
+            gap: 8px;
+            padding: 12px 16px;
+            background: #fef3c7;
+            border-bottom: 1px solid #fde68a;
+            flex-wrap: wrap;
+        }
+        .helper-fn-btn {
+            background: #fbbf24;
+            color: #78350f;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-weight: bold;
+            transition: all 0.2s;
+        }
+        .helper-fn-btn:hover {
+            background: #f59e0b;
+        }
     </style>
 </head>
 <body>
@@ -363,7 +595,7 @@
     <!-- 硬件子菜单 -->
     <div class="hardware-submenu" id="hardware-submenu" onmouseenter="keepHardwareSubmenu()" onmouseleave="hideHardwareSubmenu()">
         <div class="submenu-item" onclick="openStepPanel()">🔧 单步控制</div>
-        <div class="submenu-item" onclick="setMode('hardware_design', '实验设计：', '🔬 实验设计（默认）')">🔬 实验设计（默认）</div>
+        <div class="submenu-item" onclick="openExperimentDesignDialog()">🧪 实验设计对话</div>
     </div>
 
     <div class="input-area">
@@ -413,12 +645,55 @@
 <div class="step-control-panel" id="step-control-panel">
     <div class="step-panel-header">
         <span>🔧 单步控制</span>
-        <button onclick="closeStepPanel()" style="background:none;border:none;color:#fff;font-size:1.5rem;cursor:pointer;padding:0;line-height:1;">×</button>
+        <div style="display: flex; gap: 10px; align-items: center;">
+            <button id="toggle-step-panel-btn" onclick="toggleStepPanelCollapse()" style="background:rgba(255,255,255,0.2);border:none;color:#fff;font-size:0.9rem;cursor:pointer;padding:4px 10px;border-radius:4px;">◀</button>
+            <button onclick="closeStepPanel()" style="background:none;border:none;color:#fff;font-size:1.5rem;cursor:pointer;padding:0;line-height:1;">×</button>
+        </div>
+    </div>
+    <!-- 辅助函数栏（实验设计对话模式下显示） -->
+    <div class="helper-functions" id="helper-functions" style="display: none;">
+        <button class="helper-fn-btn" onclick="addHelperFunction('LOOP')">🔁 循环 (LOOP)</button>
+        <button class="helper-fn-btn" onclick="addHelperFunction('GROUP')">📦 组 (GROUP)</button>
+        <button class="helper-fn-btn" onclick="addHelperFunction('WAIT')">⏱️ 等待 (WAIT)</button>
+        <button class="helper-fn-btn" onclick="addHelperFunction('CONDITION')">❓ 条件 (IF)</button>
     </div>
     <div class="step-panel-body" id="step-panel-body">
         <div style="text-align:center;color:#9ca3af;padding:40px 20px;">加载中...</div>
     </div>
-    <div class="step-status-bar" id="step-status-bar">就绪 — 单击 ▶ 展开工具，点击右侧 ▶ 执行</div>
+    <div class="step-status-bar" id="step-status-bar">就绪 — 单击 ▶ 展开工具，双击添加到实验设计</div>
+</div>
+
+<!-- 实验设计面板 -->
+<div class="experiment-design-panel" id="experiment-design-panel">
+    <div class="exp-panel-header">
+        <span>🧪 实验设计画布</span>
+        <button onclick="closeExperimentDesignPanel()" style="background:none;border:none;color:#fff;font-size:1.5rem;cursor:pointer;padding:0;line-height:1;">×</button>
+    </div>
+    <div class="exp-panel-body">
+        <div class="exp-canvas-area" id="exp-canvas-area">
+            <div class="exp-empty-state" id="exp-empty-state">
+                <div class="exp-empty-state-icon">🎨</div>
+                <div>从左侧单步控制双击工具添加实验步骤</div>
+                <div style="font-size: 0.8rem; margin-top: 8px;">或使用下方输入框让AI自动设计实验流程</div>
+            </div>
+            <div class="exp-drop-zone" id="exp-drop-zone" style="display: none;">
+                拖拽到此处添加步骤
+            </div>
+        </div>
+        <div class="exp-code-area" id="exp-code-area">
+            <pre id="exp-code-content">// 实验设计JSON将在此显示
+{
+  "experiment_name": "未命名实验",
+  "steps": []
+}</pre>
+        </div>
+        <div class="exp-toolbar">
+            <button class="exp-toolbar-btn" onclick="saveExperimentDesign()">💾 保存设计</button>
+            <button class="exp-toolbar-btn" onclick="executeExperimentDesign()">▶ 执行实验</button>
+            <button class="exp-toolbar-btn secondary" onclick="clearExperimentDesign()">🗑️ 清空</button>
+            <button class="exp-toolbar-btn secondary" onclick="exportExperimentJSON()">📤 导出JSON</button>
+        </div>
+    </div>
 </div>
 
 <div class="modal-overlay" id="summary-modal">
@@ -488,6 +763,12 @@
     let stepPanelTools = [];
     let stepRunning = false;
     let stepExpandedTool = null;
+    let stepPanelCollapsed = false;
+
+    // 实验设计面板
+    let experimentSteps = [];
+    let experimentName = "未命名实验";
+    let draggedStepIndex = null;
 
     // =====================================
     // 🎯 面板z-index管理系统
@@ -811,12 +1092,16 @@ ${replyMsg.replace(/\n/g, '<br>')}
             }
             else if (msg.type === 'page_reading' && msg.data) {
                 // 打开PDF面板显示正在阅读的页面
-                document.getElementById('app-wrapper').classList.add('split-mode');
-                document.getElementById('pdf-viewer').classList.add('is-scanning');
-                document.getElementById('pdf-title').textContent = `${msg.data.filename || ''} (第 ${msg.data.page || ''} 页)`;
+                const wrapper = document.getElementById('app-wrapper');
+                // 只有在非实验设计模式下才打开PDF面板
+                if (!wrapper.classList.contains('experiment-design-mode')) {
+                    wrapper.classList.add('pdf-mode');
+                    document.getElementById('pdf-viewer').classList.add('is-scanning');
+                    document.getElementById('pdf-title').textContent = `${msg.data.filename || ''} (第 ${msg.data.page || ''} 页)`;
 
-                // 将PDF面板带到最前面（z-index管理）
-                bringPanelToFront('pdf-panel');
+                    // 将PDF面板带到最前面（z-index管理）
+                    bringPanelToFront('pdf-panel');
+                }
 
                 const imgEl = document.getElementById('pdf-image');
                 if (msg.data.image) {
@@ -1009,14 +1294,12 @@ ${replyMsg.replace(/\n/g, '<br>')}
     document.getElementById('close-pdf-btn').addEventListener('click', () => {
         const pdfPanel = document.getElementById('pdf-panel');
 
-        // 隐藏PDF面板（通过移除split-mode，PDF面板会自动隐藏）
+        // 隐藏PDF面板
         // 从面板跟踪中移除
         removePanelFromTracking('pdf-panel');
 
-        // 只有当所有面板都关闭时才退出分屏模式
-        if (activePanels.size === 0) {
-            document.getElementById('app-wrapper').classList.remove('split-mode');
-        }
+        // 移除PDF模式
+        document.getElementById('app-wrapper').classList.remove('pdf-mode');
     });
 
     // =====================================
@@ -1526,8 +1809,8 @@ ${replyMsg.replace(/\n/g, '<br>')}
         const panel = document.getElementById('step-control-panel');
         panel.classList.add('open');
 
-        // 启用分屏模式
-        document.getElementById('app-wrapper').classList.add('split-mode');
+        // 启用单步控制模式（不使用split-mode，避免触发PDF面板）
+        document.getElementById('app-wrapper').classList.add('step-control-mode');
 
         // 将此面板带到最前面（z-index管理）
         bringPanelToFront('step-control-panel');
@@ -1545,20 +1828,23 @@ ${replyMsg.replace(/\n/g, '<br>')}
      */
     function closeStepPanel() {
         const panel = document.getElementById('step-control-panel');
+        const wrapper = document.getElementById('app-wrapper');
+
+        // 如果在实验设计模式下，关闭整个实验设计
+        if (wrapper.classList.contains('experiment-design-mode')) {
+            closeExperimentDesignPanel();
+            return;
+        }
+
+        // 普通单步控制模式的关闭
         panel.classList.remove('open');
+        panel.classList.remove('collapsed');
 
         // 从面板跟踪中移除
         removePanelFromTracking('step-control-panel');
 
-        setTimeout(() => {
-            const wrapper = document.getElementById('app-wrapper');
-
-            // 检查是否还有其他面板打开
-            // 只有当所有面板都关闭时才退出分屏模式
-            if (activePanels.size === 0) {
-                wrapper.classList.remove('split-mode');
-            }
-        }, 400);
+        // 移除单步控制模式
+        wrapper.classList.remove('step-control-mode');
     }
 
     async function fetchStepTools() {
@@ -1581,13 +1867,20 @@ ${replyMsg.replace(/\n/g, '<br>')}
             return;
         }
 
+        // 检查是否在实验设计模式
+        const isExpDesignMode = document.getElementById('experiment-design-panel').classList.contains('open');
+
         let html = '';
         for (const tool of stepPanelTools) {
             const isExpanded = stepExpandedTool === tool.name;
+            const dblClickHandler = isExpDesignMode
+                ? `addStepToExperiment('${tool.name}')`
+                : `toggleToolExpand('${tool.name}')`;
+
             html += `
 <div class="tool-row ${isExpanded ? 'expanded' : ''}"
      id="tool-row-${tool.name}"
-     ondblclick="toggleToolExpand('${tool.name}')">
+     ondblclick="${dblClickHandler}">
     <span class="tool-arrow" onclick="event.stopPropagation(); toggleToolExpand('${tool.name}')">▶</span>
     <div style="flex:1">
         <div class="tool-name">${tool.name}</div>
@@ -1721,6 +2014,407 @@ ${replyMsg.replace(/\n/g, '<br>')}
         if (!bar) return;
         bar.textContent = msg;
         bar.className = 'step-status-bar' + (isRunning ? ' running' : '');
+    }
+
+    // =====================================
+    // 🧪 实验设计对话模式
+    // =====================================
+    function openExperimentDesignDialog() {
+        modeMenu.style.display = 'none';
+        hideHardwareSubmenu();
+
+        // 设置为实验设计模式
+        setMode('hardware_design', '实验设计：', '🧪 实验设计对话');
+
+        // 启用实验设计模式（不使用split-mode，避免触发PDF面板）
+        const wrapper = document.getElementById('app-wrapper');
+        wrapper.classList.add('experiment-design-mode');
+
+        // 打开单步控制面板
+        const stepPanel = document.getElementById('step-control-panel');
+        stepPanel.classList.add('open');
+        bringPanelToFront('step-control-panel');
+
+        // 加载工具（如果还没加载）
+        if (stepPanelTools.length === 0) {
+            fetchStepTools();
+        } else {
+            renderStepTools();
+        }
+
+        // 打开实验设计面板
+        const expPanel = document.getElementById('experiment-design-panel');
+        expPanel.classList.add('open');
+        bringPanelToFront('experiment-design-panel');
+
+        // 显示辅助函数栏
+        document.getElementById('helper-functions').style.display = 'flex';
+
+        // 更新单步控制状态栏提示
+        setStepStatus('实验设计模式 — 双击工具添加到右侧画布', false);
+    }
+
+    function closeExperimentDesignPanel() {
+        const panel = document.getElementById('experiment-design-panel');
+        panel.classList.remove('open');
+
+        // 隐藏辅助函数栏
+        document.getElementById('helper-functions').style.display = 'none';
+
+        // 恢复单步控制状态栏
+        setStepStatus('就绪 — 单击 ▶ 展开工具，点击右侧 ▶ 执行', false);
+
+        // 从面板跟踪中移除
+        removePanelFromTracking('experiment-design-panel');
+
+        // 移除实验设计模式
+        const wrapper = document.getElementById('app-wrapper');
+        wrapper.classList.remove('experiment-design-mode');
+
+        // 同时关闭单步控制面板
+        const stepPanel = document.getElementById('step-control-panel');
+        stepPanel.classList.remove('open');
+        stepPanel.classList.remove('collapsed');
+        removePanelFromTracking('step-control-panel');
+
+        // 恢复普通模式
+        setMode('normal', '', '');
+    }
+
+    // 折叠/展开单步控制面板
+    function toggleStepPanelCollapse() {
+        const panel = document.getElementById('step-control-panel');
+        const btn = document.getElementById('toggle-step-panel-btn');
+        const wrapper = document.getElementById('app-wrapper');
+        const isExpDesignMode = wrapper.classList.contains('experiment-design-mode');
+
+        stepPanelCollapsed = !stepPanelCollapsed;
+
+        if (stepPanelCollapsed) {
+            panel.classList.add('collapsed');
+            btn.textContent = '▶';
+            document.getElementById('step-panel-body').style.display = 'none';
+            document.getElementById('step-status-bar').style.display = 'none';
+            document.getElementById('helper-functions').style.display = 'none';
+        } else {
+            panel.classList.remove('collapsed');
+            btn.textContent = '◀';
+            document.getElementById('step-panel-body').style.display = 'block';
+            document.getElementById('step-status-bar').style.display = 'block';
+            if (isExpDesignMode) {
+                document.getElementById('helper-functions').style.display = 'flex';
+            }
+        }
+    }
+
+    // 添加步骤到实验设计（双击工具时调用）
+    function addStepToExperiment(toolName) {
+        const tool = stepPanelTools.find(t => t.name === toolName);
+        if (!tool) return;
+
+        // 收集当前参数值
+        const params = {};
+        for (const [pName, pInfo] of Object.entries(tool.params)) {
+            const inputEl = document.getElementById(`param-${toolName}-${pName}`);
+            let val = inputEl ? inputEl.value.trim() : '';
+            if (val === '' && pInfo.default !== null && pInfo.default !== undefined) {
+                val = String(pInfo.default);
+            }
+            if (pInfo.type === 'int') params[pName] = parseInt(val) || 0;
+            else if (pInfo.type === 'float') params[pName] = parseFloat(val) || 0.0;
+            else params[pName] = val;
+        }
+
+        // 添加到实验步骤列表
+        experimentSteps.push({
+            type: 'tool',
+            name: toolName,
+            description: tool.description,
+            params: params
+        });
+
+        // 更新UI
+        renderExperimentSteps();
+        updateExperimentJSON();
+
+        // 提示用户
+        setStepStatus(`✅ 已添加步骤: ${toolName}`, false);
+    }
+
+    // 添加辅助函数
+    function addHelperFunction(fnType) {
+        let step = null;
+
+        switch(fnType) {
+            case 'LOOP':
+                step = {
+                    type: 'helper',
+                    name: 'LOOP',
+                    description: '循环执行',
+                    params: { iterations: 3, steps: [] }
+                };
+                break;
+            case 'GROUP':
+                step = {
+                    type: 'helper',
+                    name: 'GROUP',
+                    description: '步骤组',
+                    params: { name: '步骤组', steps: [] }
+                };
+                break;
+            case 'WAIT':
+                step = {
+                    type: 'helper',
+                    name: 'WAIT',
+                    description: '等待',
+                    params: { duration: 5000 }
+                };
+                break;
+            case 'CONDITION':
+                step = {
+                    type: 'helper',
+                    name: 'CONDITION',
+                    description: '条件判断',
+                    params: { condition: 'temperature > 100', then_steps: [], else_steps: [] }
+                };
+                break;
+        }
+
+        if (step) {
+            experimentSteps.push(step);
+            renderExperimentSteps();
+            updateExperimentJSON();
+        }
+    }
+
+    // 渲染实验步骤列表
+    function renderExperimentSteps() {
+        const canvas = document.getElementById('exp-canvas-area');
+        const emptyState = document.getElementById('exp-empty-state');
+
+        if (experimentSteps.length === 0) {
+            emptyState.style.display = 'block';
+            // 移除所有步骤元素
+            const existingSteps = canvas.querySelectorAll('.exp-step-item');
+            existingSteps.forEach(el => el.remove());
+            return;
+        }
+
+        emptyState.style.display = 'none';
+
+        // 清空现有步骤
+        const existingSteps = canvas.querySelectorAll('.exp-step-item');
+        existingSteps.forEach(el => el.remove());
+
+        // 渲染每个步骤
+        experimentSteps.forEach((step, index) => {
+            const stepEl = document.createElement('div');
+            stepEl.className = 'exp-step-item';
+            stepEl.draggable = true;
+            stepEl.dataset.index = index;
+
+            // 拖拽事件
+            stepEl.addEventListener('dragstart', (e) => {
+                draggedStepIndex = index;
+                stepEl.classList.add('dragging');
+            });
+            stepEl.addEventListener('dragend', (e) => {
+                stepEl.classList.remove('dragging');
+                draggedStepIndex = null;
+            });
+            stepEl.addEventListener('dragover', (e) => {
+                e.preventDefault();
+            });
+            stepEl.addEventListener('drop', (e) => {
+                e.preventDefault();
+                if (draggedStepIndex !== null && draggedStepIndex !== index) {
+                    // 交换步骤顺序
+                    const temp = experimentSteps[draggedStepIndex];
+                    experimentSteps.splice(draggedStepIndex, 1);
+                    experimentSteps.splice(index, 0, temp);
+                    renderExperimentSteps();
+                    updateExperimentJSON();
+                }
+            });
+
+            // 步骤内容
+            let paramsHtml = '';
+            if (step.type === 'tool') {
+                for (const [key, value] of Object.entries(step.params)) {
+                    paramsHtml += `<div><strong>${key}:</strong> ${value}</div>`;
+                }
+            } else if (step.type === 'helper') {
+                paramsHtml = `<div style="color:#7c3aed;font-style:italic;">${JSON.stringify(step.params)}</div>`;
+            }
+
+            stepEl.innerHTML = `
+                <div class="exp-step-header">
+                    <div class="exp-step-type">${index + 1}. ${step.name}</div>
+                    <div class="exp-step-controls">
+                        <button class="exp-step-btn" onclick="moveStepUp(${index})" title="上移">▲</button>
+                        <button class="exp-step-btn" onclick="moveStepDown(${index})" title="下移">▼</button>
+                        <button class="exp-step-btn" onclick="editStep(${index})" title="编辑">✏️</button>
+                        <button class="exp-step-btn" onclick="deleteStep(${index})" title="删除">🗑️</button>
+                    </div>
+                </div>
+                <div style="font-size:0.8rem;color:#6b7280;margin-bottom:6px;">${step.description}</div>
+                <div class="exp-step-params">${paramsHtml}</div>
+            `;
+
+            canvas.appendChild(stepEl);
+        });
+    }
+
+    // 更新JSON代码显示
+    function updateExperimentJSON() {
+        const json = {
+            experiment_name: experimentName,
+            created_at: new Date().toISOString(),
+            steps: experimentSteps
+        };
+
+        const codeContent = document.getElementById('exp-code-content');
+        codeContent.textContent = JSON.stringify(json, null, 2);
+    }
+
+    // 步骤操作函数
+    function moveStepUp(index) {
+        if (index > 0) {
+            const temp = experimentSteps[index];
+            experimentSteps[index] = experimentSteps[index - 1];
+            experimentSteps[index - 1] = temp;
+            renderExperimentSteps();
+            updateExperimentJSON();
+        }
+    }
+
+    function moveStepDown(index) {
+        if (index < experimentSteps.length - 1) {
+            const temp = experimentSteps[index];
+            experimentSteps[index] = experimentSteps[index + 1];
+            experimentSteps[index + 1] = temp;
+            renderExperimentSteps();
+            updateExperimentJSON();
+        }
+    }
+
+    function editStep(index) {
+        const step = experimentSteps[index];
+        const newParams = prompt(`编辑步骤参数 (JSON格式):\n当前: ${JSON.stringify(step.params)}`, JSON.stringify(step.params));
+        if (newParams) {
+            try {
+                step.params = JSON.parse(newParams);
+                renderExperimentSteps();
+                updateExperimentJSON();
+            } catch (e) {
+                alert('JSON格式错误: ' + e.message);
+            }
+        }
+    }
+
+    function deleteStep(index) {
+        if (confirm('确定删除此步骤？')) {
+            experimentSteps.splice(index, 1);
+            renderExperimentSteps();
+            updateExperimentJSON();
+        }
+    }
+
+    function clearExperimentDesign() {
+        if (confirm('确定清空所有实验步骤？')) {
+            experimentSteps = [];
+            renderExperimentSteps();
+            updateExperimentJSON();
+        }
+    }
+
+    // 保存实验设计到文件夹
+    async function saveExperimentDesign() {
+        const name = prompt('请输入实验名称:', experimentName);
+        if (!name) return;
+
+        experimentName = name;
+        updateExperimentJSON();
+
+        const json = {
+            experiment_name: experimentName,
+            created_at: new Date().toISOString(),
+            steps: experimentSteps
+        };
+
+        try {
+            const response = await fetch('/api/save_experiment_design', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(json)
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                appendMessage(`✅ 实验设计已保存: ${data.filepath}`, 'ai');
+            } else {
+                appendMessage(`❌ 保存失败: ${data.message}`, 'ai');
+            }
+        } catch (e) {
+            appendMessage(`❌ 保存异常: ${e.message}`, 'ai');
+        }
+    }
+
+    // 执行实验设计
+    async function executeExperimentDesign() {
+        if (experimentSteps.length === 0) {
+            alert('请先添加实验步骤');
+            return;
+        }
+
+        if (!confirm(`确定执行实验 "${experimentName}"？\n共 ${experimentSteps.length} 个步骤`)) {
+            return;
+        }
+
+        const json = {
+            experiment_name: experimentName,
+            created_at: new Date().toISOString(),
+            steps: experimentSteps
+        };
+
+        appendMessage(`🚀 开始执行实验: ${experimentName}`, 'user');
+
+        try {
+            const response = await fetch('/api/execute_experiment_design', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(json)
+            });
+
+            const data = await response.json();
+            if (data.type === 'task_trigger') {
+                appendMessage(data.reply, 'ai');
+                startTaskStream();
+            } else {
+                appendMessage(data.reply || '执行失败', 'ai');
+            }
+        } catch (e) {
+            appendMessage(`❌ 执行异常: ${e.message}`, 'ai');
+        }
+    }
+
+    // 导出JSON文件
+    function exportExperimentJSON() {
+        const json = {
+            experiment_name: experimentName,
+            created_at: new Date().toISOString(),
+            steps: experimentSteps
+        };
+
+        const blob = new Blob([JSON.stringify(json, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${experimentName}_${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+
+        appendMessage(`📤 实验设计已导出: ${a.download}`, 'ai');
     }
 
 

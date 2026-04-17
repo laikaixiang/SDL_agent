@@ -2082,7 +2082,12 @@ ${replyMsg.replace(/\n/g, '<br>')}
                 container.innerHTML = '<div style="text-align:center;color:#ef4444;padding:20px;">加载失败</div>';
             }
         } catch (e) {
-            container.innerHTML = '<div style="text-align:center;color:#ef4444;padding:20px;">网络错误</div>';
+            let errMsg = '未知错误';
+            if (e instanceof TypeError && e.message.includes('fetch')) errMsg = '网络连接失败（服务器未响应）';
+            else if (e instanceof SyntaxError) errMsg = '数据解析错误（响应格式异常）';
+            else if (e.name === 'AbortError') errMsg = '请求超时';
+            else errMsg = e.message || String(e);
+            container.innerHTML = `<div style="text-align:center;color:#ef4444;padding:20px;">错误：${errMsg}</div>`;
         }
     }
 

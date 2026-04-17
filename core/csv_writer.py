@@ -22,9 +22,15 @@ class CSVWriter:
     - 文件管理和备份
     """
 
-    def __init__(self):
-        """初始化CSV写入器"""
+    def __init__(self, session_path: str = None):
+        """
+        初始化CSV写入器
+
+        Args:
+            session_path: 会话基础路径，如果为None则使用默认路径
+        """
         self.config = Config()
+        self.session_path = session_path
 
     def write_extraction_results(
         self,
@@ -40,13 +46,16 @@ class CSVWriter:
             data: 提取数据
             fields: 字段列表
             prefix: 文件名前缀
-            output_dir: 输出目录，如果为None则使用配置的目录
+            output_dir: 输出目录，如果为None则使用会话路径或配置的目录
 
         Returns:
             文件路径
         """
         if output_dir is None:
-            output_dir = self.config.EXTRACT_DIR
+            if self.session_path:
+                output_dir = os.path.join(self.session_path, "extract")
+            else:
+                output_dir = self.config.EXTRACT_DIR
 
         os.makedirs(output_dir, exist_ok=True)
 
@@ -75,13 +84,16 @@ class CSVWriter:
         Args:
             data: 提取数据
             fields: 字段列表
-            temporal_dir: 临时目录，如果为None则使用配置的目录
+            temporal_dir: 临时目录，如果为None则使用会话路径或配置的目录
 
         Returns:
             文件路径
         """
         if temporal_dir is None:
-            temporal_dir = self.config.TEMPORAL_DIR
+            if self.session_path:
+                temporal_dir = os.path.join(self.session_path, "temporal")
+            else:
+                temporal_dir = self.config.TEMPORAL_DIR
 
         os.makedirs(temporal_dir, exist_ok=True)
 

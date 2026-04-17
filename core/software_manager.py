@@ -44,8 +44,9 @@ class SoftwareManager:
         result = mgr.generate_algorithm("我需要一个高斯平滑算法...")
     """
 
-    def __init__(self, temporal_dir: str = "temporal"):
+    def __init__(self, temporal_dir: str = "temporal", results_dir: str = "results"):
         self._temporal_dir = temporal_dir
+        self._results_dir = results_dir
         self._controller = None  # 懒加载
 
     # ------------------------------------------------------------------
@@ -245,17 +246,17 @@ class SoftwareManager:
                 })
                 return
 
-            # 保存结果到 results/ 目录
-            os.makedirs('results', exist_ok=True)
+            # 保存结果到当前会话的 results/ 目录
+            os.makedirs(self._results_dir, exist_ok=True)
             timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
 
             # 覆盖写（最新结果）
             output_filename_latest = f"analysis_{algorithm_name}.json"
-            output_path_latest = os.path.join('results', output_filename_latest)
+            output_path_latest = os.path.join(self._results_dir, output_filename_latest)
 
             # 时间戳存档
             output_filename_archive = f"analysis_{algorithm_name}_{timestamp}.json"
-            output_path_archive = os.path.join('results', output_filename_archive)
+            output_path_archive = os.path.join(self._results_dir, output_filename_archive)
 
             # 保存结果
             result_with_meta = {

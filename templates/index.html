@@ -482,14 +482,54 @@
             color: #e5e7eb;
             font-family: 'Consolas', 'Monaco', monospace;
             font-size: 0.85rem;
-            padding: 16px;
-            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            transition: height 0.3s ease;
+        }
+        .exp-code-area.minimized {
+            height: 40px;
+        }
+        .exp-code-header {
+            padding: 8px 16px;
+            background: #374151;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #4b5563;
             flex-shrink: 0;
         }
-        .exp-code-area pre {
-            margin: 0;
-            white-space: pre-wrap;
-            word-wrap: break-word;
+        .exp-code-header-title {
+            font-size: 0.85rem;
+            font-weight: bold;
+            color: #9ca3af;
+        }
+        .exp-code-minimize-btn {
+            background: none;
+            border: none;
+            color: #9ca3af;
+            cursor: pointer;
+            font-size: 1rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+        .exp-code-minimize-btn:hover {
+            background: #4b5563;
+            color: #e5e7eb;
+        }
+        .exp-code-editor {
+            flex: 1;
+            background: #1f2937;
+            color: #e5e7eb;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.85rem;
+            padding: 16px;
+            overflow-y: auto;
+            border: none;
+            outline: none;
+            resize: none;
+            white-space: pre;
         }
         .exp-toolbar {
             padding: 12px 16px;
@@ -595,7 +635,7 @@
     <!-- 硬件子菜单 -->
     <div class="hardware-submenu" id="hardware-submenu" onmouseenter="keepHardwareSubmenu()" onmouseleave="hideHardwareSubmenu()">
         <div class="submenu-item" onclick="openStepPanel()">🔧 单步控制</div>
-        <div class="submenu-item" onclick="openExperimentDesignDialog()">🧪 实验设计对话</div>
+        <div class="submenu-item" onclick="openExperimentDesignDialog()">🧪 实验设计</div>
     </div>
 
     <div class="input-area">
@@ -646,7 +686,7 @@
     <div class="step-panel-header">
         <span>🔧 单步控制</span>
         <div style="display: flex; gap: 10px; align-items: center;">
-            <button id="toggle-step-panel-btn" onclick="toggleStepPanelCollapse()" style="background:rgba(255,255,255,0.2);border:none;color:#fff;font-size:0.9rem;cursor:pointer;padding:4px 10px;border-radius:4px;">◀</button>
+            <button id="toggle-step-panel-btn" onclick="toggleStepPanelCollapse()" style="background:rgba(255,255,255,0.2);border:none;color:#fff;font-size:0.9rem;cursor:pointer;padding:4px 10px;border-radius:4px;display:none;">◀</button>
             <button onclick="closeStepPanel()" style="background:none;border:none;color:#fff;font-size:1.5rem;cursor:pointer;padding:0;line-height:1;">×</button>
         </div>
     </div>
@@ -666,7 +706,7 @@
 <!-- 实验设计面板 -->
 <div class="experiment-design-panel" id="experiment-design-panel">
     <div class="exp-panel-header">
-        <span>🧪 实验设计画布</span>
+        <span>🧪 实验流程</span>
         <button onclick="closeExperimentDesignPanel()" style="background:none;border:none;color:#fff;font-size:1.5rem;cursor:pointer;padding:0;line-height:1;">×</button>
     </div>
     <div class="exp-panel-body">
@@ -681,11 +721,17 @@
             </div>
         </div>
         <div class="exp-code-area" id="exp-code-area">
-            <pre id="exp-code-content">// 实验设计JSON将在此显示
+            <div class="exp-code-header">
+                <span class="exp-code-header-title">实验设计 JSON</span>
+                <button class="exp-code-minimize-btn" onclick="toggleCodeAreaMinimize()" title="最小化/展开">
+                    <span id="minimize-icon">▼</span>
+                </button>
+            </div>
+            <textarea class="exp-code-editor" id="exp-code-content" spellcheck="false">// 实验设计JSON将在此显示
 {
   "experiment_name": "未命名实验",
   "steps": []
-}</pre>
+}</textarea>
         </div>
         <div class="exp-toolbar">
             <button class="exp-toolbar-btn" onclick="saveExperimentDesign()">💾 保存设计</button>
@@ -2035,6 +2081,9 @@ ${replyMsg.replace(/\n/g, '<br>')}
         stepPanel.classList.add('open');
         bringPanelToFront('step-control-panel');
 
+        // 显示折叠按钮（仅在实验设计模式下）
+        document.getElementById('toggle-step-panel-btn').style.display = 'block';
+
         // 加载工具（如果还没加载）
         if (stepPanelTools.length === 0) {
             fetchStepTools();
@@ -2060,6 +2109,9 @@ ${replyMsg.replace(/\n/g, '<br>')}
 
         // 隐藏辅助函数栏
         document.getElementById('helper-functions').style.display = 'none';
+
+        // 隐藏折叠按钮
+        document.getElementById('toggle-step-panel-btn').style.display = 'none';
 
         // 恢复单步控制状态栏
         setStepStatus('就绪 — 单击 ▶ 展开工具，点击右侧 ▶ 执行', false);
@@ -2274,7 +2326,21 @@ ${replyMsg.replace(/\n/g, '<br>')}
         };
 
         const codeContent = document.getElementById('exp-code-content');
-        codeContent.textContent = JSON.stringify(json, null, 2);
+        codeContent.value = JSON.stringify(json, null, 2);
+    }
+
+    // 最小化/展开代码区域
+    function toggleCodeAreaMinimize() {
+        const codeArea = document.getElementById('exp-code-area');
+        const icon = document.getElementById('minimize-icon');
+
+        if (codeArea.classList.contains('minimized')) {
+            codeArea.classList.remove('minimized');
+            icon.textContent = '▼';
+        } else {
+            codeArea.classList.add('minimized');
+            icon.textContent = '▲';
+        }
     }
 
     // 步骤操作函数
@@ -2398,23 +2464,52 @@ ${replyMsg.replace(/\n/g, '<br>')}
         }
     }
 
-    // 导出JSON文件
-    function exportExperimentJSON() {
+    // 导出JSON文件到服务器
+    async function exportExperimentJSON() {
         const json = {
             experiment_name: experimentName,
             created_at: new Date().toISOString(),
             steps: experimentSteps
         };
 
-        const blob = new Blob([JSON.stringify(json, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${experimentName}_${Date.now()}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
+        const filename = `${experimentName}_${Date.now()}.json`;
 
-        appendMessage(`📤 实验设计已导出: ${a.download}`, 'ai');
+        // 获取当前会话的默认路径
+        let defaultPath = `experiment_designs/${filename}`;
+
+        // 尝试从服务器获取会话路径
+        try {
+            const sessionResponse = await fetch('/api/get_session_path?subdir=experiment_designs');
+            const sessionData = await sessionResponse.json();
+            if (sessionData.success) {
+                defaultPath = `${sessionData.path}/${filename}`;
+            }
+        } catch (e) {
+            console.log('无法获取会话路径，使用默认路径');
+        }
+
+        const savePath = prompt('请输入保存路径:', defaultPath);
+        if (!savePath) return; // 用户取消
+
+        try {
+            const response = await fetch('/api/export_experiment_json', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    json_data: json,
+                    filepath: savePath
+                })
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                appendMessage(`📤 实验设计已导出: ${data.filepath}`, 'ai');
+            } else {
+                appendMessage(`❌ 导出失败: ${data.message}`, 'ai');
+            }
+        } catch (e) {
+            appendMessage(`❌ 导出异常: ${e.message}`, 'ai');
+        }
     }
 
 

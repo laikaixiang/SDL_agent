@@ -37,13 +37,20 @@ class ExtractionEngine:
     - 任务进度跟踪
     """
 
-    def __init__(self, task_manager: TaskManager):
-        """初始化提取引擎"""
+    def __init__(self, task_manager: TaskManager, session_path: str = None):
+        """
+        初始化提取引擎
+
+        Args:
+            task_manager: 任务管理器
+            session_path: 会话基础路径，如果为None则使用默认路径
+        """
         self.config = Config()
         self.llm_client = LLMClient()
         self.pdf_processor = PDFProcessor()
         self.field_inference = FieldInference()
         self.task_manager = task_manager
+        self.session_path = session_path
 
     def infer_fields(self, task_description: str) -> Tuple[bool, List[str] | str]:
         """
@@ -82,8 +89,11 @@ class ExtractionEngine:
             self.task_manager.start_task(task_id)
             self.task_manager.put_task_message("info", f"🚀 提取任务启动！目标：【{task_description}】")
 
-            # 准备目录
-            save_dir = self.config.EXTRACT_DIR
+            # 准备目录（使用会话路径）
+            if self.session_path:
+                save_dir = os.path.join(self.session_path, "extract")
+            else:
+                save_dir = self.config.EXTRACT_DIR
             os.makedirs(save_dir, exist_ok=True)
             prefix = self.get_filename_prefix(task_description)
 
@@ -593,13 +603,21 @@ class ExtractionEngine:
             all_keys.update(d.keys())
         all_keys = list(all_keys)
 
-        # 保存到extract目录
-        csv_filename = os.path.join(self.config.EXTRACT_DIR, f"{prefix}_{time.strftime('%Y%m%d-%H%M%S')}.csv")
+        # 保存到extract目录（使用会话路径）
+        if self.session_path:
+            extract_dir = os.path.join(self.session_path, "extract")
+            temporal_dir = os.path.join(self.session_path, "temporal")
+        else:
+            extract_dir = self.config.EXTRACT_DIR
+            temporal_dir = self.config.TEMPORAL_DIR
+
+        os.makedirs(extract_dir, exist_ok=True)
+        csv_filename = os.path.join(extract_dir, f"{prefix}_{time.strftime('%Y%m%d-%H%M%S')}.csv")
         self._write_csv(csv_filename, all_extracted_data, all_keys)
 
         # 保存到temporal目录
-        os.makedirs(self.config.TEMPORAL_DIR, exist_ok=True)
-        csv_filename_temporal = os.path.join(self.config.TEMPORAL_DIR, "extraction.csv")
+        os.makedirs(temporal_dir, exist_ok=True)
+        csv_filename_temporal = os.path.join(temporal_dir, "extraction.csv")
         self._write_csv(csv_filename_temporal, all_extracted_data, all_keys)
 
         self.task_manager.put_task_message("complete", {

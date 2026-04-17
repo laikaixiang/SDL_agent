@@ -8,7 +8,7 @@ Flask应用入口 - 简洁的Web服务入口
 - 核心业务逻辑通过core模块调用
 """
 
-from flask import Flask, request, jsonify, render_template, Response
+from flask import Flask, request, jsonify, render_template, Response, session
 import threading
 import os
 import json
@@ -18,6 +18,7 @@ import asyncio
 import webbrowser
 import requests
 from threading import Timer
+from datetime import datetime
 
 # 导入核心模块
 from core import (
@@ -37,6 +38,7 @@ from core import (
 
 # 初始化Flask应用
 app = Flask(__name__)
+app.secret_key = os.urandom(24)  # 用于session管理
 
 # 初始化核心组件
 config = Config()
@@ -51,6 +53,45 @@ csv_writer = CSVWriter()
 experiment_agent = ExperimentDesignAgent()  # 实验设计智能体（PydanticAI 原生 tool-use）
 software_manager = SoftwareManager()        # 软件算法管理器
 adaptive_handler = AdaptiveStreamHandler(config, llm_client)  # 自适应流式响应处理器
+
+# =============================================================================
+# 会话管理系统
+# =============================================================================
+
+# 全局会话时间戳（应用启动时创建）
+SESSION_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+# 创建会话专属文件夹
+SESSION_BASE_PATH = os.path.join("dialogue data", SESSION_TIMESTAMP)
+os.makedirs(os.path.join(SESSION_BASE_PATH, "extract"), exist_ok=True)
+os.makedirs(os.path.join(SESSION_BASE_PATH, "temporal"), exist_ok=True)
+os.makedirs(os.path.join(SESSION_BASE_PATH, "results"), exist_ok=True)
+os.makedirs(os.path.join(SESSION_BASE_PATH, "experiment_designs"), exist_ok=True)
+
+print(f"[会话管理] 应用启动，会话时间戳: {SESSION_TIMESTAMP}")
+print(f"[会话管理] 数据保存路径: {SESSION_BASE_PATH}")
+
+def get_session_path(subdir=""):
+    """
+    获取当前会话的数据路径
+
+    Args:
+        subdir: 子目录名称，如 "extract", "temporal", "results", "experiment_designs"
+
+    Returns:
+        str: 完整路径
+    """
+    if subdir:
+        return os.path.join(SESSION_BASE_PATH, subdir)
+    return SESSION_BASE_PATH
+
+# 重新初始化需要会话路径的组件
+extraction_engine = ExtractionEngine(task_manager, session_path=SESSION_BASE_PATH)
+csv_writer = CSVWriter(session_path=SESSION_BASE_PATH)
+software_manager = SoftwareManager(
+    temporal_dir=get_session_path("temporal"),
+    results_dir=get_session_path("results")
+)
 
 
 def open_browser():
@@ -438,12 +479,12 @@ def handle_data_analysis(user_message: str) -> Response:
     # 场景2和3：解析算法名称和CSV路径
     parts = content.split(maxsplit=1)
     algorithm_name = parts[0] if parts else ""
-    csv_path = parts[1] if len(parts) > 1 else "temporal/extraction.csv"
+    csv_path = parts[1] if len(parts) > 1 else os.path.join(get_session_path("temporal"), "extraction.csv")
 
     if not algorithm_name:
         return jsonify({
             'type': 'system',
-            'reply': '❌ 请指定要使用的算法名称，例如：\n"数据分析：data_statistics temporal/extraction.csv"'
+            'reply': f'❌ 请指定要使用的算法名称，例如：\n"数据分析：data_statistics {os.path.join(get_session_path("temporal"), "extraction.csv")}"'
         })
 
     # 检查算法是否存在
@@ -506,7 +547,7 @@ def handle_data_analysis_execute(data: dict) -> Response:
         JSON响应
     """
     algorithm_name = data.get('algorithm_name', '').strip()
-    csv_path = data.get('csv_path', 'temporal/extraction.csv').strip()
+    csv_path = data.get('csv_path', os.path.join(get_session_path("temporal"), "extraction.csv")).strip()
 
     if not algorithm_name:
         return jsonify({'status': 'error', 'reply': '缺少算法名称'})
@@ -543,7 +584,7 @@ def handle_auto_analyze(user_message: str) -> Response:
     处理自动数据分析请求（旧版本，保留兼容性）
 
     用户消息格式："数据分析：<csv_path>"
-    csv_path 为空时默认使用 temporal/extraction.csv
+    csv_path 为空时默认使用当前会话的 temporal/extraction.csv
 
     Args:
         user_message: 用户消息
@@ -556,7 +597,7 @@ def handle_auto_analyze(user_message: str) -> Response:
 
     csv_path = user_message.replace("数据分析：", "").strip()
     if not csv_path:
-        csv_path = "temporal/extraction.csv"
+        csv_path = os.path.join(get_session_path("temporal"), "extraction.csv")
 
     # 清空任务队列
     while not task_manager.is_queue_empty():
@@ -942,7 +983,7 @@ def software_run():
 @app.route('/api/software/run_on_csv', methods=['POST'])
 def software_run_on_csv():
     """
-    对 temporal/extraction.csv 中的数值列运行算法（提取任务完成后可直接使用）
+    对当前会话的 temporal/extraction.csv 中的数值列运行算法（提取任务完成后可直接使用）
 
     请求体：
         {
@@ -1041,14 +1082,20 @@ def parse_algorithm():
 
 @app.route('/api/recent_files', methods=['GET'])
 def get_recent_files():
-    """返回最近使用的CSV文件列表"""
+    """返回当前会话最近使用的CSV文件列表"""
     import glob
     import time
 
     files = []
 
-    # 扫描 temporal/ 和 extract/ 目录
-    for pattern in ['temporal/*.csv', 'extract/*.csv']:
+    # 扫描当前会话的 temporal/ 和 extract/ 目录
+    session_temporal = get_session_path("temporal")
+    session_extract = get_session_path("extract")
+
+    for pattern in [
+        os.path.join(session_temporal, "*.csv"),
+        os.path.join(session_extract, "*.csv")
+    ]:
         for filepath in glob.glob(pattern):
             try:
                 stat = os.stat(filepath)
@@ -1143,7 +1190,7 @@ def run_algorithm_with_file():
 @app.route('/api/save_experiment_design', methods=['POST'])
 def save_experiment_design():
     """
-    保存实验设计JSON到文件夹
+    保存实验设计JSON到当前会话的文件夹
 
     请求体：
     {
@@ -1155,8 +1202,8 @@ def save_experiment_design():
     data = request.json
     experiment_name = data.get('experiment_name', '未命名实验')
 
-    # 创建实验设计保存目录
-    design_folder = 'experiment_designs'
+    # 使用当前会话的实验设计保存目录
+    design_folder = get_session_path('experiment_designs')
     os.makedirs(design_folder, exist_ok=True)
 
     # 生成文件名（带时间戳避免覆盖）
@@ -1303,6 +1350,80 @@ def execute_experiment_design():
     return jsonify({
         'type': 'task_trigger',
         'reply': f'🚀 开始执行实验设计: {experiment_name}\n共 {len(steps)} 个步骤，实时进度见下方...'
+    })
+
+
+@app.route('/api/export_experiment_json', methods=['POST'])
+def export_experiment_json():
+    """
+    导出实验设计JSON到指定路径
+
+    请求体：
+    {
+        "json_data": {...},
+        "filepath": "hardware/design_of_experiments/experiment_name.json"
+    }
+    """
+    data = request.json
+    json_data = data.get('json_data')
+    filepath = data.get('filepath', '').strip()
+
+    if not json_data:
+        return jsonify({
+            'success': False,
+            'message': '缺少JSON数据'
+        }), 400
+
+    if not filepath:
+        return jsonify({
+            'success': False,
+            'message': '缺少文件路径'
+        }), 400
+
+    try:
+        # 确保目录存在
+        directory = os.path.dirname(filepath)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+
+        # 写入JSON文件
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(json_data, f, ensure_ascii=False, indent=2)
+
+        return jsonify({
+            'success': True,
+            'filepath': filepath,
+            'message': f'实验设计已导出到 {filepath}'
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'导出失败: {str(e)}'
+        }), 500
+
+
+@app.route('/api/get_session_path', methods=['GET'])
+def get_session_path_api():
+    """
+    获取当前会话的数据路径
+
+    查询参数：
+        subdir: 子目录名称（可选），如 "extract", "temporal", "results", "experiment_designs"
+
+    返回：
+        {
+            "success": true,
+            "path": "dialogue data/20260417_152030/experiment_designs",
+            "timestamp": "20260417_152030"
+        }
+    """
+    subdir = request.args.get('subdir', '')
+    path = get_session_path(subdir)
+
+    return jsonify({
+        'success': True,
+        'path': path,
+        'timestamp': SESSION_TIMESTAMP
     })
 
 

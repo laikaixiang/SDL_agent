@@ -63,7 +63,19 @@
 
         /* 左右分屏布局 */
         body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background-color: var(--bg); display: flex; justify-content: center; align-items: center; }
-        .app-wrapper { display: flex; justify-content: center; margin: 0 auto; width: 100%; max-width: 1400px; height: 100vh; padding: 20px; gap: 20px; transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); position: relative; }
+        .app-wrapper { display: flex; justify-content: center; margin: 0 auto; width: 100%; max-width: 1400px; height: 100vh; padding: 20px; gap: 20px; transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); position: relative; box-sizing: border-box; }
+        /* 仅左侧算法面板：限制80%宽度，居中显示 */
+        .app-wrapper.algorithm-mode { max-width: 60%; }
+        /* 仅右侧PDF面板：限制80%宽度，居中显示 */
+        .app-wrapper.pdf-mode { max-width: 80%; }
+        /* 仅右侧单步控制面板：限制80%宽度，居中显示 */
+        .app-wrapper.step-control-mode { max-width: 80%; }
+        /* 左算法面板 + 右PDF面板同时存在：撑满全屏 */
+        .app-wrapper.algorithm-mode.pdf-mode { max-width: 100%; }
+        /* 左算法面板 + 右单步控制面板同时存在：撑满全屏 */
+        .app-wrapper.algorithm-mode.step-control-mode { max-width: 100%; }
+        /* 左算法面板 + 右实验设计面板同时存在：撑满全屏 */
+        .app-wrapper.algorithm-mode.experiment-design-mode { max-width: 100%; }
 
         /* 实验设计模式下的布局 */
         .app-wrapper.experiment-design-mode {
@@ -77,11 +89,11 @@
 
         /* PDF 预览面板 */
         .pdf-panel { flex: 0; width: 0; background: #fff; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); overflow: hidden; display: flex; flex-direction: column; opacity: 0; transform: translateX(20px); transition: all 0.4s ease; position: relative; }
-        .app-wrapper.pdf-mode .pdf-panel { flex: 1; width: 50%; opacity: 1; transform: translateX(0); }
-        .app-wrapper.pdf-mode .chat-container { flex: 1; max-width: none; }
+        .app-wrapper.pdf-mode .pdf-panel { flex: 1 1 400px; min-width: 300px; width: auto; opacity: 1; transform: translateX(0); }
+        .app-wrapper.pdf-mode .chat-container { flex: 1 1 400px; max-width: none; }
 
         /* 单步控制模式布局 */
-        .app-wrapper.step-control-mode .chat-container { flex: 1; max-width: none; }
+        .app-wrapper.step-control-mode .chat-container { flex: 1 1 400px; max-width: none; }
         .pdf-header { padding: 15px 20px; background: #1f2937; color: #fff; font-weight: bold; font-size: 0.95rem; display: flex; justify-content: space-between; align-items: center; z-index: 2; }
         .pdf-viewer { flex: 1; position: relative; background: #f3f4f6; display: flex; justify-content: center; align-items: center; overflow: hidden; padding: 20px; }
         .pdf-viewer img { max-width: 100%; max-height: 100%; object-fit: contain; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border-radius: 4px; transition: opacity 0.3s; }
@@ -273,7 +285,7 @@
         /* 单步控制模式下：相对定位，不覆盖对话区 */
         .app-wrapper.step-control-mode .step-control-panel {
             position: relative;
-            flex: 1;
+            flex: 1 1 400px;
             width: auto;
             transform: translateX(0);
             opacity: 1;
@@ -370,26 +382,35 @@
         }
         .step-status-bar.running { background: #fef3c7; color: #92400e; }
 
-        /* 算法面板 - 左侧 */
+        /* 算法面板 - 左侧，与右侧面板同层 */
         .algorithm-panel {
-            position: absolute;
-            top: 0; left: 0;
-            width: 320px;
-            height: 100%;
+            flex: 0;
+            width: 0;
             background: #fff;
             border-radius: 16px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+            overflow: hidden;
             display: flex;
             flex-direction: column;
-            z-index: 50;
-            transform: translateX(-100%);
             opacity: 0;
-            transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-            overflow: hidden;
+            transform: translateX(-20px);
+            transition: all 0.4s ease;
+            position: relative;
         }
-        .algorithm-panel.open {
-            transform: translateX(0);
+        .app-wrapper.algorithm-mode {
+            justify-content: flex-start;
+        }
+        .app-wrapper.algorithm-mode .algorithm-panel {
+            flex: 1 1 320px;
+            min-width: 280px;
+            max-width: 420px;
+            width: auto;
             opacity: 1;
+            transform: translateX(0);
+        }
+        .app-wrapper.algorithm-mode .chat-container {
+            flex: 1 1 400px;
+            max-width: none;
         }
         .algo-panel-header {
             padding: 15px 20px;
@@ -411,34 +432,75 @@
             background: #f9fafb;
             border: 1px solid #e5e7eb;
             border-radius: 8px;
-            padding: 12px;
-            margin-bottom: 10px;
-            cursor: pointer;
+            margin-bottom: 8px;
             transition: all 0.2s;
+            overflow: hidden;
         }
         .algo-panel-item:hover {
             border-color: #10b981;
             background: #f0fdf4;
         }
+        .algo-panel-item.expanded {
+            border-color: #10b981;
+            background: #f0fdf4;
+        }
+        .algo-item-row {
+            display: flex;
+            align-items: center;
+            padding: 10px 12px;
+            cursor: pointer;
+            gap: 10px;
+        }
         .algo-panel-item-icon {
-            font-size: 1.5rem;
-            margin-bottom: 6px;
+            font-size: 1.4rem;
+            flex-shrink: 0;
+        }
+        .algo-item-info {
+            flex: 1;
+            min-width: 0;
         }
         .algo-panel-item-name {
             font-weight: bold;
             color: #1f2937;
-            font-size: 0.9rem;
-            margin-bottom: 4px;
+            font-size: 0.88rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         .algo-panel-item-desc {
-            font-size: 0.75rem;
+            font-size: 0.72rem;
             color: #6b7280;
-            margin-bottom: 6px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
-        .algo-panel-item-tags {
+        .algo-arrow-btn {
+            flex-shrink: 0;
+            background: #10b981;
+            border: none;
+            color: #fff;
+            width: 28px;
+            height: 28px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+        .algo-arrow-btn:hover { background: #059669; }
+        .algo-item-detail {
+            display: none;
+            padding: 0 12px 10px 12px;
+            border-top: 1px solid #d1fae5;
+        }
+        .algo-panel-item.expanded .algo-item-detail { display: block; }
+        .algo-item-detail-tags {
             display: flex;
             gap: 4px;
             flex-wrap: wrap;
+            margin-bottom: 6px;
         }
         .algo-panel-tag {
             background: #dbeafe;
@@ -446,6 +508,11 @@
             font-size: 0.65rem;
             padding: 2px 6px;
             border-radius: 4px;
+        }
+        .algo-item-hint {
+            font-size: 0.7rem;
+            color: #9ca3af;
+            margin-top: 4px;
         }
         .algo-gen-btn {
             background: #3b82f6;
@@ -1989,16 +2056,16 @@ ${replyMsg.replace(/\n/g, '<br>')}
         modeMenu.style.display = 'none';
         hideHardwareSubmenu();
 
-        const panel = document.getElementById('algorithm-panel');
-        panel.classList.add('open');
+        const wrapper = document.getElementById('app-wrapper');
+        wrapper.classList.add('algorithm-mode');
 
         // 加载算法列表
         await loadAlgorithmList();
     }
 
     function closeAlgorithmPanel() {
-        const panel = document.getElementById('algorithm-panel');
-        panel.classList.remove('open');
+        const wrapper = document.getElementById('app-wrapper');
+        wrapper.classList.remove('algorithm-mode');
     }
 
     async function loadAlgorithmList() {
@@ -2031,22 +2098,51 @@ ${replyMsg.replace(/\n/g, '<br>')}
         algorithms.forEach(algo => {
             const tags = algo.tags || [];
             const tagsHtml = tags.map(tag => `<span class="algo-panel-tag">${tag}</span>`).join('');
+            const safeName = algo.name.replace(/'/g, "\\'");
+            const safeDesc = (algo.description || algo.name).replace(/'/g, "\\'");
+            const safeIcon = (algo.icon || '📊').replace(/'/g, "\\'");
 
             html += `
-                <div class="algo-panel-item" onclick="selectAlgorithmFromPanel('${algo.name}', '${algo.description}', '${algo.icon}')">
-                    <div class="algo-panel-item-icon">${algo.icon || '📊'}</div>
-                    <div class="algo-panel-item-name">${algo.description || algo.name}</div>
-                    <div class="algo-panel-item-desc">${algo.name}</div>
-                    <div class="algo-panel-item-tags">${tagsHtml}</div>
+                <div class="algo-panel-item" id="algo-item-${algo.name}"
+                    onclick="toggleAlgoDetail('${safeName}')"
+                    ondblclick="addAlgoToExperiment('${safeName}', '${safeDesc}', '${safeIcon}')">
+                    <div class="algo-item-row">
+                        <div class="algo-panel-item-icon">${algo.icon || '📊'}</div>
+                        <div class="algo-item-info">
+                            <div class="algo-panel-item-name">${algo.description || algo.name}</div>
+                            <div class="algo-panel-item-desc">${algo.name}</div>
+                        </div>
+                        <button class="algo-arrow-btn" title="选择数据文件"
+                            onclick="event.stopPropagation(); selectAlgorithmFromPanel('${safeName}', '${safeDesc}', '${safeIcon}')">›</button>
+                    </div>
+                    <div class="algo-item-detail">
+                        <div class="algo-item-detail-tags">${tagsHtml}</div>
+                        <div class="algo-item-hint">双击算法可添加至实验设计</div>
+                    </div>
                 </div>`;
         });
 
         container.innerHTML = html;
     }
 
+    function toggleAlgoDetail(algoName) {
+        const item = document.getElementById('algo-item-' + algoName);
+        if (!item) return;
+        item.classList.toggle('expanded');
+    }
+
+    function addAlgoToExperiment(algoName, description, icon) {
+        // 添加算法步骤至实验设计
+        const step = { type: 'tool', name: algoName, params: {}, description: description };
+        if (typeof experimentSteps !== 'undefined') {
+            experimentSteps.push(step);
+            if (typeof renderExperimentSteps === 'function') renderExperimentSteps();
+        }
+        showNotification(`已添加 ${description} 至实验设计`, 'success');
+    }
+
     function selectAlgorithmFromPanel(algoName, description, icon) {
         selectedAlgorithm = algoName;
-        closeAlgorithmPanel();
         showFileSelector();
     }
 

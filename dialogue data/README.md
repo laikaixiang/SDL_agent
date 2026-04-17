@@ -1,4 +1,4 @@
-# Dialogue Data 文件夹说明
+# Dialogue Data ：对话的历史记录
 
 ## 概述
 

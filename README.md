@@ -1,6 +1,16 @@
-# SDL_agent：AI驱动的文献提取与硬件控制智能中枢
+# SDL_agent：AI驱动的实验室自动化智能中枢
 
-SDL_agent 是一套集**学术文献PDF数据智能提取**、**大模型指令解析**、**自动化硬件控制**于一体的智能代理系统，核心为"文献数据提取→实验参数解析→自动化硬件执行"的全流程闭环，适用于实验室自动化实验场景（如原位旋涂实验）。
+<div align="center">
+  <img src="https://img.shields.io/badge/Python-3.10+-blue.svg" alt="Python">
+  <img src="https://img.shields.io/badge/Flask-2.3.3-green.svg" alt="Flask">
+  <img src="https://img.shields.io/badge/PydanticAI-Latest-orange.svg" alt="PydanticAI">
+</div>
+<br>
+
+SDL_agent 是一套集**学术文献PDF数据智能提取**、**AI算法自动生成**、**实验设计规划**、**自动化硬件控制**于一体的智能代理系统，实现"文献数据提取→AI生成算法→实验设计→自动化硬件执行→数据分析"的全流程闭环，适用于材料科学、化学等领域的实验室自动化场景。
+
+![mind_map](D:\PycharmProjects\SDL_agent\figures\mind_map.svg)
+
 
 ---
 
@@ -48,29 +58,38 @@ flowchart TD
     T -->|分析结果推送至前端| B
 ```
 
-![image-20260412145931198](C:\Users\Administrator\AppData\Roaming\Typora\typora-user-images\image-20260412145931198.png)
-
 ### 2. 流程拆解
 
 #### （1）前端交互（index.html）
 
-用户通过可视化Web界面操作，支持4种核心模式：
+用户通过可视化Web界面操作，支持**5种核心模式**：
 
 - **普通问答模式**：基础对话交互，支持流式输出与中断生成；
 - **文献提取模式**：上传/选择PDF文献，输入提取任务描述（如"提取旋涂转速、试剂体积"），支持任务中断；
 - **硬件操控模式**：下发硬件控制指令（如"执行原位旋涂实验，转速3000rpm"），执行期间不可中断；
-- **实验设计模式**：上传文献后，AI自主读取并规划多步实验流程，支持光谱数据实时采集与可视化；
-- **数据分析模式**：自动分析CSV数据，LLM智能选择算法并执行分析，结果可视化展示。
+- **实验设计模式**：AI自主读取文献并规划多步实验流程，支持可视化编辑和JSON导出；
+- **数据分析模式**：LLM智能选择算法并执行分析，结果可视化展示。
 
-界面支持PDF预览、提取进度实时展示、任务中断、结果可视化等能力。
+界面支持PDF预览、算法面板、实验设计画布、进度实时展示、任务中断等能力。
+
+![所有功能预览](D:\PycharmProjects\SDL_agent\figures\所有功能预览.png)
+
 
 #### （2）文献数据提取
 
 1. **PDF预处理**：将PDF指定页码转为高分辨率Base64图片，供大模型视觉输入；
-2. **动态字段生成**：根据用户提取任务描述，调用Qwen2.5-72B大模型生成CSV表格列名（如"反溶剂名称""旋涂转速"）；
-3. **大模型提取**：调用Qwen2.5-VL-72B-Instruct多模态模型，从PDF图片中提取目标实验参数；
-4. **数据持久化**：将提取结果写入CSV文件（分归档文件`extract/前缀_时间戳.csv`和临时文件`temporal/extraction.csv`，后者供硬件控制模块调用）；
-5. **进度回显**：实时向前端推送处理进度、提取结果、错误信息，支持任务手动中断。
+2. **动态字段生成**：根据用户提取任务描述，调用大模型生成CSV表格列名（如"反溶剂名称""旋涂转速"）；
+3. **大模型提取**：调用多模态模型，从PDF图片中提取目标实验参数；
+4. **会话管理**：每次启动app.py创建时间戳会话文件夹`dialogue data/YYYYMMDD_HHMMSS/`，所有数据归档到会话目录；
+5. **数据持久化**：提取结果写入`{session}/extract/前缀_时间戳.csv`（归档）和`{session}/temporal/extraction.csv`（临时文件）；
+6. **进度回显**：实时向前端推送处理进度、提取结果、错误信息，支持任务手动中断。
+
+<div align="center">
+  <img src="figures/README_example_perpare.png" alt="SDL Agent UI Preview" width="85%" style="border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
+  <br>
+  <p><i>图: 准备提取目标页面</i></p>
+</div>
+
 
 #### （3）硬件控制
 
@@ -81,26 +100,47 @@ flowchart TD
    - `move_robot_arm`：调用Python脚本控制机械臂；
 3. **通信保障**：MQTT连接带超时机制，断连自动重连，确保指令可靠下发。
 
-#### （4）实验设计智能体（PydanticAI）
+#### （4）实验设计智能体
 
-基于PydanticAI原生tool-use架构，AI自主选择工具并规划实验流程：
+**设计阶段**（基于ExperimentDesignParser）：
+1. **AI生成JSON**：用户输入"实验设计：<描述>"，LLM生成标准JSON实验计划；
+2. **格式转换**：`ExperimentManager.json_to_visual()`将JSON转为前端可视化格式（节点+边）；
+3. **可视化编辑**：前端画布支持拖拽节点、编辑参数、调整执行顺序；
+4. **双向同步**：`visual_to_json()`将前端修改转回标准JSON格式。
 
-1. **工具注册**：`read_pdf`、`save_experiment_step`、`start_experiment`、`get_all_reagents`；
-2. **自主决策**：AI根据用户意图和工具docstring，自主决定调用顺序和参数；
-3. **多步实验**：先读论文提取参数→注册多步旋涂实验→启动执行序列；
-4. **光谱采集**：`SpectrometerClient`通过MQTT订阅光谱仪实时数据，汇总为DataFrame；
-5. **3D可视化**：`visualization.py`将光谱数据绘制为曲面图，支持文件保存或base64输出。
+**执行阶段**（基于ExperimentManager）：
+1. **计划验证**：检查JSON结构、参数完整性、试剂可用性；
+2. **拓扑排序**：根据节点依赖关系确定执行顺序；
+3. **顺序执行**：逐步调用硬件工具（spin_coating、set_temperature等）；
+4. **进度推送**：通过SSE实时推送执行状态到前端。
+
+**为何分离设计与执行**：原PydanticAI方案依赖Function Calling（部分模型不支持），分离后任意LLM均可设计实验，用户可审查编辑后再执行。
+
+![实验方法生成](D:\PycharmProjects\SDL_agent\figures\实验方法生成.png)
+
 
 #### （5）数据分析模式
 
-	1. **CSV列名读取**：自动读取`temporal/extraction.csv`的列名列表；
-	2. **智能算法选择**：调用LLM分析列名，从可用算法列表中选择最适合的算法和读取方式；
-	3. **动态数据读取**：LLM指定读取函数（如`read_spectrum_format`或`read_numeric_columns`），Python通过`READER_REGISTRY`动态调用；
-	4. **算法执行**：调用`software_controller.py`执行选定算法，支持`data_statistics`、`data_normalization`、`spectrum_analysis`等；
-	5. **结果保存**：完整结果保存至`results/`目录，采用覆盖写（`analysis_{algorithm}.json`）+ 时间戳存档（`analysis_{algorithm}_{timestamp}.json`）模式；
-	6. **结果推送**：通过SSE向前端推送分析进度、结果摘要和文件路径，前端渲染蓝色结果卡片。
-	
-	#### （6）中断机制
+1. **CSV列名读取**：自动读取`{session}/temporal/extraction.csv`的列名列表；
+2. **智能算法选择**：调用LLM分析列名，从可用算法列表中选择最适合的算法和读取方式；
+3. **动态数据读取**：LLM指定读取函数（如`read_spectrum_format`或`read_numeric_columns`），Python通过`READER_REGISTRY`动态调用；
+4. **算法执行**：调用`software_controller.py`执行选定算法，支持`data_statistics`、`data_normalization`、`spectrum_analysis`等；
+5. **结果保存**：完整结果保存至`{session}/results/`目录，采用覆盖写（`analysis_{algorithm}.json`）+ 时间戳存档（`analysis_{algorithm}_{timestamp}.json`）模式；
+6. **结果推送**：通过SSE向前端推送分析进度、结果摘要和文件路径，前端渲染蓝色结果卡片。
+
+#### （6）AI算法生成（新功能）
+
+1. **自然语言描述**：用户在算法面板输入算法需求（如"计算光谱峰值波长"）；
+2. **规格提取**：`prompt_template.py`调用LLM提取算法规格（输入/输出/逻辑）；
+3. **代码生成**：LLM生成完整Python代码，继承`BaseAlgorithm`基类；
+4. **自动保存**：代码保存到`software/algorithms/extra_algorithms_fromProjects/`；
+5. **热加载**：`software_controller.py`自动重新扫描算法目录，新算法立即可用；
+6. **前端集成**：算法面板实时更新，用户可直接调用新生成的算法。
+
+![生成新算法](D:\PycharmProjects\SDL_agent\figures\生成新算法.png)
+
+
+#### （7）中断机制
 
 | 场景 | 是否可中断 | 实现方式 |
 |------|-----------|---------|
@@ -115,39 +155,41 @@ flowchart TD
 ```
 SDL_agent/
 ├── app.py                      # Flask Web服务入口，路由与请求处理
+├── config.txt                  # API配置文件（API_KEY、API_URL、MODEL_NAME等）
 ├── core/                       # 核心业务逻辑模块
-│   ├── __init__.py             # 模块导出注册
-│   ├── config.py               # 全局配置（API密钥、模型、路径、光谱仪MQTT等）
+│   ├── config.py               # 全局配置类（读取config.txt）
 │   ├── llm_client.py           # LLM API封装（流式/非流式调用）
 │   ├── pdf_processor.py        # PDF解析与图像转换
-│   ├── field_inference.py      # 动态字段推断与Pydantic模型生成
+│   ├── field_inference.py      # 动态字段推断、算法解析、实验设计提示词
 │   ├── extraction_engine.py    # 提取引擎核心（PDF遍历、LLM交互、结果汇总）
 │   ├── task_manager.py         # 任务队列管理（进度推送、取消控制）
 │   ├── hardware_controller.py  # 硬件控制智能体（指令解析、工具调用）
-│   ├── experiment_agent.py     # 实验设计智能体（PydanticAI原生tool-use）
+│   ├── experiment_agent.py     # 实验设计智能体（PydanticAI，legacy模式）
+│   ├── experiment_manager.py   # 实验执行、验证、JSON↔visual格式转换
 │   ├── software_manager.py     # 软件算法管理器（桥接software模块）
 │   └── csv_writer.py           # CSV文件读写与合并
 ├── hardware/                   # 硬件通信层
-│   ├── __init__.py             # 硬件模块导出
 │   ├── agent_client.py         # MQTT连接器（EMQX客户端）
-│   ├── tools.py                # 底层硬件函数（MQTT发布、子进程调用、PydanticAI工具）
+│   ├── tools.py                # 底层硬件函数（MQTT发布、子进程调用）
 │   ├── spec_client.py          # 光谱仪数据采集客户端
 │   └── visualization.py        # 光谱数据3D可视化模块
 ├── software/                   # 纯软件算法与数据处理模块
-│   ├── __init__.py             # 包入口
 │   ├── software_controller.py  # 算法注册表与统一调用入口
 │   ├── readfile.py             # CSV读取工具（LLM动态调用接口）
 │   ├── auto_analyze.py         # 自动分析流水线（LLM选算法 + 执行）
 │   └── algorithms/             # 算法实现目录
 │       ├── base.py             # BaseAlgorithm基类
-│       ├── default/            # 内置算法
-│       └── extra_algorithms_fromProjects/  # 扩展算法
+│       ├── default/            # 内置算法（data_statistics等）
+│       └── extra_algorithms_fromProjects/  # AI生成算法 + prompt_template.py
 ├── templates/
-│   └── index.html              # 前端可视化界面
+│   └── index.html              # 前端可视化界面（算法面板、实验设计画布）
+├── dialogue data/              # 会话数据目录（每次启动创建时间戳文件夹）
+│   └── YYYYMMDD_HHMMSS/        # 单次会话目录
+│       ├── extract/            # 归档提取结果（带时间戳CSV）
+│       ├── temporal/           # 临时工作文件（extraction.csv）
+│       ├── results/            # 分析结果（JSON格式）
+│       └── experiment_designs/ # 实验设计JSON文件
 ├── pdf_cache/                  # 实验设计模式PDF临时缓存
-├── extract/                    # 归档数据目录（按时间戳存储历史提取结果）
-├── temporal/                   # 临时数据目录（extraction.csv供硬件模块调用）
-├── results/                    # 分析结果目录（JSON格式，覆盖写+时间戳存档）
 ├── figures/                    # README插图 + 光谱可视化图表输出
 ├── reagent_layout.json         # 试剂位置配置文件
 └── requirements.txt            # Python依赖
@@ -159,24 +201,17 @@ SDL_agent/
 
 | 文件路径 | 核心角色 | 关键能力 |
 |----------|----------|----------|
-| `app.py` | Flask Web服务主程序 | 路由分发、请求处理、任务调度、实验设计Agent集成 |
-| `core/config.py` | 全局配置 | API密钥、模型名称、PDF路径、光谱仪MQTT、实验Agent提示词 |
-| `core/llm_client.py` | LLM客户端 | 流式/非流式API调用、JSON校验、Pydantic验证 |
-| `core/pdf_processor.py` | PDF处理器 | PDF转Base64图片、文件列表、页面信息 |
-| `core/field_inference.py` | 字段推断 | 动态CSV列名生成、Pydantic模型构建 |
-| `core/extraction_engine.py` | 提取引擎 | 逐页提取、LLM视觉API调用、结果解析 |
-| `core/task_manager.py` | 任务管理 | SSE消息队列、任务生命周期、取消控制 |
-| `core/hardware_controller.py` | 硬件控制器 | LLM指令解析、工具路由、参数验证、执行状态 |
-| `core/experiment_agent.py` | 实验设计Agent | PydanticAI原生tool-use、多步实验规划、会话管理 |
-| `core/software_manager.py` | 软件算法管理器 | 桥接app.py与software模块、提供CSV分析快捷接口 |
-| `core/csv_writer.py` | CSV写入器 | 写入、追加、合并、验证CSV文件 |
-| `hardware/tools.py` | 硬件执行层 | MQTT发布实验指令、温控/机械臂调用、PydanticAI异步工具 |
-| `hardware/agent_client.py` | MQTT连接器 | EMQX服务器连接、断连重连 |
-| `hardware/spec_client.py` | 光谱仪客户端 | MQTT订阅光谱数据、状态机控制、DataFrame汇总 |
-| `hardware/visualization.py` | 3D可视化 | 光谱数据曲面图绘制、文件保存/base64输出 |
-| `templates/index.html` | 前端界面 | 多模式交互、PDF预览、进度展示、任务中断控制 |
-| `temporal/extraction.csv` | 临时数据 | 最新提取结果，供硬件模块读取 |
-| `reagent_layout.json` | 试剂配置 | 自动化平台试剂物理位置（BPxx格式） |
+| `app.py` | Flask Web服务主程序 | 路由分发、会话管理、任务调度、实验设计集成 |
+| `config.txt` | 配置文件 | API_KEY、API_URL、MODEL_NAME_VL、MODEL_NAME_TALK |
+| `core/config.py` | 配置类 | 读取config.txt、提供全局配置访问接口 |
+| `core/field_inference.py` | 字段推断与解析 | 动态CSV列名生成、算法解析、ExperimentDesignParser |
+| `core/experiment_manager.py` | 实验管理器 | 实验执行、验证、JSON↔visual格式转换 |
+| `core/extraction_engine.py` | 提取引擎 | 逐页提取、会话路径管理、结果解析 |
+| `core/software_manager.py` | 算法管理器 | 算法注册、generate_algorithm()、热加载 |
+| `hardware/tools.py` | 硬件执行层 | MQTT发布实验指令、温控/机械臂调用 |
+| `software/algorithms/ extra_algorithms_fromProjects/ prompt_template.py` | 算法生成器 | LLM生成算法代码、规格提取 |
+| `templates/index.html` | 前端界面 | 算法面板、实验设计画布、PDF预览、进度展示 |
+| `dialogue data/{timestamp}/` | 会话目录 | 单次运行的所有数据（extract/temporal/results/experiment_designs） |
 
 ---
 
@@ -207,29 +242,36 @@ pip install -r requirements.txt
 
 ### 3. 关键配置项
 
-修改 `core/config.py` 中以下配置适配本地环境：
+**方式一：修改 `config.txt`（推荐）**
+
+在项目根目录创建或编辑 `config.txt`：
+
+```ini
+API_KEY=你的API密钥
+API_URL=https://api.siliconflow.cn/v1/chat/completions
+MODEL_NAME_VL=Qwen/Qwen2.5-VL-72B-Instruct
+MODEL_NAME_TALK=Qwen/Qwen2.5-72B-Instruct
+PDF_FOLDER=D:/your/pdf/folder
+```
+
+**方式二：修改 `core/config.py`（备选）**
+
+如果未提供 `config.txt`，系统会使用 `config.py` 中的默认值：
 
 ```python
 # 大模型API配置
 API_KEY = "你的API密钥"
 MODEL_NAME_VL = "Qwen/Qwen2.5-VL-72B-Instruct"
-MODEL_NAME_TALK = "Qwen/Qwen2.5-7B-Instruct"
+MODEL_NAME_TALK = "Qwen/Qwen2.5-72B-Instruct"
 API_URL = "https://api.siliconflow.cn/v1/chat/completions"
 
 # PDF存储目录
 PDF_FOLDER = "本地PDF文件夹路径"
-
-# 光谱仪MQTT配置（连接光谱仪数据采集端）
-SPECTROMETER_BROKER_IP = "192.168.120.129"
-SPECTROMETER_BROKER_PORT = 1883
-SPECTROMETER_USERNAME = "你的MQTT用户名"
-SPECTROMETER_PASSWORD = "你的MQTT密码"
-
-# 实验设计智能体系统提示词
-EXPERIMENT_AGENT_SYSTEM_PROMPT = "You are an experienced materials scientist..."
 ```
 
-修改 `hardware/agent_client.py` 中硬件控制MQTT配置：
+**MQTT配置**（用于硬件控制）：
+
+修改 `hardware/agent_client.py`：
 
 ```python
 class Client_Conf:
@@ -245,17 +287,23 @@ class Client_Conf:
 
 ## 五、快速启动
 
-1. 配置好API密钥、PDF目录、MQTT服务器信息；
-2. 启动Flask服务：
+1. **配置API密钥**：编辑根目录 `config.txt`，设置 `API_KEY` 和其他必要参数；
+2. **启动Flask服务**：
    ```bash
    python app.py
    ```
-3. 浏览器自动打开或手动访问 `http://127.0.0.1:5000`，进入"AI Lab 智能中枢"界面；
-4. 选择模式使用：
+3. 浏览器自动打开或手动访问 `http://127.0.0.1:5000`；
+4. **选择模式使用**：
    - **文献提取**：输入"帮我搜寻：提取FAPbI3钝化剂参数"；
    - **硬件控制**：输入"硬件控制：执行旋涂实验，转速3000rpm"；
-   - **实验设计**：上传PDF后，与AI对话规划多步实验流程；
-   - **数据分析**：输入"数据分析："（默认使用temporal/extraction.csv）或指定CSV路径。
+   - **实验设计**：输入"实验设计：设计三步旋涂实验"，AI生成JSON计划并可视化；
+   - **数据分析**：输入"数据分析"，LLM自动选择算法并执行；
+   - **算法生成**：打开算法面板，输入"生成计算光谱峰值的算法"。
+
+<div align="center">
+  <p><i>💡 请在此处放置快速启动演示GIF</i></p>
+  <p><i>建议内容：从启动app.py到完成一次文献提取的完整流程动图</i></p>
+</div>
 
 ---
 
@@ -290,140 +338,86 @@ class Client_Conf:
 
 ## 七、核心特性
 
-1. **多模态数据提取**：基于Qwen2.5-VL大模型，从PDF图片中精准提取结构化实验参数；
+1. **多模态数据提取**：基于视觉大模型，从PDF图片中精准提取结构化实验参数；
 2. **动态字段适配**：根据用户任务描述自动生成CSV列名，无需固定模板；
-3. **硬件控制闭环**：提取的实验参数可直接驱动自动化实验平台执行原位旋涂实验；
-4. **实验设计Agent**：PydanticAI原生tool-use，AI自主读取文献、规划多步实验、启动执行；
-5. **智能数据分析**：LLM自动读取CSV列名，智能选择算法并执行分析，结果可视化展示；
-6. **光谱数据采集**：实时订阅光谱仪MQTT数据，3D曲面图可视化；
-7. **可视化交互**：全流程Web界面操作，支持PDF预览、进度实时展示；
-8. **灵活中断控制**：对话与提取任务支持随时中断，硬件执行期间自动锁定防止误操作；
-9. **数据持久化**：提取结果分归档/临时文件存储，分析结果覆盖写+时间戳存档；
+3. **会话管理**：每次启动创建时间戳会话文件夹，所有数据归档到独立目录；
+4. **AI算法生成**：自然语言描述算法需求，LLM自动生成Python代码并热加载；
+5. **实验设计可视化**：AI生成JSON实验计划，前端画布支持拖拽编辑和执行；
+6. **硬件控制闭环**：提取的实验参数可直接驱动自动化实验平台执行；
+7. **智能数据分析**：LLM自动读取CSV列名，智能选择算法并执行分析；
+8. **可视化交互**：全流程Web界面操作，支持PDF预览、算法面板、实验设计画布；
+9. **灵活中断控制**：对话与提取任务支持随时中断，硬件执行期间自动锁定防止误操作；
 10. **高可靠性**：MQTT通信带超时重连，任务支持手动中断，异常自动捕获。
+
 
 ---
 
 ## 八、扩展指南
 
-### 1. 在 `core/` 中添加软件功能模块（如算法、数据分析）
+### 1. 添加新的数据分析算法
 
-以添加一个"数据分析模块"为例：
-
-**第一步**：在 `core/` 下新建模块文件 `core/data_analyzer.py`
+**第一步**：在 `software/algorithms/default/` 下创建新算法文件
 
 ```python
-"""
-数据分析模块 - 你的模块描述
-"""
-from .config import Config
-from .llm_client import LLMClient  # 如需调用大模型
+from software.algorithms.base import BaseAlgorithm
+import pandas as pd
 
-
-class DataAnalyzer:
-    """数据分析器"""
-
-    def __init__(self):
-        self.config = Config()
-        # 初始化你需要的资源
-
-    def analyze(self, data):
-        """核心分析方法"""
+class MyNewAlgorithm(BaseAlgorithm):
+    """你的算法描述"""
+    
+    def run(self, data: pd.DataFrame) -> dict:
+        """
+        执行算法逻辑
+        
+        Args:
+            data: 输入数据
+            
+        Returns:
+            分析结果字典
+        """
         # 你的算法逻辑
+        result = {"summary": "分析结果"}
         return result
 ```
 
-**第二步**：在 `core/__init__.py` 中注册导出
+**第二步**：重启Flask应用，算法自动注册到系统
 
-```python
-from .data_analyzer import DataAnalyzer
+**第三步**：在前端算法面板或通过"数据分析"模式调用新算法
 
-__all__ = [
-    # ... 已有的模块 ...
-    'DataAnalyzer'
-]
-```
-
-**第三步**：在 `app.py` 中实例化并添加路由
-
-```python
-from core import DataAnalyzer
-
-data_analyzer = DataAnalyzer()
-
-@app.route('/api/analyze', methods=['POST'])
-def analyze():
-    data = request.json
-    result = data_analyzer.analyze(data)
-    return jsonify(result)
-```
-
-**第四步**（可选）：在 `templates/index.html` 中添加对应的前端交互入口。
-
-> **设计原则**：每个模块文件职责单一，通过 `Config` 读取配置，通过 `LLMClient` 调用大模型，通过 `TaskManager` 推送进度（如需异步任务）。
+> **提示**：也可以通过AI算法生成功能，用自然语言描述需求，让LLM自动生成算法代码。
 
 ---
 
-### 2. 在 `hardware/` 中添加新硬件设备
+### 2. 添加新硬件设备
 
-以添加一个"超声波清洗机"为例：
+以添加"超声波清洗机"为例：
 
-**第一步**：在 `hardware/tools.py` 中添加底层执行函数
+**第一步**：在 `hardware/tools.py` 中添加执行函数
 
 ```python
 def execute_ultrasonic_clean(frequency: int, duration: int, power: int) -> str:
-    """
-    执行超声波清洗
-
-    Args:
-        frequency: 频率(kHz)
-        duration: 持续时间(秒)
-        power: 功率(W)
-
-    Returns:
-        执行结果字符串
-    """
-    # 方式一：通过MQTT下发指令
+    """执行超声波清洗"""
     payload = f"ultrasonic,{frequency},{duration},{power}"
     local_client.publish("ultrasonic_clean", payload)
     return f"超声波清洗已启动: {frequency}kHz, {duration}s, {power}W"
-
-    # 方式二：通过子进程调用本地程序
-    # import subprocess
-    # subprocess.run(["./ultrasonic_controller", str(frequency), str(duration)])
-    # return "超声波清洗已启动"
 ```
 
-**第二步**：在 `core/hardware_controller.py` 的 `_load_hardware_tools()` 中注册新工具
+**第二步**：在 `core/hardware_controller.py` 的 `_load_hardware_tools()` 中注册
 
 ```python
 HardwareTool(
     name="ultrasonic_clean",
     description="执行超声波清洗",
     params={
-        "frequency": {
-            "type": "int",
-            "description": "清洗频率(kHz)",
-            "required": True,
-            "default": 40
-        },
-        "duration": {
-            "type": "int",
-            "description": "持续时间(秒)",
-            "required": True,
-            "default": 300
-        },
-        "power": {
-            "type": "int",
-            "description": "功率(W)",
-            "required": False,
-            "default": 100
-        }
+        "frequency": {"type": "int", "description": "清洗频率(kHz)", "required": True},
+        "duration": {"type": "int", "description": "持续时间(秒)", "required": True},
+        "power": {"type": "int", "description": "功率(W)", "required": False, "default": 100}
     },
     function="execute_ultrasonic_clean"
 )
 ```
 
-**第三步**：在 `execute_tool_call()` 方法中添加分发逻辑
+**第三步**：在 `execute_tool_call()` 中添加分发逻辑
 
 ```python
 elif tool_name == "ultrasonic_clean":
@@ -434,102 +428,93 @@ elif tool_name == "ultrasonic_clean":
     )
 ```
 
-**第四步**：在 `hardware/tools.py` 的顶部 import 中确保新函数可被导入。
-
-> **注册完成后**，大模型会自动识别新硬件工具——用户输入"执行超声波清洗，40kHz，5分钟"时，LLM会自动匹配到 `ultrasonic_clean` 工具并生成对应参数。
+> **注册完成后**，LLM会自动识别新硬件工具，用户输入"执行超声波清洗，40kHz，5分钟"时自动调用。
 
 ---
 
-### 3. 为实验设计Agent添加新工具（PydanticAI）
+### 3. 自定义实验设计模板
 
-以添加"查询实验历史"工具为例：
-
-**第一步**：在 `hardware/tools.py` 中定义异步工具函数
+修改 `core/field_inference.py` 中的 `ExperimentDesignParser.EXPERIMENT_AGENT_SYSTEM_PROMPT`：
 
 ```python
-from pydantic_ai import Tool
-
-@Tool
-async def query_experiment_history(experiment_id: str) -> str:
-    """
-    查询指定实验的历史执行记录
-
-    Args:
-        experiment_id: 实验唯一标识符
-
-    Returns:
-        实验历史记录摘要
-    """
-    # 从数据库或文件中查询历史记录
-    history = load_experiment_history(experiment_id)
-    return f"实验 {experiment_id} 的历史记录: {history}"
+EXPERIMENT_AGENT_SYSTEM_PROMPT = """
+You are an experienced materials scientist.
+Design experiments in JSON format with the following structure:
+{
+  "experiment_name": "实验名称",
+  "steps": [
+    {"type": "tool", "name": "spin_coating", "params": {...}, "description": "..."},
+    {"type": "helper", "name": "WAIT", "params": {"duration": 5000}, "description": "..."}
+  ]
+}
+Available tools: spin_coating, set_temperature, move_robot_arm, collect_spectrum
+"""
 ```
 
-**第二步**：在 `core/experiment_agent.py` 的 `_create_agent()` 中注册工具
-
-```python
-from hardware.tools import query_experiment_history
-
-return Agent(
-    model,
-    system_prompt=self.config.EXPERIMENT_AGENT_SYSTEM_PROMPT,
-    deps_type=Deps,
-    tools=[read_pdf, save_experiment_step, start_experiment, get_all_reagents, query_experiment_history],
-)
-```
-
-**第三步**：更新 `config.py` 中的系统提示词，告知AI有新工具可用
-
-```python
-EXPERIMENT_AGENT_SYSTEM_PROMPT: str = (
-    "You are an experienced materials scientist. "
-    "Available tools: read_pdf, save_experiment_step, start_experiment, get_all_reagents, query_experiment_history. "
-    "..."
-)
-```
-
-> **PydanticAI特点**：AI通过函数docstring理解工具功能，自主决定调用时机和参数，无需硬编码路由逻辑。
-
----
-
-### 4. 添加新的光谱数据可视化功能
-
-**第一步**：在 `hardware/visualization.py` 中添加新的绘图函数
-
-```python
-def save_heatmap(df: pd.DataFrame, output_path: str) -> str:
-    """
-    绘制光谱数据热力图
-
-    Args:
-        df: 包含 counts, wavelength, time 的 DataFrame
-        output_path: 输出文件路径
-
-    Returns:
-        保存的文件路径
-    """
-    # 数据提取与热力图绘制逻辑
-    ...
-    return output_path
-```
-
-**第二步**：在 `hardware/spec_client.py` 的 `_run_loop()` 中调用新可视化函数
-
-```python
-if not self._df.empty:
-    save_fig(self._df, output_dir=self.output_dir)
-    save_heatmap(self._df, output_dir=self.output_dir)  # 新增热力图
-```
+重启应用后，AI会按照新提示词生成实验计划。
 
 ---
 
 ## 九、注意事项
 
-1. 确保MQTT服务器（EMQX）正常运行，自动化实验平台已接入对应Topic；
-2. 大模型API调用需保证网络畅通，且API密钥有足够配额；
-3. 硬件控制的C/C++可执行文件/Python脚本需放在项目根目录，确保路径正确；
-4. 试剂位置配置文件 `reagent_layout.json` 需与自动化实验平台的试剂摆放一致；
-5. 建议在Python 3.10+环境下运行，避免依赖兼容问题；
-6. 硬件执行期间系统会锁定操作界面，请勿强制关闭浏览器以免指令丢失；
-7. 光谱仪客户端需与光谱仪控制端配合使用，控制端需发送 `continue`/`record`/`stop` 命令；
-8. PydanticAI Agent依赖异步运行环境，需确保 `asyncio` 事件循环正确初始化。
+1. **API配置**：首次运行前必须在 `config.txt` 中设置 `API_KEY`，否则所有LLM调用失败；
+2. **会话数据**：每次启动app.py创建新会话文件夹，旧会话数据保留在 `dialogue data/` 下，可手动清理；
+3. **MQTT连接**：硬件功能需MQTT服务器（EMQX）正常运行，否则硬件控制功能不可用；
+4. **端口占用**：Flask默认绑定5000端口，确保端口未被占用；
+5. **硬件执行不可中断**：硬件操作启动后无法取消，执行期间界面自动锁定；
+6. **试剂配置**：`reagent_layout.json` 需与实际硬件平台试剂摆放一致；
+7. **算法热加载**：AI生成的算法自动保存到 `extra_algorithms_fromProjects/`，无需重启即可使用；
+8. **Python版本**：建议使用Python 3.10+，避免依赖兼容问题；
+9. **文件路径**：Windows环境下使用正斜杠 `/` 或双反斜杠 `\\`，避免路径解析错误；
+10. **代码修改**：修改后端代码后需重启Flask应用，前端HTML修改刷新浏览器即可。
+
+---
+
+## 十、常见问题
+
+**Q1: 启动后提示"API_KEY未配置"？**  
+A: 在项目根目录创建 `config.txt`，添加 `API_KEY=你的密钥`。
+
+**Q2: 文献提取失败，提示"PDF文件未找到"？**  
+A: 检查 `config.txt` 中的 `PDF_FOLDER` 路径是否正确，确保PDF文件存在。
+
+**Q3: 硬件控制无响应？**  
+A: 检查MQTT服务器是否运行，`hardware/agent_client.py` 中的IP和端口是否正确。
+
+**Q4: 如何查看会话历史数据？**  
+A: 进入 `dialogue data/` 目录，每个时间戳文件夹对应一次会话，包含extract/temporal/results子目录。
+
+**Q5: AI生成的算法在哪里？**  
+A: 保存在 `software/algorithms/extra_algorithms_fromProjects/`，文件名为算法名称。
+
+**Q6: 如何清理旧会话数据？**  
+A: 手动删除 `dialogue data/` 下的旧时间戳文件夹即可。
+
+---
+
+## 十一、技术栈
+
+- **后端框架**：Flask 2.3.3
+- **PDF处理**：PyMuPDF (fitz)
+- **LLM交互**：OpenAI API兼容接口（支持Qwen、GPT等）
+- **硬件通信**：MQTT (paho-mqtt)
+- **实验设计**：PydanticAI (legacy模式) + 自定义JSON解析器
+- **数据分析**：Pandas、NumPy、Matplotlib
+- **前端**：原生HTML/CSS/JavaScript + Canvas API
+
+---
+
+## 十二、贡献指南
+
+欢迎提交Issue和Pull Request！
+
+1. Fork本仓库
+2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 开启Pull Request
+
+---
+
+## 十四、致谢
+

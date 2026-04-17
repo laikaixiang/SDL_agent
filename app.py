@@ -803,11 +803,17 @@ def internal_error(error):
 @app.route('/api/experiment_chat', methods=['POST'])
 def experiment_chat():
     """
-    实验设计对话 - AI 自主选择工具规划实验流程（非阻塞）
+    实验设计对话 - 使用自然语言生成实验设计JSON
 
-    将 Agent 放到后台线程运行，立即返回 task_trigger 让前端打开 SSE 监听。
-    Agent 运行过程中通过 task_manager 推送事件（工具调用、确认请求等），
-    完成后推送 complete 事件携带 AI 回复。
+    直接生成统一格式的实验设计JSON，打印到控制台并推送到前端
+
+    返回格式：
+    {
+        "type": "experiment_design",
+        "experiment_json": {...},  # 统一格式的实验设计JSON
+        "visual_data": {...},      # 前端可视化格式
+        "reply": "AI的解释说明"
+    }
     """
     data = request.json
     session_id = data.get('session_id', 'default')
@@ -816,74 +822,57 @@ def experiment_chat():
     if not user_message:
         return jsonify({'type': 'error', 'reply': '消息不能为空'})
 
-    # 清空任务队列，准备新一轮事件推送
-    while not task_manager.is_queue_empty():
-        task_manager.get_task_message()
+    # 使用ExperimentDesignParser生成JSON
+    from core.field_inference import ExperimentDesignParser
+    from core.experiment_manager import ExperimentManager
 
-    task_id = task_manager.generate_task_id()
-    task_manager.current_task_id = task_id
-    task_manager.task_running = True
+    parser = ExperimentDesignParser()
+    manager = ExperimentManager()
 
-    def run_agent_thread():
-        """后台线程：运行实验设计 Agent"""
-        try:
-            # 立即推送初始状态消息
-            print(f"[实验设计] 线程已启动，会话ID: {session_id}")
-            task_manager.put_task_message({
-                "type": "info",
-                "data": "正在初始化实验设计引擎..."
-            })
+    print(f"\n{'='*60}")
+    print(f"[实验设计] 开始生成实验方案")
+    print(f"[实验设计] 用户需求: {user_message}")
+    print(f"{'='*60}\n")
 
-            # 将异步 send_event 桥接到 task_manager 消息队列
-            async def send_event_async(event):
-                task_manager.put_task_message(event)
+    success, result = parser.parse_experiment_design(user_message)
 
-            # 创建事件循环
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            print("[实验设计] 事件循环已创建")
+    if success:
+        # 添加时间戳
+        import datetime
+        result['created_at'] = datetime.datetime.now().isoformat()
 
-            # 推送就绪消息
-            task_manager.put_task_message({
-                "type": "info",
-                "data": "引擎已就绪，开始分析需求..."
-            })
-            print(f"[实验设计] 开始运行agent，用户消息: {user_message[:50]}...")
+        # 打印生成的JSON到控制台
+        print(f"\n{'='*60}")
+        print(f"[实验设计] ✅ 生成成功")
+        print(f"[实验设计] 实验名称: {result.get('experiment_name', '未命名实验')}")
+        print(f"[实验设计] 步骤数量: {len(result.get('steps', []))}")
+        print(f"\n[实验设计] 完整JSON:")
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        print(f"{'='*60}\n")
 
-            # 运行agent
-            result = loop.run_until_complete(
-                experiment_agent.run(session_id, user_message, send_event_async)
-            )
+        # 转换为前端可视化格式
+        visual_data = manager.json_to_visual(result)
 
-            print(f"[实验设计] Agent执行成功，结果长度: {len(result)} 字符")
+        print(f"[实验设计] 已转换为前端可视化格式")
+        print(f"[实验设计] 节点数量: {len(visual_data.get('nodes', []))}")
+        print(f"[实验设计] 边数量: {len(visual_data.get('edges', []))}\n")
 
-            # Agent 正常完成，推送 complete 事件携带 AI 回复
-            task_manager.put_task_message({
-                "type": "complete",
-                "data": {"agent_reply": result}
-            })
-        except Exception as e:
-            # Agent 异常，推送 complete 事件携带错误信息
-            import traceback
-            error_detail = traceback.format_exc()
-            print(f"[错误] 实验设计Agent线程失败:")
-            print(error_detail)
+        return jsonify({
+            'type': 'experiment_design',
+            'experiment_json': result,
+            'visual_data': visual_data,
+            'reply': f"✅ 已生成实验设计方案：{result.get('experiment_name', '未命名实验')}\n\n{result.get('description', '')}\n\n共 {len(result.get('steps', []))} 个步骤，已推送到实验流程画布。"
+        })
+    else:
+        print(f"\n{'='*60}")
+        print(f"[实验设计] ❌ 生成失败")
+        print(f"[实验设计] 错误信息: {result}")
+        print(f"{'='*60}\n")
 
-            task_manager.put_task_message({
-                "type": "complete",
-                "data": {"error": f"实验设计Agent错误: {str(e)}"}
-            })
-        finally:
-            task_manager.task_running = False
-            loop.close()
-            print("[实验设计] 线程已结束")
-
-    threading.Thread(target=run_agent_thread, daemon=True).start()
-
-    return jsonify({
-        'type': 'task_trigger',
-        'reply': '🔬 实验设计 Agent 已启动，正在分析你的需求...'
-    })
+        return jsonify({
+            'type': 'error',
+            'reply': f"❌ 实验设计生成失败：{result}"
+        })
 
 
 @app.route('/api/experiment_upload', methods=['POST'])
@@ -1117,6 +1106,32 @@ def get_recent_files():
         "success": True,
         "files": files[:10]
     })
+
+
+@app.route('/api/generate_algorithm', methods=['POST'])
+def generate_algorithm_alias():
+    """
+    生成新算法的简化接口（前端调用）
+
+    请求体：
+        {
+            "description": "算法描述"
+        }
+    """
+    data = request.json
+    description = data.get('description', '').strip()
+
+    if not description:
+        return jsonify({'success': False, 'message': '缺少算法描述'}), 400
+
+    # 调用软件管理器生成算法
+    result = software_manager.generate_algorithm(description)
+
+    # 如果生成成功，自动重新加载算法列表
+    if result.get('success'):
+        software_manager.reload_algorithms()
+
+    return jsonify(result)
 
 
 @app.route('/api/run_algorithm', methods=['POST'])

@@ -169,6 +169,132 @@ class FieldInference:
 
 
 
+class ExperimentDesignParser:
+    """
+    实验设计解析器 - 将自然语言转换为实验设计JSON
+
+    职责：
+    - 解析用户的实验需求描述
+    - 生成统一格式的实验设计JSON
+    - 提供实验设计智能体的系统提示词
+    """
+
+    # 实验设计智能体系统提示词
+    EXPERIMENT_AGENT_SYSTEM_PROMPT = (
+        "你是一位经验丰富的材料科学家，专门设计钙钛矿太阳能电池实验。\n"
+        "你的任务是根据用户需求，设计详细的实验方案并输出JSON格式。\n\n"
+        "可用的实验操作类型：\n"
+        "1. spin_coating - 旋涂实验\n"
+        "   参数: spin_speed(转速rpm), spin_acc(加速度rpm/s), spin_dur(时长ms), reagent(试剂名), volume(体积μL)\n"
+        "2. set_temperature - 温度控制\n"
+        "   参数: temperature(温度℃)\n"
+        "3. move_robot_arm - 机械臂移动\n"
+        "   参数: x, y, z(坐标mm)\n"
+        "4. collect_spectrum - 光谱采集\n"
+        "   参数: duration(时长秒)\n"
+        "5. WAIT - 等待辅助操作\n"
+        "   参数: duration(时长ms)\n\n"
+        "输出格式要求：\n"
+        "🚨 必须输出纯JSON，不要有Markdown标记（如```json）、代码块或解释文字。\n"
+        "🚨 JSON格式：\n"
+        "{\n"
+        '  "experiment_name": "实验名称",\n'
+        '  "description": "实验描述",\n'
+        '  "steps": [\n'
+        '    {"type": "tool", "name": "spin_coating", "params": {...}, "description": "步骤描述"},\n'
+        '    {"type": "helper", "name": "WAIT", "params": {"duration": 5000}, "description": "等待5秒"},\n'
+        '    ...\n'
+        '  ],\n'
+        '  "notes": "注意事项"\n'
+        "}\n\n"
+        "设计原则：\n"
+        "- 旋涂步骤必须包含试剂名称和体积\n"
+        "- 多步旋涂需要在步骤间添加WAIT\n"
+        "- 温度设置应在旋涂前完成\n"
+        "- 每个步骤必须有清晰的description说明\n"
+    )
+
+    def __init__(self):
+        """初始化实验设计解析器"""
+        self.config = Config()
+        self.llm_client = LLMClient()
+
+    def parse_experiment_design(self, user_description: str) -> Tuple[bool, Dict | str]:
+        """
+        从用户描述生成实验设计JSON
+
+        Args:
+            user_description: 用户的实验需求描述
+
+        Returns:
+            (成功状态, JSON字典或错误信息)
+        """
+        prompt = (
+            f"{self.EXPERIMENT_AGENT_SYSTEM_PROMPT}\n\n"
+            f"用户需求：{user_description}\n\n"
+            "请根据上述需求设计实验方案，直接输出JSON格式。"
+        )
+
+        messages = [
+            {"role": "user", "content": prompt}
+        ]
+
+        result = self.llm_client.call_api(
+            model=self.config.MODEL_NAME_TALK,
+            messages=messages,
+            temperature=0.3,
+            max_tokens=2048
+        )
+
+        if result:
+            try:
+                content = result['choices'][0]['message']['content'].strip()
+                # 清理可能的markdown标记
+                content = content.replace("```json", "").replace("```", "").strip()
+                experiment_json = json.loads(content)
+
+                # 验证JSON格式
+                if self.validate_experiment_json(experiment_json):
+                    return True, experiment_json
+                else:
+                    return False, "生成的JSON格式不符合要求"
+            except json.JSONDecodeError as e:
+                return False, f"JSON解析失败: {str(e)}"
+            except Exception as e:
+                return False, f"处理失败: {str(e)}"
+
+        return False, "API调用失败"
+
+    def validate_experiment_json(self, experiment_json: Dict) -> bool:
+        """
+        验证实验设计JSON的有效性
+
+        Args:
+            experiment_json: 实验设计JSON
+
+        Returns:
+            是否有效
+        """
+        # 检查必需字段
+        if "steps" not in experiment_json:
+            return False
+
+        steps = experiment_json.get("steps", [])
+        if not isinstance(steps, list) or len(steps) == 0:
+            return False
+
+        # 检查每个步骤
+        for step in steps:
+            if not isinstance(step, dict):
+                return False
+            if "type" not in step or "name" not in step:
+                return False
+            if "params" not in step:
+                return False
+
+        return True
+
+
 class AlgorithmParser:
     """
     算法解析器 - 解析用户输入的算法名称

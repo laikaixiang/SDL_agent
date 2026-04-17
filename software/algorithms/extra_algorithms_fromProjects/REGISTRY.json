@@ -1,0 +1,15 @@
+{
+  "algorithms": [
+    {
+      "name": "bayesian_optimization",
+      "description": "贝叶斯优化算法，根据历史工艺参数和对应输出，预测下一轮最优的工艺参数组合。",
+      "category": "自定义算法",
+      "input_type": "输入 data 为二维列表或 numpy 数组，每行表示一次实验，最后一列为输出值，其余列为输入的工艺参数。输入数据至少包含两列，最后一列为输出，其余为输入参数。",
+      "keywords": [
+        "bayesian_optimization"
+      ]
+    }
+  ],
+  "version": "1.0.0",
+  "last_updated": "2026-04-15"
+}

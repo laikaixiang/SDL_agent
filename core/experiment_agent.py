@@ -13,6 +13,9 @@ from pydantic_ai.providers.openai import OpenAIProvider
 
 from .config import Config
 
+# 从 field_inference 导入实验设计提示词
+from .field_inference import ExperimentDesignParser
+
 # 从 hardware/tools.py 导入 PydanticAI 异步工具函数和依赖容器
 from hardware.tools import (
     Deps,                    # 依赖注入容器（包含 send_event 回调）
@@ -54,7 +57,7 @@ class ExperimentDesignAgent:
         )
         return Agent(
             model,
-            system_prompt=self.config.EXPERIMENT_AGENT_SYSTEM_PROMPT,
+            system_prompt=ExperimentDesignParser.EXPERIMENT_AGENT_SYSTEM_PROMPT,
             deps_type=Deps,
             # AI 会自动分析每个函数的 docstring，理解功能后自主决定调用
             tools=[read_pdf, save_experiment_step, start_experiment, get_all_reagents],

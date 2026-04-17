@@ -13,7 +13,6 @@
     - 硬件控制配置          : 硬件操作超时时间
     - 光谱仪 MQTT 配置      : 光谱仪数据采集的 MQTT 连接参数
     - 试剂配置              : 试剂布局文件路径
-    - 实验设计智能体配置    : PydanticAI Agent 的系统提示词
 """
 
 import os
@@ -35,7 +34,6 @@ class Config:
         config = Config()
         print(config.API_URL)                    # API 地址
         print(config.EXPERIMENT_MODEL_NAME)      # 实验设计Agent模型名称
-        print(config.EXPERIMENT_AGENT_SYSTEM_PROMPT)  # 实验设计Agent提示词
     """
 
     # ======================== API 配置 ========================
@@ -89,19 +87,6 @@ class Config:
     # 试剂布局配置文件路径（JSON 格式），记录每个位置上装载的试剂名称
     # 默认位于项目根目录的 reagent_layout.json
     REAGENT_LAYOUT_PATH: str = "reagent_layout.json"
-
-    # ======================== 实验设计智能体配置 ========================
-    # PydanticAI Agent 的系统提示词，定义 AI 的角色和可用工具
-    # AI 会根据此提示词理解自己的能力边界，并自主决定调用哪些工具
-    EXPERIMENT_AGENT_SYSTEM_PROMPT: str = (
-        "You are an experienced materials scientist. "
-        "When the user uploads a PDF, you can read it with `read_pdf(file_path, page_number)`. "
-        "The file path will be provided by the system. "
-        "You may also register spin-coating steps with `save_experiment_step`. "
-        "You can start the whole experiment round with `start_experiment`. "
-        "When the human scientist asks you to do spin-coating experiments, remember to check how many steps the "
-        "experiment round takes."
-    )
 
     @classmethod
     def get_config(cls, key: str) -> Optional[str]:

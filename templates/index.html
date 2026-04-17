@@ -370,6 +370,100 @@
         }
         .step-status-bar.running { background: #fef3c7; color: #92400e; }
 
+        /* 算法面板 - 左侧 */
+        .algorithm-panel {
+            position: absolute;
+            top: 0; left: 0;
+            width: 320px;
+            height: 100%;
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+            display: flex;
+            flex-direction: column;
+            z-index: 50;
+            transform: translateX(-100%);
+            opacity: 0;
+            transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow: hidden;
+        }
+        .algorithm-panel.open {
+            transform: translateX(0);
+            opacity: 1;
+        }
+        .algo-panel-header {
+            padding: 15px 20px;
+            background: #10b981;
+            color: #fff;
+            font-weight: bold;
+            font-size: 0.95rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        .algo-panel-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+        }
+        .algo-panel-item {
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .algo-panel-item:hover {
+            border-color: #10b981;
+            background: #f0fdf4;
+        }
+        .algo-panel-item-icon {
+            font-size: 1.5rem;
+            margin-bottom: 6px;
+        }
+        .algo-panel-item-name {
+            font-weight: bold;
+            color: #1f2937;
+            font-size: 0.9rem;
+            margin-bottom: 4px;
+        }
+        .algo-panel-item-desc {
+            font-size: 0.75rem;
+            color: #6b7280;
+            margin-bottom: 6px;
+        }
+        .algo-panel-item-tags {
+            display: flex;
+            gap: 4px;
+            flex-wrap: wrap;
+        }
+        .algo-panel-tag {
+            background: #dbeafe;
+            color: #1e40af;
+            font-size: 0.65rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+        .algo-gen-btn {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 0.85rem;
+            width: 100%;
+            margin-bottom: 12px;
+            transition: all 0.2s;
+        }
+        .algo-gen-btn:hover {
+            background: #2563eb;
+        }
+
         /* 实验设计面板 */
         .experiment-design-panel {
             position: absolute;
@@ -606,10 +700,46 @@
         .helper-fn-btn:hover {
             background: #f59e0b;
         }
+
+        /* 通知动画 */
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        @keyframes slideOut {
+            from {
+                transform: translateX(0);
+                opacity: 1;
+            }
+            to {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+        }
     </style>
 </head>
 <body>
 <div class="app-wrapper" id="app-wrapper">
+
+<!-- 算法面板 - 左侧 -->
+<div class="algorithm-panel" id="algorithm-panel">
+    <div class="algo-panel-header">
+        <span>📊 算法库</span>
+        <button onclick="closeAlgorithmPanel()" style="background:none;border:none;color:#fff;font-size:1.5rem;cursor:pointer;padding:0;line-height:1;">×</button>
+    </div>
+    <div class="algo-panel-body" id="algo-panel-body">
+        <button class="algo-gen-btn" onclick="openAlgorithmGenerator()">✨ 生成新算法</button>
+        <div id="algo-list-container">
+            <div style="text-align:center;color:#9ca3af;padding:40px 20px;">加载中...</div>
+        </div>
+    </div>
+</div>
 
 <div class="chat-container">
     <div class="header">
@@ -629,7 +759,7 @@
         <div class="mode-item hardware-parent" onmouseenter="showHardwareSubmenu(event)" onmouseleave="hideHardwareSubmenu()">
             ⚙️ 硬件操控模式 ▶
         </div>
-        <div class="mode-item" onclick="setMode('analyze', '数据分析：', '📊 数据分析')">📊 数据分析模式</div>
+        <div class="mode-item" onclick="openAlgorithmPanel()">📊 算法选择</div>
     </div>
 
     <!-- 硬件子菜单 -->
@@ -1691,6 +1821,17 @@ ${replyMsg.replace(/\n/g, '<br>')}
             if (data.type === 'task_trigger') {
                 appendMessage(data.reply, 'ai');
                 startTaskStream();  // 打开 SSE 监听 Agent 事件（含确认卡片）
+            } else if (data.type === 'experiment_design') {
+                // 新增：处理实验设计JSON响应
+                appendMessage(data.reply, 'ai');
+
+                // 推送JSON到实验设计区域
+                if (data.experiment_json) {
+                    loadExperimentFromJSON(data.experiment_json);
+
+                    // 显示成功提示
+                    showNotification('✅ 实验设计已生成并推送到画布', 'success');
+                }
             } else if (data.type === 'error') {
                 appendMessage(data.reply, 'ai');
             }
@@ -1840,6 +1981,140 @@ ${replyMsg.replace(/\n/g, '<br>')}
         });
     }
 
+
+    // =====================================
+    // 📊 算法面板
+    // =====================================
+    async function openAlgorithmPanel() {
+        modeMenu.style.display = 'none';
+        hideHardwareSubmenu();
+
+        const panel = document.getElementById('algorithm-panel');
+        panel.classList.add('open');
+
+        // 加载算法列表
+        await loadAlgorithmList();
+    }
+
+    function closeAlgorithmPanel() {
+        const panel = document.getElementById('algorithm-panel');
+        panel.classList.remove('open');
+    }
+
+    async function loadAlgorithmList() {
+        const container = document.getElementById('algo-list-container');
+        container.innerHTML = '<div style="text-align:center;color:#9ca3af;padding:40px 20px;">加载中...</div>';
+
+        try {
+            const res = await fetch('/api/list_algorithms');
+            const data = await res.json();
+
+            if (data.success && data.algorithms) {
+                renderAlgorithmPanelList(data.algorithms);
+            } else {
+                container.innerHTML = '<div style="text-align:center;color:#ef4444;padding:20px;">加载失败</div>';
+            }
+        } catch (e) {
+            container.innerHTML = '<div style="text-align:center;color:#ef4444;padding:20px;">网络错误</div>';
+        }
+    }
+
+    function renderAlgorithmPanelList(algorithms) {
+        const container = document.getElementById('algo-list-container');
+
+        if (!algorithms || algorithms.length === 0) {
+            container.innerHTML = '<div style="text-align:center;color:#9ca3af;padding:20px;">暂无算法</div>';
+            return;
+        }
+
+        let html = '';
+        algorithms.forEach(algo => {
+            const tags = algo.tags || [];
+            const tagsHtml = tags.map(tag => `<span class="algo-panel-tag">${tag}</span>`).join('');
+
+            html += `
+                <div class="algo-panel-item" onclick="selectAlgorithmFromPanel('${algo.name}', '${algo.description}', '${algo.icon}')">
+                    <div class="algo-panel-item-icon">${algo.icon || '📊'}</div>
+                    <div class="algo-panel-item-name">${algo.description || algo.name}</div>
+                    <div class="algo-panel-item-desc">${algo.name}</div>
+                    <div class="algo-panel-item-tags">${tagsHtml}</div>
+                </div>`;
+        });
+
+        container.innerHTML = html;
+    }
+
+    function selectAlgorithmFromPanel(algoName, description, icon) {
+        selectedAlgorithm = algoName;
+        closeAlgorithmPanel();
+        showFileSelector();
+    }
+
+    function openAlgorithmGenerator() {
+        closeAlgorithmPanel();
+
+        // 在中间区域询问用户
+        const html = `
+            <div class="algorithm-confirm-card">
+                <div class="card-header">✨ 生成新算法</div>
+                <div style="margin-bottom: 16px; color: #6b7280; font-size: 0.9rem;">
+                    请描述您想要的算法功能，系统将自动生成代码。
+                </div>
+                <div style="margin-bottom: 16px;">
+                    <textarea id="algo-gen-input"
+                              style="width: 100%; min-height: 120px; padding: 10px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 0.9rem; resize: vertical;"
+                              placeholder="例如：我需要一个对数值列表做移动平均的算法，窗口大小可配置，默认5，输出平滑后的序列和残差"></textarea>
+                </div>
+                <div class="agent-actions">
+                    <button class="btn-yes" onclick="generateNewAlgorithm()">✨ 生成算法</button>
+                    <button class="btn-no" onclick="cancelAlgorithmGeneration()">✗ 取消</button>
+                </div>
+            </div>`;
+
+        appendMessageHtml(html, 'ai');
+    }
+
+    async function generateNewAlgorithm() {
+        const input = document.getElementById('algo-gen-input');
+        if (!input) return;
+
+        const description = input.value.trim();
+        if (!description) {
+            appendMessage('请输入算法描述', 'ai');
+            return;
+        }
+
+        appendMessage(`正在生成算法：${description}`, 'user');
+        appendMessage('⏳ 正在调用 LLM 生成算法代码，请稍候...', 'ai');
+
+        try {
+            const res = await fetch('/api/generate_algorithm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ description: description })
+            });
+
+            const data = await res.json();
+
+            if (data.success) {
+                appendMessage(`✅ 算法生成成功！\n算法名称: ${data.name}\n文件路径: ${data.filepath}\n\n${data.message}`, 'ai');
+
+                // 重新加载算法列表（如果面板打开）
+                const panel = document.getElementById('algorithm-panel');
+                if (panel.classList.contains('open')) {
+                    await loadAlgorithmList();
+                }
+            } else {
+                appendMessage(`❌ 算法生成失败: ${data.message}`, 'ai');
+            }
+        } catch (e) {
+            appendMessage(`❌ 网络异常: ${e.message}`, 'ai');
+        }
+    }
+
+    function cancelAlgorithmGeneration() {
+        appendMessage('已取消算法生成', 'user');
+    }
 
     // =====================================
     // 🔧 单步控制面板
@@ -2389,9 +2664,66 @@ ${replyMsg.replace(/\n/g, '<br>')}
     function clearExperimentDesign() {
         if (confirm('确定清空所有实验步骤？')) {
             experimentSteps = [];
+            experimentName = "未命名实验";
             renderExperimentSteps();
             updateExperimentJSON();
         }
+    }
+
+    // 从JSON加载实验设计
+    function loadExperimentFromJSON(json) {
+        try {
+            // 更新实验名称
+            experimentName = json.experiment_name || "未命名实验";
+
+            // 转换steps格式（统一为前端格式）
+            experimentSteps = json.steps.map((step, index) => {
+                return {
+                    type: step.type || "tool",
+                    name: step.name || step.action || "",
+                    params: step.params || {},
+                    description: step.description || ""
+                };
+            });
+
+            // 重新渲染画布和JSON
+            renderExperimentSteps();
+            updateExperimentJSON();
+
+            console.log(`[实验设计] 已加载实验: ${experimentName}, 步骤数: ${experimentSteps.length}`);
+        } catch (e) {
+            console.error('[实验设计] 加载JSON失败:', e);
+            alert('加载实验设计失败: ' + e.message);
+        }
+    }
+
+    // 显示通知
+    function showNotification(message, type = 'info') {
+        // 创建通知元素
+        const notification = document.createElement('div');
+        notification.className = `notification notification-${type}`;
+        notification.textContent = message;
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 20px;
+            background: ${type === 'success' ? '#10b981' : type === 'error' ? '#ef4444' : '#3b82f6'};
+            color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            z-index: 10000;
+            animation: slideIn 0.3s ease-out;
+            max-width: 400px;
+        `;
+
+        document.body.appendChild(notification);
+
+        // 3秒后自动移除
+        setTimeout(() => {
+            notification.style.animation = 'slideOut 0.3s ease-out';
+            setTimeout(() => notification.remove(), 300);
+        }, 3000);
     }
 
     // 保存实验设计到文件夹

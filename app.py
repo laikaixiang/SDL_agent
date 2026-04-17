@@ -36,8 +36,8 @@ from core import (
     AdaptiveStreamHandler,
 )
 
-# 初始化Flask应用
-app = Flask(__name__)
+# 初始化Flask应用，static 文件夹已移入 templates/static
+app = Flask(__name__, static_folder='templates/static', static_url_path='/static')
 app.secret_key = os.urandom(24)  # 用于session管理
 
 # 初始化核心组件

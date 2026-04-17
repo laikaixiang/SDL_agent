@@ -152,27 +152,36 @@
     <div class="modal-backdrop" onclick="closeFileSelector()"></div>
     <div class="file-selector-content">
         <div class="modal-header">
-            <h3>📁 选择数据文件</h3>
+            <h3 id="file-selector-title">📁 选择数据文件</h3>
             <button class="close-icon" onclick="closeFileSelector()">×</button>
         </div>
         <div class="file-tabs">
-            <button class="tab-btn active" onclick="switchFileTab('recent')">最近使用</button>
-            <button class="tab-btn" onclick="switchFileTab('browse')">浏览文件</button>
-            <button class="tab-btn" onclick="switchFileTab('custom')">自定义路径</button>
+            <button class="tab-btn active" id="tab-btn-recent" onclick="switchFileTab('recent')">最近使用</button>
+            <button class="tab-btn" id="tab-btn-browse" onclick="switchFileTab('browse')">浏览文件</button>
+            <button class="tab-btn" id="tab-btn-custom" onclick="switchFileTab('custom')">自定义路径</button>
+            <button class="tab-btn" id="tab-btn-dirs" onclick="switchFileTab('dirs')" style="display:none;">选择目录</button>
         </div>
         <div class="file-list" id="file-list-recent">
             <div style="text-align:center;color:#9ca3af;padding:20px;">加载中...</div>
         </div>
         <div class="file-list" id="file-list-browse" style="display:none;">
-            <input type="file" id="file-upload-csv" accept=".csv" style="display:none;" onchange="handleCSVUpload(event)">
-            <button class="upload-btn" onclick="document.getElementById('file-upload-csv').click()">📤 上传本地CSV文件</button>
-            <div class="upload-hint">或将CSV文件拖拽到此处</div>
+            <div id="file-drop-zone" class="upload-drop-zone"
+                ondragover="event.preventDefault(); this.classList.add('drag-over')"
+                ondragleave="this.classList.remove('drag-over')"
+                ondrop="_handleFileDrop(event)">
+                <input type="file" id="file-upload-csv" accept=".csv" style="display:none;" onchange="handleCSVUpload(event)">
+                <button class="upload-btn" onclick="document.getElementById('file-upload-csv').click()">📤 上传本地CSV文件</button>
+                <div class="upload-hint">或将CSV文件拖拽到此处</div>
+            </div>
         </div>
         <div class="file-list" id="file-list-custom" style="display:none;">
             <div class="default-path-input">
                 <input type="text" id="custom-path-input" placeholder="输入文件路径，如: temporal/extraction.csv" />
                 <button class="btn-confirm-path" onclick="confirmCustomPath()">确认</button>
             </div>
+        </div>
+        <div class="file-list" id="file-list-dirs" style="display:none;">
+            <div style="text-align:center;color:#9ca3af;padding:20px;">加载中...</div>
         </div>
     </div>
 </div>

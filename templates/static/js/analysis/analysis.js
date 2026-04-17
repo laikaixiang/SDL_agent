@@ -103,9 +103,27 @@ function cancelAlgorithm() {
     selectedAlgorithm = null;
 }
 
-/** 显示文件选择器模态框，并异步加载最近使用的文件列表到"最近使用"标签页。 */
-async function showFileSelector() {
+// 文件选择器回调（null = 默认行为：执行算法）
+let _fileSelectorCallback = null;
+let _fileSelectorMode = 'file'; // 'file' | 'dir'
+
+/**
+ * 显示文件选择器模态框。
+ * @param {Function|null} callback - 选定后的回调 (path, name) => void；null 则执行算法
+ */
+async function showFileSelector(callback) {
+    _fileSelectorCallback = callback || null;
+    _fileSelectorMode = 'file';
+
+    // 重置标题和标签页可见性
+    document.getElementById('file-selector-title').textContent = '📁 选择数据文件';
+    document.getElementById('tab-btn-dirs').style.display = 'none';
+    ['recent','browse','custom'].forEach(t => document.getElementById('tab-btn-' + t).style.display = '');
+
+    // 激活 recent 标签
+    _activateFileSelectorTab('recent');
     document.getElementById('file-selector-modal').style.display = 'flex';
+
     try {
         const res = await fetch('/api/recent_files');
         const data = await res.json();
@@ -113,6 +131,61 @@ async function showFileSelector() {
     } catch (e) {
         document.getElementById('file-list-recent').innerHTML =
             '<div style="text-align:center;color:#ef4444;padding:20px;">加载失败</div>';
+    }
+}
+
+/**
+ * 显示输出目录选择器（复用同一模态框，仅显示目录标签页）。
+ * @param {Function} callback - 选定后的回调 (path, label) => void
+ */
+async function showOutputDirSelector(callback) {
+    _fileSelectorCallback = callback || null;
+    _fileSelectorMode = 'dir';
+
+    document.getElementById('file-selector-title').textContent = '📂 选择输出目录';
+    // 隐藏文件相关标签，只显示目录标签
+    ['recent','browse','custom'].forEach(t => document.getElementById('tab-btn-' + t).style.display = 'none');
+    document.getElementById('tab-btn-dirs').style.display = '';
+
+    _activateFileSelectorTab('dirs');
+    document.getElementById('file-selector-modal').style.display = 'flex';
+
+    const container = document.getElementById('file-list-dirs');
+    container.innerHTML = '<div style="text-align:center;color:#9ca3af;padding:20px;">加载中...</div>';
+    try {
+        const res = await fetch('/api/browse_output_dirs');
+        const data = await res.json();
+        if (data.success) _renderOutputDirs(data.dirs);
+        else container.innerHTML = '<div style="text-align:center;color:#ef4444;padding:20px;">加载失败</div>';
+    } catch (e) {
+        container.innerHTML = `<div style="text-align:center;color:#ef4444;padding:20px;">加载失败: ${e.message}</div>`;
+    }
+}
+
+/** 渲染输出目录列表。 */
+function _renderOutputDirs(dirs) {
+    const container = document.getElementById('file-list-dirs');
+    if (!dirs || !dirs.length) {
+        container.innerHTML = '<div style="text-align:center;color:#9ca3af;padding:20px;">暂无目录</div>';
+        return;
+    }
+    container.innerHTML = dirs.map(d => `
+        <div class="file-item${d.is_default ? ' file-item-default' : ''}" onclick="_selectOutputDirFromModal('${d.path.replace(/'/g,"\\'")}', '${d.label.replace(/'/g,"\\'")}')">
+            <span class="file-icon">📂</span>
+            <div class="file-info">
+                <div class="file-name">${d.label}${d.is_default ? '  ★ 默认' : ''}</div>
+                <div class="file-path">${d.path}</div>
+            </div>
+            <span class="file-check">✓</span>
+        </div>`).join('');
+}
+
+/** 从目录列表选定一个输出目录。 */
+function _selectOutputDirFromModal(dirPath, label) {
+    closeFileSelector();
+    if (_fileSelectorCallback) {
+        _fileSelectorCallback(dirPath, label);
+        _fileSelectorCallback = null;
     }
 }
 
@@ -135,33 +208,70 @@ function renderRecentFiles(files) {
         </div>`).join('');
 }
 
-/** 关闭文件选择器。 */
+/** 关闭文件选择器，重置回调和模式。 */
 function closeFileSelector() {
     document.getElementById('file-selector-modal').style.display = 'none';
+    _fileSelectorCallback = null;
+    _fileSelectorMode = 'file';
 }
 
-/** 切换文件选择器的标签页（recent / browse / custom），更新按钮激活状态并显示对应内容区。 */
-function switchFileTab(tabName) {
+/** 激活指定标签页（内部辅助）。 */
+function _activateFileSelectorTab(tabName) {
     document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-    event.target.classList.add('active');
-    ['recent', 'browse', 'custom'].forEach(t => {
-        document.getElementById(`file-list-${t}`).style.display = t === tabName ? 'block' : 'none';
+    const activeBtn = document.getElementById('tab-btn-' + tabName);
+    if (activeBtn) activeBtn.classList.add('active');
+    ['recent', 'browse', 'custom', 'dirs'].forEach(t => {
+        const el = document.getElementById('file-list-' + t);
+        if (el) el.style.display = t === tabName ? 'block' : 'none';
     });
 }
 
-/** 将选中的文件路径存入 selectedFilePath，关闭选择器，然后立即执行当前选中的算法。 */
-function selectFile(filePath) {
+/** 切换文件选择器的标签页。 */
+function switchFileTab(tabName) {
+    _activateFileSelectorTab(tabName);
+}
+
+/** 将选中的文件路径存入 selectedFilePath，关闭选择器，然后执行回调或算法。 */
+function selectFile(filePath, fileName) {
     selectedFilePath = filePath;
     closeFileSelector();
-    executeAlgorithm(selectedAlgorithm, selectedFilePath, {});
+    if (_fileSelectorCallback) {
+        _fileSelectorCallback(filePath, fileName || filePath.split('/').pop());
+        _fileSelectorCallback = null;
+    } else {
+        executeAlgorithm(selectedAlgorithm, selectedFilePath, {});
+    }
 }
 
 /** CSV 文件上传处理（浏览标签页）。 */
 function handleCSVUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
-    appendMessage(`已选择文件: ${file.name}`, 'ai');
-    closeFileSelector();
+    _handleUploadedFile(file);
+}
+
+/** 拖拽文件放下处理。 */
+function _handleFileDrop(event) {
+    event.preventDefault();
+    document.getElementById('file-drop-zone').classList.remove('drag-over');
+    const file = event.dataTransfer.files[0];
+    if (file && file.name.endsWith('.csv')) _handleUploadedFile(file);
+}
+
+/** 处理上传的 CSV 文件（上传或拖拽共用）。 */
+function _handleUploadedFile(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+        // 用 blob URL 作为临时路径标识，名称传给回调
+        closeFileSelector();
+        if (_fileSelectorCallback) {
+            _fileSelectorCallback('__upload__:' + file.name, file.name);
+            _fileSelectorCallback = null;
+        } else {
+            appendMessage(`已选择文件: ${file.name}`, 'ai');
+        }
+    };
+    reader.readAsText(file);
 }
 
 /** 确认自定义路径输入。 */

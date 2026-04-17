@@ -1108,6 +1108,41 @@ def get_recent_files():
     })
 
 
+@app.route('/api/browse_csv', methods=['GET'])
+def browse_csv():
+    """列出可用的输入 CSV 文件：当前会话 extract/ + const_data/extract/"""
+    import glob
+    files = []
+    paths_to_scan = [
+        get_session_path("extract"),
+        get_session_path("temporal"),
+        os.path.join("dialogue data", "const_data", "extract"),
+    ]
+    for folder in paths_to_scan:
+        for fp in glob.glob(os.path.join(folder, "*.csv")):
+            files.append({
+                'path': fp.replace('\\', '/'),
+                'name': os.path.basename(fp),
+                'folder': folder.replace('\\', '/'),
+            })
+    return jsonify({"success": True, "files": files})
+
+
+@app.route('/api/browse_output_dirs', methods=['GET'])
+def browse_output_dirs():
+    """列出可用的输出目录：当前会话 results/ 以及 const_data/result/ 下的子文件夹"""
+    dirs = []
+    session_results = get_session_path("results")
+    dirs.append({'path': session_results.replace('\\', '/'), 'label': '当前会话 results（默认）', 'is_default': True})
+    const_result = os.path.join("dialogue data", "const_data", "result")
+    if os.path.isdir(const_result):
+        for name in sorted(os.listdir(const_result)):
+            full = os.path.join(const_result, name)
+            if os.path.isdir(full):
+                dirs.append({'path': full.replace('\\', '/'), 'label': name, 'is_default': False})
+    return jsonify({"success": True, "dirs": dirs})
+
+
 @app.route('/api/generate_algorithm', methods=['POST'])
 def generate_algorithm_alias():
     """
@@ -1246,121 +1281,60 @@ def save_experiment_design():
 @app.route('/api/execute_experiment_design', methods=['POST'])
 def execute_experiment_design():
     """
-    执行实验设计JSON中的步骤序列
+    执行实验设计JSON中的步骤序列，委托给 ExperimentManager.execute_plan。
 
     请求体：
     {
         "experiment_name": "旋涂实验_v1",
         "steps": [
-            {"type": "tool", "name": "spin_coating", "params": {...}},
-            {"type": "helper", "name": "WAIT", "params": {"duration": 5000}},
-            ...
+            {"type": "tool",     "name": "spin_coating",    "params": {...}},
+            {"type": "helper",   "name": "WAIT",            "params": {"duration": 5000}},
+            {"type": "software", "name": "data_statistics", "params": {}, "input_file": "...", "output_file": "..."}
         ]
     }
     """
+    from core.experiment_manager import ExperimentManager
+
     data = request.json
     experiment_name = data.get('experiment_name', '未命名实验')
     steps = data.get('steps', [])
 
     if not steps:
-        return jsonify({
-            'type': 'error',
-            'reply': '实验设计中没有步骤'
-        }), 400
+        return jsonify({'type': 'error', 'reply': '实验设计中没有步骤'}), 400
 
-    # 检查是否有任务正在运行
     if task_manager.task_running:
-        return jsonify({
-            'type': 'error',
-            'reply': '当前已有任务正在运行，请等待完成后再试'
-        }), 409
+        return jsonify({'type': 'error', 'reply': '当前已有任务正在运行，请等待完成后再试'}), 409
 
-    # 清空任务队列
     while not task_manager.is_queue_empty():
         task_manager.get_task_message()
 
-    # 生成任务ID
     task_id = task_manager.generate_task_id()
     task_manager.current_task_id = task_id
     task_manager.task_running = True
 
-    # 在后台线程中执行实验序列
-    def execute_experiment_thread():
+    def _run():
         try:
-            task_manager.put_task_message({
-                "type": "info",
-                "data": f"开始执行实验: {experiment_name}"
-            })
+            mgr = ExperimentManager(software_manager=software_manager)
+            total = len(steps)
 
-            for i, step in enumerate(steps):
-                step_type = step.get('type')
-                step_name = step.get('name')
-                step_params = step.get('params', {})
+            def on_progress(step_num, status, message):
+                msg_type = "info" if status in ("running", "completed") else "error"
+                task_manager.put_task_message({"type": msg_type, "data": message})
 
-                task_manager.put_task_message({
-                    "type": "progress",
-                    "data": f"执行步骤 {i+1}/{len(steps)}: {step_name}"
-                })
+            task_manager.put_task_message({"type": "info", "data": f"开始执行实验: {experiment_name}，共 {total} 步"})
+            result = mgr.execute_plan(data, progress_callback=on_progress)
 
-                if step_type == 'tool':
-                    # 执行硬件工具
-                    tool_calls = [{"name": step_name, "params": step_params}]
-                    success, result = hardware_controller.execute_tool_calls(tool_calls)
-
-                    if not success:
-                        task_manager.put_task_message({
-                            "type": "complete",
-                            "data": {"error": f"步骤 {i+1} 执行失败: {result}"}
-                        })
-                        return
-
-                    task_manager.put_task_message({
-                        "type": "info",
-                        "data": f"✅ 步骤 {i+1} 完成: {step_name}"
-                    })
-
-                elif step_type == 'helper':
-                    # 执行辅助函数
-                    if step_name == 'WAIT':
-                        duration = step_params.get('duration', 1000) / 1000.0  # 转换为秒
-                        task_manager.put_task_message({
-                            "type": "info",
-                            "data": f"⏱️ 等待 {duration} 秒..."
-                        })
-                        import time
-                        time.sleep(duration)
-
-                    elif step_name == 'LOOP':
-                        iterations = step_params.get('iterations', 1)
-                        task_manager.put_task_message({
-                            "type": "info",
-                            "data": f"🔁 循环 {iterations} 次（暂未实现嵌套步骤）"
-                        })
-
-                    elif step_name == 'GROUP':
-                        group_name = step_params.get('name', '步骤组')
-                        task_manager.put_task_message({
-                            "type": "info",
-                            "data": f"📦 进入步骤组: {group_name}"
-                        })
-
-            # 所有步骤执行完成
-            task_manager.put_task_message({
-                "type": "complete",
-                "data": {
-                    "message": f"✅ 实验 {experiment_name} 执行完成！共 {len(steps)} 个步骤"
-                }
-            })
-
+            if result["success"]:
+                task_manager.put_task_message({"type": "complete", "data": {"message": f"✅ 实验 {experiment_name} 执行完成！"}})
+            else:
+                err = result.get("error") or "部分步骤失败"
+                task_manager.put_task_message({"type": "complete", "data": {"error": err}})
         except Exception as e:
-            task_manager.put_task_message({
-                "type": "complete",
-                "data": {"error": f"实验执行异常: {str(e)}"}
-            })
+            task_manager.put_task_message({"type": "complete", "data": {"error": f"实验执行异常: {str(e)}"}})
         finally:
             task_manager.task_running = False
 
-    threading.Thread(target=execute_experiment_thread, daemon=True).start()
+    threading.Thread(target=_run, daemon=True).start()
 
     return jsonify({
         'type': 'task_trigger',

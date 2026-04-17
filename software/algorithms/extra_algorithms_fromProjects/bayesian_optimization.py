@@ -6,6 +6,7 @@ import numpy as np
 
 class BayesianOptimization(BaseAlgorithm):
     name = "bayesian_optimization"
+    chinese_name = "贝叶斯优化"
     description = "贝叶斯优化算法，根据历史工艺参数和对应输出，预测下一轮最优的工艺参数组合。"
     params_schema = {
         "bounds": {"type": "list", "description": "每个输入参数的上下限，格式为 [[min1, max1], [min2, max2], ...]，若未提供则使用输入数据中每列的最小值和最大值。", "default": None, "required": False},

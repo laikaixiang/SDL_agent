@@ -51,6 +51,7 @@ class BaseAlgorithm(ABC):
     """
 
     name: str = ""
+    chinese_name: str = ""
     description: str = ""
     params_schema: dict = {}
 
@@ -105,6 +106,7 @@ class BaseAlgorithm(ABC):
         """
         return {
             "name": self.name,
+            "chinese_name": self.chinese_name or self.name,
             "description": self.description,
             "params_schema": self.params_schema,
         }

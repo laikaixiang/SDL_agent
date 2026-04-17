@@ -45,6 +45,7 @@ class SpectrumAnalysis(BaseAlgorithm):
     """光谱数据分析：最高峰、半高宽（FWHM）、峰面积"""
 
     name = "spectrum_analysis"
+    chinese_name = "光谱分析"
     description = "光谱数据分析：检测最高峰波长/强度、计算半高宽（FWHM）和峰面积（梯形积分）"
     params_schema = {
         "subtract_baseline": {

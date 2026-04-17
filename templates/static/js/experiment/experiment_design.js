@@ -146,6 +146,13 @@ function renderExperimentSteps() {
             for (const [k, v] of Object.entries(step.params)) {
                 paramsHtml += `<div><strong>${k}:</strong> ${v}</div>`;
             }
+        } else if (step.type === 'software') {
+            paramsHtml += `<div><strong>算法:</strong> ${step.name}</div>`;
+            if (step.input_file)  paramsHtml += `<div><strong>输入:</strong> ${step.input_file}</div>`;
+            if (step.output_file) paramsHtml += `<div><strong>输出:</strong> ${step.output_file}</div>`;
+            for (const [k, v] of Object.entries(step.params || {})) {
+                paramsHtml += `<div><strong>${k}:</strong> ${v}</div>`;
+            }
         } else {
             paramsHtml = `<div style="color:#7c3aed;font-style:italic;">${JSON.stringify(step.params)}</div>`;
         }
@@ -169,10 +176,19 @@ function renderExperimentSteps() {
 
 /** 将 experimentSteps 序列化为 JSON 并写入底部代码编辑器，保持画布与 JSON 同步。 */
 function updateExperimentJSON() {
+    const steps = experimentSteps.map(step => {
+        const s = { type: step.type, name: step.name, params: step.params, description: step.description };
+        if (step.type === 'software') {
+            if (step.input_file)  s.input_file  = step.input_file;
+            if (step.output_file) s.output_file = step.output_file;
+            if (step.user_params) s.user_params = step.user_params;
+        }
+        return s;
+    });
     document.getElementById('exp-code-content').value = JSON.stringify({
         experiment_name: experimentName,
         created_at: new Date().toISOString(),
-        steps: experimentSteps
+        steps
     }, null, 2);
 }
 
@@ -244,12 +260,20 @@ function clearExperimentDesign() {
 function loadExperimentFromJSON(json) {
     try {
         experimentName  = json.experiment_name || '未命名实验';
-        experimentSteps = json.steps.map(step => ({
-            type:        step.type || 'tool',
-            name:        step.name || step.action || '',
-            params:      step.params || {},
-            description: step.description || ''
-        }));
+        experimentSteps = json.steps.map(step => {
+            const s = {
+                type:        step.type || 'tool',
+                name:        step.name || step.action || '',
+                params:      step.params || {},
+                description: step.description || ''
+            };
+            if (step.type === 'software') {
+                if (step.input_file)  s.input_file  = step.input_file;
+                if (step.output_file) s.output_file = step.output_file;
+                if (step.user_params) s.user_params = step.user_params;
+            }
+            return s;
+        });
         renderExperimentSteps();
         updateExperimentJSON();
     } catch (e) {

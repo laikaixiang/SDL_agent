@@ -1,11 +1,13 @@
 /**
  * algorithm_panel.js — 左侧算法库面板
  *
- * 管理算法面板的开关、列表渲染、详情展开，
- * 以及通过 LLM 生成新算法的交互流程。
+ * 交互模式：
+ *   单击标题区 → 选中高亮（selectedAlgorithm 更新）
+ *   双击标题区 → 展开/收起详情
+ *   详情区包含：输入文件选择 + 输出目录选择
  *
  * 依赖：state.js, ui/panel.js, ui/menu.js, ui/input_state.js,
- *       notification.js, analysis/analysis.js（showFileSelector）,
+ *       notification.js, analysis/analysis.js（executeAlgorithm）,
  *       experiment/experiment_design.js（experimentSteps, renderExperimentSteps）
  */
 
@@ -55,30 +57,107 @@ function renderAlgorithmPanelList(algorithms) {
     container.innerHTML = algorithms.map(algo => {
         const tagsHtml = (algo.tags || []).map(t => `<span class="algo-panel-tag">${t}</span>`).join('');
         const safe = s => (s || '').replace(/'/g, "\\'");
+        const title = algo.chinese_name || algo.description || algo.name;
         return `
-        <div class="algo-panel-item" id="algo-item-${algo.name}"
-             onclick="toggleAlgoDetail('${safe(algo.name)}')"
-             ondblclick="addAlgoToExperiment('${safe(algo.name)}', '${safe(algo.description || algo.name)}', '${safe(algo.icon || '📊')}')">
+        <div class="algo-panel-item" id="algo-item-${algo.name}">
             <div class="algo-item-row">
-                <div class="algo-panel-item-icon">${algo.icon || '📊'}</div>
-                <div class="algo-item-info">
-                    <div class="algo-panel-item-name">${algo.description || algo.name}</div>
-                    <div class="algo-panel-item-desc">${algo.name}</div>
+                <button class="algo-add-btn" title="添加至实验设计"
+                    onclick="addAlgoToExperiment('${safe(algo.name)}', '${safe(algo.description || algo.name)}', '${safe(algo.icon || '📊')}')">+</button>
+                <div class="algo-item-info"
+                    onclick="_algoSingleClick(event, '${safe(algo.name)}')"
+                    ondblclick="_algoDoubleClick(event, '${safe(algo.name)}')">
+                    <div class="algo-panel-item-name">${title}</div>
                 </div>
-                <button class="algo-arrow-btn" title="选择数据文件"
-                    onclick="event.stopPropagation(); selectAlgorithmFromPanel('${safe(algo.name)}', '${safe(algo.description || algo.name)}', '${safe(algo.icon || '📊')}')">›</button>
+                <button class="algo-expand-btn" title="展开详情"
+                    onclick="toggleAlgoDetail('${safe(algo.name)}')">›</button>
             </div>
-            <div class="algo-item-detail">
+            <div class="algo-item-detail" id="algo-detail-${algo.name}">
+                <div class="algo-item-detail-desc">${algo.description || ''}</div>
                 <div class="algo-item-detail-tags">${tagsHtml}</div>
-                <div class="algo-item-hint">双击算法可添加至实验设计</div>
+                <div class="algo-file-pickers">
+                    <div class="algo-picker-row">
+                        <span class="algo-picker-label">输入文件</span>
+                        <span class="algo-picker-value" id="algo-input-label-${algo.name}">未选择</span>
+                        <button class="algo-picker-btn" onclick="_openInputPickerModal('${safe(algo.name)}')">选择</button>
+                    </div>
+                    <div class="algo-picker-row">
+                        <span class="algo-picker-label">输出目录</span>
+                        <span class="algo-picker-value" id="algo-output-label-${algo.name}">默认</span>
+                        <button class="algo-picker-btn" onclick="_openOutputPickerModal('${safe(algo.name)}')">选择</button>
+                    </div>
+                </div>
             </div>
         </div>`;
     }).join('');
 }
 
-/** 切换算法详情展开/收起。 */
+// 单击计时器，用于区分单击和双击
+const _algoClickTimers = {};
+
+/** 单击：选中高亮（延迟执行，双击时取消）。 */
+function _algoSingleClick(event, algoName) {
+    clearTimeout(_algoClickTimers[algoName]);
+    _algoClickTimers[algoName] = setTimeout(() => {
+        _selectAlgoItem(algoName);
+    }, 220);
+}
+
+/** 双击：展开/收起详情，取消单击计时。 */
+function _algoDoubleClick(event, algoName) {
+    clearTimeout(_algoClickTimers[algoName]);
+    toggleAlgoDetail(algoName);
+}
+
+/** 选中某算法，高亮并更新 selectedAlgorithm。 */
+function _selectAlgoItem(algoName) {
+    document.querySelectorAll('.algo-panel-item.selected').forEach(el => el.classList.remove('selected'));
+    const item = document.getElementById('algo-item-' + algoName);
+    if (item) item.classList.add('selected');
+    selectedAlgorithm = algoName;
+}
+
+/** 切换算法详情展开/收起，同步旋转展开箭头。 */
 function toggleAlgoDetail(algoName) {
-    document.getElementById('algo-item-' + algoName)?.classList.toggle('expanded');
+    const item = document.getElementById('algo-item-' + algoName);
+    if (!item) return;
+    item.classList.toggle('expanded');
+    const btn = item.querySelector('.algo-expand-btn');
+    if (btn) btn.classList.toggle('expanded');
+    // 展开时初始化 picker 默认值
+    if (item.classList.contains('expanded')) _initPickerDefaults(algoName);
+}
+
+/** 展开时从后端获取默认输出路径并填入标签。 */
+async function _initPickerDefaults(algoName) {
+    const outputLabel = document.getElementById('algo-output-label-' + algoName);
+    if (!outputLabel || outputLabel.dataset.initialized) return;
+    outputLabel.dataset.initialized = '1';
+    try {
+        const res = await fetch('/api/get_session_path?subdir=results');
+        const data = await res.json();
+        if (data.success) {
+            outputLabel.textContent = data.path.split('/').pop() || data.path;
+            outputLabel.title = data.path;
+            outputLabel.dataset.value = data.path;
+        }
+    } catch (_) {}
+}
+
+/** 打开输入文件选择器（复用主模态框）。 */
+function _openInputPickerModal(algoName) {
+    showFileSelector((filePath, fileName) => {
+        const label = document.getElementById('algo-input-label-' + algoName);
+        if (label) { label.textContent = fileName; label.title = filePath; label.dataset.value = filePath; }
+        selectedFilePath = filePath;
+    });
+}
+
+/** 打开输出目录选择器（复用主模态框）。 */
+function _openOutputPickerModal(algoName) {
+    showOutputDirSelector((dirPath, dirLabel) => {
+        const label = document.getElementById('algo-output-label-' + algoName);
+        if (label) { label.textContent = dirLabel; label.title = dirPath; label.dataset.value = dirPath; }
+    });
 }
 
 /** 双击算法时添加到实验设计步骤列表。 */
@@ -86,12 +165,6 @@ function addAlgoToExperiment(algoName, description, icon) {
     experimentSteps.push({ type: 'tool', name: algoName, params: {}, description });
     if (typeof renderExperimentSteps === 'function') renderExperimentSteps();
     showNotification(`已添加 ${description} 至实验设计`, 'success');
-}
-
-/** 点击算法右侧箭头按钮，打开文件选择器执行算法。 */
-function selectAlgorithmFromPanel(algoName) {
-    selectedAlgorithm = algoName;
-    showFileSelector();
 }
 
 /** 打开算法生成器（在聊天区显示描述输入框）。 */
@@ -132,7 +205,6 @@ async function generateNewAlgorithm() {
         const data = await res.json();
         if (data.success) {
             appendMessage(`✅ 算法生成成功！\n算法名称: ${data.name}\n文件路径: ${data.filepath}\n\n${data.message}`, 'ai');
-            // 面板打开时刷新列表（算法面板用 algorithm-mode class 标识是否打开）
             if (document.getElementById('app-wrapper').classList.contains('algorithm-mode')) {
                 await loadAlgorithmList();
             }

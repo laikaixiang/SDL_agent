@@ -37,6 +37,7 @@ class DataStatistics(BaseAlgorithm):
     """基础描述性统计算法"""
 
     name = "data_statistics"
+    chinese_name = "数据统计分析"
     description = "对数值数据进行描述性统计分析（均值、中位数、标准差、最值、分位数、相关性矩阵）"
     params_schema = {
         "columns": {

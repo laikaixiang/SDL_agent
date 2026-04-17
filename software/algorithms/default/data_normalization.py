@@ -38,6 +38,7 @@ class DataNormalization(BaseAlgorithm):
     """数据归一化与标准化算法"""
 
     name = "data_normalization"
+    chinese_name = "数据归一化"
     description = "对数值数据进行归一化或标准化处理，支持 Min-Max、Z-Score、Robust 三种方法"
     params_schema = {
         "method": {

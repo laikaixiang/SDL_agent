@@ -9,8 +9,11 @@
 
 SDL_agent 是一套集**学术文献PDF数据智能提取**、**AI算法自动生成**、**实验设计规划**、**自动化硬件控制**于一体的智能代理系统，实现"文献数据提取→AI生成算法→实验设计→自动化硬件执行→数据分析"的全流程闭环，适用于材料科学、化学等领域的实验室自动化场景。
 
-![mind_map](figures\mind_map.svg)
-
+<div align="center">
+  <img src="figures\mind_map.svg" alt="SDL Agent UI Preview" width="85%" style="border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
+  <br>
+  <p><i>图: 流程图</i></p>
+</div>
 
 ---
 
@@ -72,8 +75,12 @@ flowchart TD
 
 界面支持PDF预览、算法面板、实验设计画布、进度实时展示、任务中断等能力。
 
-![所有功能预览](figures\所有功能预览.png)
 
+<div align="center">
+  <img src="figures\所有功能预览.png" alt="SDL Agent UI Preview" width="85%" style="border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
+  <br>
+  <p><i>图: 准备提取目标页面</i></p>
+</div>
 
 #### （2）文献数据提取
 
@@ -116,8 +123,11 @@ flowchart TD
 
 **为何分离设计与执行**：原PydanticAI方案依赖Function Calling（部分模型不支持），分离后任意LLM均可设计实验，用户可审查编辑后再执行。
 
-![实验方法生成](figures\实验方法生成.png)
-
+<div align="center">
+  <img src="figures\实验方法生成.png" alt="SDL Agent UI Preview" width="85%" style="border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
+  <br>
+  <p><i>图: 准备提取目标页面</i></p>
+</div>
 
 #### （5）数据分析模式
 
@@ -137,7 +147,7 @@ flowchart TD
 5. **热加载**：`software_controller.py`自动重新扫描算法目录，新算法立即可用；
 6. **前端集成**：算法面板实时更新，用户可直接调用新生成的算法。
 
-![生成新算法](figures\生成新算法.png)
+![生成新算法](D:\PycharmProjects\SDL_agent\figures\生成新算法.png)
 
 
 #### （7）中断机制

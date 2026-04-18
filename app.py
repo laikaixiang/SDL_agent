@@ -30,11 +30,11 @@ from core import (
     HardwareController,
     TaskManager,
     ExtractionEngine,
-    CSVWriter,
     ExperimentDesignAgent,
     SoftwareManager,
     AdaptiveStreamHandler,
 )
+from utils import CSVWriter
 
 # 初始化Flask应用，static 文件夹已移入 templates/static
 app = Flask(__name__, static_folder='templates/static', static_url_path='/static')
@@ -824,10 +824,10 @@ def experiment_chat():
 
     # 使用ExperimentDesignParser生成JSON
     from core.field_inference import ExperimentDesignParser
-    from core.experiment_manager import ExperimentManager
+    from experiment.format import ExperimentFormatConverter
 
     parser = ExperimentDesignParser()
-    manager = ExperimentManager()
+    converter = ExperimentFormatConverter()
 
     print(f"\n{'='*60}")
     print(f"[实验设计] 开始生成实验方案")
@@ -851,7 +851,7 @@ def experiment_chat():
         print(f"{'='*60}\n")
 
         # 转换为前端可视化格式
-        visual_data = manager.json_to_visual(result)
+        visual_data = converter.json_to_visual(result)
 
         print(f"[实验设计] 已转换为前端可视化格式")
         print(f"[实验设计] 节点数量: {len(visual_data.get('nodes', []))}")
@@ -1240,27 +1240,35 @@ def run_algorithm_with_file():
 @app.route('/api/save_experiment_design', methods=['POST'])
 def save_experiment_design():
     """
-    保存实验设计JSON到当前会话的文件夹
+    保存实验设计JSON到指定路径或当前会话的文件夹
 
     请求体：
     {
         "experiment_name": "旋涂实验_v1",
         "created_at": "2026-04-17T...",
-        "steps": [...]
+        "steps": [...],
+        "save_path": "可选，完整保存路径（含文件名）"
     }
     """
     data = request.json
     experiment_name = data.get('experiment_name', '未命名实验')
+    custom_path = data.get('save_path')
 
-    # 使用当前会话的实验设计保存目录
-    design_folder = get_session_path('experiment_designs')
-    os.makedirs(design_folder, exist_ok=True)
+    # 如果提供了自定义路径，使用自定义路径
+    if custom_path:
+        filepath = custom_path
+        # 确保目录存在
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    else:
+        # 使用当前会话的实验设计保存目录
+        design_folder = get_session_path('experiment_designs')
+        os.makedirs(design_folder, exist_ok=True)
 
-    # 生成文件名（带时间戳避免覆盖）
-    timestamp = json.dumps(data.get('created_at', '')).strip('"').replace(':', '-').replace('.', '-')[:19]
-    safe_name = experiment_name.replace(' ', '_').replace('/', '_')
-    filename = f"{safe_name}_{timestamp}.json"
-    filepath = os.path.join(design_folder, filename)
+        # 生成文件名（带时间戳避免覆盖）
+        timestamp = json.dumps(data.get('created_at', '')).strip('"').replace(':', '-').replace('.', '-')[:19]
+        safe_name = experiment_name.replace(' ', '_').replace('/', '_')
+        filename = f"{safe_name}_{timestamp}.json"
+        filepath = os.path.join(design_folder, filename)
 
     try:
         with open(filepath, 'w', encoding='utf-8') as f:
@@ -1293,7 +1301,7 @@ def execute_experiment_design():
         ]
     }
     """
-    from core.experiment_manager import ExperimentManager
+    from experiment.executor import ExperimentExecutor
 
     data = request.json
     experiment_name = data.get('experiment_name', '未命名实验')
@@ -1314,7 +1322,7 @@ def execute_experiment_design():
 
     def _run():
         try:
-            mgr = ExperimentManager(software_manager=software_manager)
+            executor = ExperimentExecutor(software_manager=software_manager)
             total = len(steps)
 
             def on_progress(step_num, status, message):
@@ -1322,7 +1330,7 @@ def execute_experiment_design():
                 task_manager.put_task_message({"type": msg_type, "data": message})
 
             task_manager.put_task_message({"type": "info", "data": f"开始执行实验: {experiment_name}，共 {total} 步"})
-            result = mgr.execute_plan(data, progress_callback=on_progress)
+            result = executor.execute_plan(data, progress_callback=on_progress)
 
             if result["success"]:
                 task_manager.put_task_message({"type": "complete", "data": {"message": f"✅ 实验 {experiment_name} 执行完成！"}})
@@ -1417,8 +1425,9 @@ def compile_experiment():
         }), 400
 
     try:
-        manager = ExperimentManager()
-        python_code = manager.compile_to_python(experiment_json)
+        from experiment.compiler import ExperimentCompiler
+        compiler = ExperimentCompiler()
+        python_code = compiler.compile_to_python(experiment_json)
 
         return jsonify({
             'success': True,
@@ -1459,8 +1468,9 @@ def compile_and_run_experiment():
         }), 400
 
     try:
-        manager = ExperimentManager()
-        result = manager.compile_and_run(experiment_json)
+        from experiment.compiler import ExperimentCompiler
+        compiler = ExperimentCompiler()
+        result = compiler.compile_and_run(experiment_json)
 
         return jsonify(result)
     except Exception as e:

@@ -16,7 +16,7 @@ sys.path.insert(0, str(project_dir))
 
 # 直接导入pdf_to_markdown.py文件，不通过core包
 import importlib.util
-spec = importlib.util.spec_from_file_location("pdf_to_markdown", project_dir / "core" / "pdf_to_markdown.py")
+spec = importlib.util.spec_from_file_location("pdf_to_markdown", project_dir / "core" / "utils.pdf_to_markdown.py")
 pdf_to_markdown = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pdf_to_markdown)
 

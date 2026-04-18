@@ -11,7 +11,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from PIL import Image
 
 from .config import Config
-from .pdf_to_markdown import pdf_page_to_markdown, detect_complex_content
+from utils.pdf_to_markdown import pdf_page_to_markdown, detect_complex_content
 
 
 class PDFProcessor:

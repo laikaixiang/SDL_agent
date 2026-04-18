@@ -24,7 +24,6 @@ from typing import Any, Optional
 
 from software.algorithms.base import BaseAlgorithm
 
-
 # 扫描的算法子包目录名（相对于 software/algorithms/）
 _ALGORITHM_PACKAGES = [
     "default",

@@ -416,25 +416,45 @@ function loadExperimentFromJSON(json) {
     }
 }
 
-/** 弹出 prompt 让用户输入实验名称，然后将当前实验方案 POST 到 /api/save_experiment_design 保存到服务器。 */
+/** 弹出目录选择器让用户选择保存路径，然后将当前实验方案 POST 到 /api/save_experiment_design 保存到服务器。 */
 async function saveExperimentDesign() {
+    if (experimentSteps.length === 0) {
+        alert('请先添加实验步骤');
+        return;
+    }
+
     const name = prompt('请输入实验名称:', experimentName);
     if (!name) return;
     experimentName = name;
     updateExperimentJSON();
 
-    try {
-        const res = await fetch('/api/save_experiment_design', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ experiment_name: experimentName, created_at: new Date().toISOString(), steps: experimentSteps })
-        });
-        const data = await res.json();
-        if (data.success) appendMessage(`✅ 实验设计已保存: ${data.filepath}`, 'ai');
-        else appendMessage(`❌ 保存失败: ${data.message}`, 'ai');
-    } catch (e) {
-        appendMessage(`❌ 保存异常: ${e.message}`, 'ai');
-    }
+    // 打开目录选择器
+    showOutputDirSelector(async (dirPath, dirLabel) => {
+        const filename = `${experimentName}_${Date.now()}.json`;
+        const fullPath = `${dirPath}/${filename}`;
+
+        try {
+            const res = await fetch('/api/save_experiment_design', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    experiment_name: experimentName,
+                    created_at: new Date().toISOString(),
+                    steps: experimentSteps,
+                    save_path: fullPath
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                appendMessage(`✅ 实验设计已保存: ${data.filepath}`, 'ai');
+                showNotification('保存成功', 'success');
+            } else {
+                appendMessage(`❌ 保存失败: ${data.message}`, 'ai');
+            }
+        } catch (e) {
+            appendMessage(`❌ 保存异常: ${e.message}`, 'ai');
+        }
+    });
 }
 
 /** 弹出确认框后将当前实验方案 POST 到 /api/execute_experiment_design，成功则启动 SSE 监听执行进度。 */

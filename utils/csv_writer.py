@@ -8,7 +8,7 @@ import os
 import time
 from typing import Dict, Any, List, Optional
 
-from .config import Config
+from core.config import Config
 
 
 class CSVWriter:

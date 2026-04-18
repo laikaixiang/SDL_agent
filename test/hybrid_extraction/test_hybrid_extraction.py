@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from core.config import Config
 from core.pdf_processor import PDFProcessor
-from core.pdf_to_markdown import detect_complex_content
+from utils.pdf_to_markdown import detect_complex_content
 
 
 def test_extraction_modes():

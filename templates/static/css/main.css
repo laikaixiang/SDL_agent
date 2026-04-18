@@ -105,6 +105,16 @@ body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background-color:
 .modal h2 { margin-bottom: 15px; color: #10b981; }
 .close-btn { background: var(--primary); color: white; border: none; padding: 10px 30px; border-radius: 8px; cursor: pointer; margin-top: 20px; }
 
+/* 步骤编辑模态框 */
+.step-edit-modal-content { background: #fff; width: 90%; max-width: 500px; border-radius: 12px; padding: 24px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); max-height: 80vh; overflow-y: auto; }
+.step-edit-modal-content h3 { margin-bottom: 16px; color: #7c3aed; font-size: 1.1rem; }
+.edit-field { margin-bottom: 14px; }
+.edit-field label { display: block; font-size: 0.9rem; color: #374151; margin-bottom: 4px; font-weight: 500; }
+.edit-field input { width: 100%; padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.9rem; }
+.edit-field input:focus { outline: none; border-color: #7c3aed; }
+.edit-field input:disabled { background: #f3f4f6; cursor: not-allowed; }
+.edit-actions { margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end; }
+
 /* ── 5. 面板 ── */
 
 /* PDF 预览面板 */
@@ -191,15 +201,16 @@ body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background-color:
 .exp-panel-header { padding: 15px 20px; background: #7c3aed; color: #fff; font-weight: bold; font-size: 0.95rem; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
 .exp-panel-body { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .exp-canvas-area { flex: 1; overflow-y: auto; padding: 16px; background: #f9fafb; border-bottom: 1px solid #e5e7eb; }
-.exp-step-item { background: #fff; border: 2px solid #e5e7eb; border-radius: 8px; padding: 12px; margin-bottom: 10px; cursor: move; transition: all 0.2s; position: relative; }
+.exp-step-item { background: #fff; border: 2px solid #e5e7eb; border-radius: 8px; padding: 12px; margin-bottom: 10px; cursor: move; transition: all 0.2s; position: relative; height: 60px; display: flex; align-items: center; }
 .exp-step-item:hover { border-color: #7c3aed; box-shadow: 0 2px 8px rgba(124, 58, 237, 0.1); }
 .exp-step-item.dragging { opacity: 0.5; }
-.exp-step-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.exp-step-header { display: flex; justify-content: space-between; align-items: center; width: 100%; }
 .exp-step-type { font-weight: bold; color: #7c3aed; font-size: 0.9rem; }
 .exp-step-controls { display: flex; gap: 6px; }
 .exp-step-btn { background: none; border: none; color: #6b7280; cursor: pointer; font-size: 1rem; padding: 2px 6px; border-radius: 4px; transition: all 0.2s; }
 .exp-step-btn:hover { background: #f3f4f6; color: #7c3aed; }
-.exp-step-params { font-size: 0.85rem; color: #374151; line-height: 1.6; }
+.exp-step-params { display: none; }
+.exp-step-description { display: none; }
 .exp-code-area { height: 250px; background: #1f2937; color: #e5e7eb; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem; display: flex; flex-direction: column; flex-shrink: 0; transition: height 0.3s ease; }
 .exp-code-area.minimized { height: 40px; }
 .exp-code-header { padding: 8px 16px; background: #374151; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #4b5563; flex-shrink: 0; }

@@ -1391,6 +1391,85 @@ def export_experiment_json():
         }), 500
 
 
+@app.route('/api/compile_experiment', methods=['POST'])
+def compile_experiment():
+    """
+    将实验设计JSON编译为Python代码
+
+    请求体：
+    {
+        "experiment_json": {...}
+    }
+
+    返回：
+    {
+        "success": true,
+        "code": "# Python代码..."
+    }
+    """
+    data = request.json
+    experiment_json = data.get('experiment_json')
+
+    if not experiment_json:
+        return jsonify({
+            'success': False,
+            'message': '缺少实验JSON数据'
+        }), 400
+
+    try:
+        manager = ExperimentManager()
+        python_code = manager.compile_to_python(experiment_json)
+
+        return jsonify({
+            'success': True,
+            'code': python_code
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'编译失败: {str(e)}'
+        }), 500
+
+
+@app.route('/api/compile_and_run_experiment', methods=['POST'])
+def compile_and_run_experiment():
+    """
+    将实验设计JSON编译为Python代码并执行
+
+    请求体：
+    {
+        "experiment_json": {...}
+    }
+
+    返回：
+    {
+        "success": true,
+        "code": "# Python代码...",
+        "output": "执行输出...",
+        "error": ""
+    }
+    """
+    data = request.json
+    experiment_json = data.get('experiment_json')
+
+    if not experiment_json:
+        return jsonify({
+            'success': False,
+            'message': '缺少实验JSON数据'
+        }), 400
+
+    try:
+        manager = ExperimentManager()
+        result = manager.compile_and_run(experiment_json)
+
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'编译或执行失败: {str(e)}'
+        }), 500
+
+
 @app.route('/api/get_session_path', methods=['GET'])
 def get_session_path_api():
     """

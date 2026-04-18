@@ -94,6 +94,8 @@
         <button class="helper-fn-btn" onclick="addHelperFunction('GROUP')">📦 组 (GROUP)</button>
         <button class="helper-fn-btn" onclick="addHelperFunction('WAIT')">⏱️ 等待 (WAIT)</button>
         <button class="helper-fn-btn" onclick="addHelperFunction('CONDITION')">❓ 条件 (IF)</button>
+        <button class="helper-fn-btn" onclick="addHelperFunction('END')">🏁 结束点 (END)</button>
+        <button class="helper-fn-btn" onclick="addHelperFunction('USER_INPUT')">✋ 用户输入 (INPUT)</button>
     </div>
     <div class="step-panel-body" id="step-panel-body">
         <div style="text-align:center;color:#9ca3af;padding:40px 20px;">加载中...</div>
@@ -132,9 +134,18 @@
         <div class="exp-toolbar">
             <button class="exp-toolbar-btn" onclick="saveExperimentDesign()">💾 保存设计</button>
             <button class="exp-toolbar-btn" onclick="executeExperimentDesign()">▶ 执行实验</button>
+            <button class="exp-toolbar-btn" onclick="compileExperiment()">🔧 编译代码</button>
+            <button class="exp-toolbar-btn" onclick="compileAndRunExperiment()">⚡ 编译并运行</button>
             <button class="exp-toolbar-btn secondary" onclick="clearExperimentDesign()">🗑️ 清空</button>
             <button class="exp-toolbar-btn secondary" onclick="exportExperimentJSON()">📤 导出JSON</button>
         </div>
+    </div>
+</div>
+
+<!-- 步骤编辑模态框 -->
+<div class="modal-overlay" id="step-edit-modal">
+    <div class="step-edit-modal-content">
+        <div id="step-edit-form"></div>
     </div>
 </div>
 

@@ -162,7 +162,7 @@ function _openOutputPickerModal(algoName) {
 
 /** 双击算法时添加到实验设计步骤列表。 */
 function addAlgoToExperiment(algoName, description, icon) {
-    experimentSteps.push({ type: 'tool', name: algoName, params: {}, description });
+    experimentSteps.push({ type: 'software', name: algoName, params: {}, description });
     if (typeof renderExperimentSteps === 'function') renderExperimentSteps();
     showNotification(`已添加 ${description} 至实验设计`, 'success');
 }

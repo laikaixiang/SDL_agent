@@ -90,13 +90,15 @@ function addStepToExperiment(toolName) {
     setStepStatus(`✅ 已添加步骤: ${toolName}`, false);
 }
 
-/** 根据 fnType 创建预设参数的辅助步骤（LOOP/GROUP/WAIT/CONDITION），追加到 experimentSteps 并刷新画布。 */
+/** 根据 fnType 创建预设参数的辅助步骤（LOOP/GROUP/WAIT/CONDITION/END/USER_INPUT），追加到 experimentSteps 并刷新画布。 */
 function addHelperFunction(fnType) {
     const templates = {
-        LOOP:      { type: 'helper', name: 'LOOP',      description: '循环执行',  params: { iterations: 3, steps: [] } },
-        GROUP:     { type: 'helper', name: 'GROUP',     description: '步骤组',    params: { name: '步骤组', steps: [] } },
-        WAIT:      { type: 'helper', name: 'WAIT',      description: '等待',      params: { duration: 5000 } },
-        CONDITION: { type: 'helper', name: 'CONDITION', description: '条件判断',  params: { condition: 'temperature > 100', then_steps: [], else_steps: [] } },
+        LOOP:       { type: 'helper', name: 'LOOP',       description: '循环执行',  params: { iterations: 3, steps: [] } },
+        GROUP:      { type: 'helper', name: 'GROUP',      description: '步骤组',    params: { name: '步骤组', steps: [] } },
+        WAIT:       { type: 'helper', name: 'WAIT',       description: '等待',      params: { duration: 5000 } },
+        CONDITION:  { type: 'helper', name: 'CONDITION',  description: '条件判断',  params: { condition: 'temperature > 100', then_steps: [], else_steps: [] } },
+        END:        { type: 'helper', name: 'END',        description: '结束点',    params: {} },
+        USER_INPUT: { type: 'helper', name: 'USER_INPUT', description: '用户输入',  params: { prompt: '请输入参数', variable_name: 'user_value' } },
     };
     const step = templates[fnType];
     if (step) {
@@ -140,35 +142,16 @@ function renderExperimentSteps() {
             }
         });
 
-        // 步骤参数展示
-        let paramsHtml = '';
-        if (step.type === 'tool') {
-            for (const [k, v] of Object.entries(step.params)) {
-                paramsHtml += `<div><strong>${k}:</strong> ${v}</div>`;
-            }
-        } else if (step.type === 'software') {
-            paramsHtml += `<div><strong>算法:</strong> ${step.name}</div>`;
-            if (step.input_file)  paramsHtml += `<div><strong>输入:</strong> ${step.input_file}</div>`;
-            if (step.output_file) paramsHtml += `<div><strong>输出:</strong> ${step.output_file}</div>`;
-            for (const [k, v] of Object.entries(step.params || {})) {
-                paramsHtml += `<div><strong>${k}:</strong> ${v}</div>`;
-            }
-        } else {
-            paramsHtml = `<div style="color:#7c3aed;font-style:italic;">${JSON.stringify(step.params)}</div>`;
-        }
-
         stepEl.innerHTML = `
         <div class="exp-step-header">
-            <div class="exp-step-type">${index + 1}. ${step.name}</div>
+            <div class="exp-step-type">${index + 1}. ${step.description || step.name}</div>
             <div class="exp-step-controls">
                 <button class="exp-step-btn" onclick="moveStepUp(${index})" title="上移">▲</button>
                 <button class="exp-step-btn" onclick="moveStepDown(${index})" title="下移">▼</button>
-                <button class="exp-step-btn" onclick="editStep(${index})" title="编辑">✏️</button>
+                <button class="exp-step-btn" onclick="openStepEditModal(${index})" title="编辑">✏️</button>
                 <button class="exp-step-btn" onclick="deleteStep(${index})" title="删除">🗑️</button>
             </div>
-        </div>
-        <div style="font-size:0.8rem;color:#6b7280;margin-bottom:6px;">${step.description}</div>
-        <div class="exp-step-params">${paramsHtml}</div>`;
+        </div>`;
 
         canvas.appendChild(stepEl);
     });
@@ -216,6 +199,110 @@ function moveStepDown(index) {
         renderExperimentSteps();
         updateExperimentJSON();
     }
+}
+
+/** 打开步骤编辑模态框，显示类似单步控制面板的参数表单，支持编辑所有字段。 */
+function openStepEditModal(index) {
+    const step = experimentSteps[index];
+    const modal = document.getElementById('step-edit-modal');
+    const form = document.getElementById('step-edit-form');
+
+    // 构建表单内容
+    let formHtml = `<h3>编辑步骤: ${step.name}</h3>`;
+    formHtml += `<div class="edit-field"><label>英文名称:</label><input type="text" id="edit-name" value="${step.name || ''}" disabled style="background:#f3f4f6;" /></div>`;
+    formHtml += `<div class="edit-field"><label>中文描述:</label><input type="text" id="edit-description" value="${step.description || ''}" /></div>`;
+
+    // 根据步骤类型生成参数表单
+    if (step.type === 'tool') {
+        const tool = stepPanelTools.find(t => t.name === step.name);
+        if (tool && tool.parameters) {
+            for (const param of tool.parameters) {
+                const currentValue = step.params[param.name] || param.default || '';
+                formHtml += `<div class="edit-field">
+                    <label>${param.name}:</label>
+                    <input type="text" data-param="${param.name}" value="${currentValue}" placeholder="${param.description || ''}" />
+                </div>`;
+            }
+        } else {
+            // 工具定义不存在时，显示现有参数
+            for (const [k, v] of Object.entries(step.params)) {
+                formHtml += `<div class="edit-field">
+                    <label>${k}:</label>
+                    <input type="text" data-param="${k}" value="${v}" />
+                </div>`;
+            }
+        }
+    } else if (step.type === 'software') {
+        formHtml += `<div class="edit-field"><label>算法名称:</label><input type="text" id="edit-algo-name" value="${step.name}" disabled /></div>`;
+        formHtml += `<div class="edit-field"><label>输入文件:</label><input type="text" id="edit-input-file" value="${step.input_file || ''}" /></div>`;
+        formHtml += `<div class="edit-field"><label>输出文件:</label><input type="text" id="edit-output-file" value="${step.output_file || ''}" /></div>`;
+        for (const [k, v] of Object.entries(step.params || {})) {
+            formHtml += `<div class="edit-field">
+                <label>${k}:</label>
+                <input type="text" data-param="${k}" value="${v}" />
+            </div>`;
+        }
+    } else {
+        // helper 类型
+        for (const [k, v] of Object.entries(step.params)) {
+            const valueStr = typeof v === 'object' ? JSON.stringify(v) : v;
+            formHtml += `<div class="edit-field">
+                <label>${k}:</label>
+                <input type="text" data-param="${k}" value="${valueStr}" />
+            </div>`;
+        }
+    }
+
+    formHtml += `<div class="edit-actions">
+        <button onclick="saveStepEdit(${index})" class="btn-yes">保存</button>
+        <button onclick="closeStepEditModal()" class="btn-no">取消</button>
+    </div>`;
+
+    form.innerHTML = formHtml;
+    modal.style.display = 'flex';
+}
+
+/** 关闭步骤编辑模态框。 */
+function closeStepEditModal() {
+    document.getElementById('step-edit-modal').style.display = 'none';
+}
+
+/** 从编辑表单收集数据，更新 experimentSteps 中的步骤，刷新画布和 JSON。 */
+function saveStepEdit(index) {
+    const step = experimentSteps[index];
+    const form = document.getElementById('step-edit-form');
+
+    // 更新描述
+    const descInput = form.querySelector('#edit-description');
+    if (descInput) step.description = descInput.value;
+
+    // 更新参数
+    const paramInputs = form.querySelectorAll('input[data-param]');
+    paramInputs.forEach(input => {
+        const paramName = input.dataset.param;
+        let value = input.value;
+        // 尝试解析 JSON（用于 helper 类型的复杂参数）
+        try {
+            const parsed = JSON.parse(value);
+            value = parsed;
+        } catch (e) {
+            // 保持字符串
+        }
+        step.params[paramName] = value;
+    });
+
+    // software 类型特殊字段
+    if (step.type === 'software') {
+        const inputFile = form.querySelector('#edit-input-file');
+        const outputFile = form.querySelector('#edit-output-file');
+        if (inputFile) step.input_file = inputFile.value;
+        if (outputFile) step.output_file = outputFile.value;
+    }
+
+    renderExperimentSteps();
+    updateExperimentJSON();
+    closeStepEditModal();
+    setStepStatus(`✅ 已更新步骤: ${step.name}`, false);
 }
 
 /** 弹出 prompt 让用户以 JSON 格式编辑指定步骤的参数，解析成功后刷新画布和 JSON。 */
@@ -356,5 +443,61 @@ async function exportExperimentJSON() {
         else appendMessage(`❌ 导出失败: ${data.message}`, 'ai');
     } catch (e) {
         appendMessage(`❌ 导出异常: ${e.message}`, 'ai');
+    }
+}
+
+/** 将当前实验设计编译为Python代码并显示在聊天区。 */
+async function compileExperiment() {
+    if (experimentSteps.length === 0) { alert('请先添加实验步骤'); return; }
+
+    appendMessage(`🔧 正在编译实验: ${experimentName}`, 'user');
+
+    try {
+        const res = await fetch('/api/compile_experiment', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                experiment_json: { experiment_name: experimentName, created_at: new Date().toISOString(), steps: experimentSteps }
+            })
+        });
+        const data = await res.json();
+        if (data.success) {
+            appendMessage(`✅ 编译成功！生成的Python代码：\n\`\`\`python\n${data.code}\n\`\`\``, 'ai');
+        } else {
+            appendMessage(`❌ 编译失败: ${data.message}`, 'ai');
+        }
+    } catch (e) {
+        appendMessage(`❌ 编译异常: ${e.message}`, 'ai');
+    }
+}
+
+/** 将当前实验设计编译为Python代码并立即执行。 */
+async function compileAndRunExperiment() {
+    if (experimentSteps.length === 0) { alert('请先添加实验步骤'); return; }
+    if (!confirm(`确定编译并运行实验 "${experimentName}"？\n共 ${experimentSteps.length} 个步骤`)) return;
+
+    appendMessage(`⚡ 正在编译并运行实验: ${experimentName}`, 'user');
+
+    try {
+        const res = await fetch('/api/compile_and_run_experiment', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                experiment_json: { experiment_name: experimentName, created_at: new Date().toISOString(), steps: experimentSteps }
+            })
+        });
+        const data = await res.json();
+        if (data.success) {
+            let msg = `✅ 执行成功！\n\n**生成的代码：**\n\`\`\`python\n${data.code}\n\`\`\`\n`;
+            if (data.output) msg += `\n**执行输出：**\n\`\`\`\n${data.output}\n\`\`\``;
+            appendMessage(msg, 'ai');
+        } else {
+            let msg = `❌ 执行失败: ${data.message}\n`;
+            if (data.code) msg += `\n**生成的代码：**\n\`\`\`python\n${data.code}\n\`\`\`\n`;
+            if (data.error) msg += `\n**错误信息：**\n\`\`\`\n${data.error}\n\`\`\``;
+            appendMessage(msg, 'ai');
+        }
+    } catch (e) {
+        appendMessage(`❌ 执行异常: ${e.message}`, 'ai');
     }
 }

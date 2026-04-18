@@ -854,3 +854,47 @@ class ExperimentManager:
                 "error": f"编译或执行失败: {str(e)}"
             }
 
+
+if __name__ == "__main__":
+    """测试编译器功能"""
+    # 示例实验JSON
+    test_experiment = {
+        "experiment_name": "测试实验",
+        "steps": [
+            {"type": "helper", "name": "LOOP", "params": {"iterations": 3}, "description": "循环3次"},
+            {"type": "helper", "name": "WAIT", "params": {"duration": 1000}, "description": "等待1秒"},
+            {"type": "helper", "name": "USER_INPUT", "params": {"prompt": "请输入温度", "variable_name": "temperature"}, "description": "用户输入温度"},
+            {"type": "helper", "name": "CONDITION", "params": {"condition": "int(user_vars.get('temperature', 0)) > 100"}, "description": "判断温度"},
+            {"type": "tool", "name": "set_temperature", "params": {"temperature": 150}, "description": "设置温度"},
+            {"type": "helper", "name": "END", "params": {}, "description": "结束条件"},
+            {"type": "helper", "name": "END", "params": {}, "description": "结束循环"},
+        ]
+    }
+
+    # 创建管理器
+    manager = ExperimentManager()
+
+    # 编译为Python代码
+    print("=" * 60)
+    print("编译实验JSON为Python代码")
+    print("=" * 60)
+    python_code = manager.compile_to_python(test_experiment)
+    print(python_code)
+    print("\n" + "=" * 60)
+
+    # 可选：编译并运行
+    run_test = input("\n是否运行生成的代码？(y/n): ").strip().lower()
+    if run_test == 'y':
+        print("\n" + "=" * 60)
+        print("编译并运行实验")
+        print("=" * 60)
+        result = manager.compile_and_run(test_experiment)
+        if result["success"]:
+            print("✅ 执行成功")
+            print("\n输出:")
+            print(result["output"])
+        else:
+            print("❌ 执行失败")
+            print("\n错误:")
+            print(result["error"])
+

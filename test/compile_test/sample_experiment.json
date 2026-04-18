@@ -1,0 +1,100 @@
+{
+  "experiment_name": "示例实验 - 温度控制循环",
+  "created_at": "2026-04-19T00:00:00",
+  "description": "演示编译器功能的示例实验",
+  "steps": [
+    {
+      "type": "helper",
+      "name": "USER_INPUT",
+      "params": {
+        "prompt": "请输入循环次数",
+        "variable_name": "loop_count"
+      },
+      "description": "用户输入"
+    },
+    {
+      "type": "helper",
+      "name": "LOOP",
+      "params": {
+        "iterations": 3
+      },
+      "description": "循环执行3次"
+    },
+    {
+      "type": "helper",
+      "name": "USER_INPUT",
+      "params": {
+        "prompt": "请输入目标温度",
+        "variable_name": "target_temp"
+      },
+      "description": "用户输入目标温度"
+    },
+    {
+      "type": "helper",
+      "name": "CONDITION",
+      "params": {
+        "condition": "int(user_vars.get('target_temp', 0)) > 100"
+      },
+      "description": "判断温度是否大于100"
+    },
+    {
+      "type": "tool",
+      "name": "set_temperature",
+      "params": {
+        "temperature": 150
+      },
+      "description": "设置高温"
+    },
+    {
+      "type": "helper",
+      "name": "WAIT",
+      "params": {
+        "duration": 2000
+      },
+      "description": "等待2秒"
+    },
+    {
+      "type": "helper",
+      "name": "END",
+      "params": {},
+      "description": "结束条件判断"
+    },
+    {
+      "type": "helper",
+      "name": "WAIT",
+      "params": {
+        "duration": 1000
+      },
+      "description": "等待1秒"
+    },
+    {
+      "type": "helper",
+      "name": "END",
+      "params": {},
+      "description": "结束循环"
+    },
+    {
+      "type": "helper",
+      "name": "GROUP",
+      "params": {
+        "name": "清理步骤"
+      },
+      "description": "清理步骤组"
+    },
+    {
+      "type": "tool",
+      "name": "set_temperature",
+      "params": {
+        "temperature": 25
+      },
+      "description": "恢复室温"
+    },
+    {
+      "type": "helper",
+      "name": "END",
+      "params": {},
+      "description": "结束清理组"
+    }
+  ],
+  "notes": "这是一个演示编译器功能的示例实验，包含循环、条件判断、用户输入、等待和分组"
+}

@@ -144,7 +144,10 @@ function renderExperimentSteps() {
 
         stepEl.innerHTML = `
         <div class="exp-step-header">
-            <div class="exp-step-type">${index + 1}. ${step.description || step.name}</div>
+            <div class="exp-step-type">
+                <span>${index + 1}. ${step.description || step.name}</span>
+                <span class="exp-step-type-en">${step.name}</span>
+            </div>
             <div class="exp-step-controls">
                 <button class="exp-step-btn" onclick="moveStepUp(${index})" title="上移">▲</button>
                 <button class="exp-step-btn" onclick="moveStepDown(${index})" title="下移">▼</button>
@@ -179,8 +182,53 @@ function updateExperimentJSON() {
 function toggleCodeAreaMinimize() {
     const codeArea = document.getElementById('exp-code-area');
     const icon     = document.getElementById('minimize-icon');
+
+    // 如果在全屏状态，先退出全屏
+    if (codeArea.classList.contains('fullscreen')) {
+        toggleCodeAreaFullscreen();
+        return;
+    }
+
     const minimized = codeArea.classList.toggle('minimized');
-    icon.textContent = minimized ? '▲' : '▼';
+    icon.textContent = minimized ? '+' : '−';
+}
+
+/** 切换代码区域全屏显示，占满整个实验流程面板。 */
+function toggleCodeAreaFullscreen() {
+    const codeArea = document.getElementById('exp-code-area');
+    const icon     = document.getElementById('fullscreen-icon');
+    const isFullscreen = codeArea.classList.toggle('fullscreen');
+    icon.textContent = isFullscreen ? '⛶' : '⛶';
+
+    if (isFullscreen) {
+        // 全屏时自动展开
+        codeArea.classList.remove('minimized');
+        document.getElementById('minimize-icon').textContent = '−';
+    }
+}
+
+/** 从下方 JSON 代码重新解析并同步到上方画布，以代码为准。 */
+function syncCodeToCanvas() {
+    try {
+        const codeContent = document.getElementById('exp-code-content').value;
+        const expData = JSON.parse(codeContent);
+
+        if (!expData.steps || !Array.isArray(expData.steps)) {
+            alert('JSON格式错误：缺少 steps 数组');
+            return;
+        }
+
+        // 更新全局状态
+        experimentName = expData.experiment_name || '未命名实验';
+        experimentSteps = expData.steps;
+
+        // 重新渲染画布
+        renderExperimentSteps();
+
+        showNotification('✅ 已从代码同步到画布', 'success');
+    } catch (e) {
+        alert('JSON解析失败: ' + e.message);
+    }
 }
 
 /** 将 index 位置的步骤与前一个步骤交换，刷新画布和 JSON。 */

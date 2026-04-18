@@ -71,8 +71,8 @@ function renderStepTools() {
 <div class="tool-row ${isExpanded ? 'expanded' : ''}" id="tool-row-${tool.name}" ondblclick="${dblClickHandler}">
     <span class="tool-arrow" onclick="event.stopPropagation(); toggleToolExpand('${tool.name}')">▶</span>
     <div style="flex:1">
-        <div class="tool-name">${tool.name}</div>
-        <div class="tool-desc">${tool.description}</div>
+        <div class="tool-name">${tool.description}</div>
+        <div class="tool-desc">${tool.name}</div>
     </div>
     <button class="run-btn" id="run-btn-${tool.name}"
             onclick="event.stopPropagation(); runTool('${tool.name}')"

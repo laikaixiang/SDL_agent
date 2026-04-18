@@ -1,0 +1,28 @@
+{
+  "experiment_name": "简单测试实验",
+  "created_at": "2026-04-19T00:00:00",
+  "steps": [
+    {
+      "type": "helper",
+      "name": "LOOP",
+      "params": {
+        "iterations": 2
+      },
+      "description": "循环2次"
+    },
+    {
+      "type": "helper",
+      "name": "WAIT",
+      "params": {
+        "duration": 500
+      },
+      "description": "等待0.5秒"
+    },
+    {
+      "type": "helper",
+      "name": "END",
+      "params": {},
+      "description": "结束循环"
+    }
+  ]
+}

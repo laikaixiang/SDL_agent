@@ -121,9 +121,17 @@
         <div class="exp-code-area" id="exp-code-area">
             <div class="exp-code-header">
                 <span class="exp-code-header-title">实验设计 JSON</span>
-                <button class="exp-code-minimize-btn" onclick="toggleCodeAreaMinimize()" title="最小化/展开">
-                    <span id="minimize-icon">▼</span>
-                </button>
+                <div class="exp-code-header-actions">
+                    <button class="exp-code-action-btn" onclick="syncCodeToCanvas()" title="重新同步代码到画布">
+                        <span>↻</span>
+                    </button>
+                    <button class="exp-code-action-btn" onclick="toggleCodeAreaFullscreen()" title="全屏显示代码">
+                        <span id="fullscreen-icon">⛶</span>
+                    </button>
+                    <button class="exp-code-action-btn" onclick="toggleCodeAreaMinimize()" title="最小化/展开">
+                        <span id="minimize-icon">−</span>
+                    </button>
+                </div>
             </div>
             <textarea class="exp-code-editor" id="exp-code-content" spellcheck="false">// 实验设计JSON将在此显示
 {
@@ -135,7 +143,6 @@
             <button class="exp-toolbar-btn" onclick="saveExperimentDesign()">💾 保存设计</button>
             <button class="exp-toolbar-btn" onclick="executeExperimentDesign()">▶ 执行实验</button>
             <button class="exp-toolbar-btn" onclick="compileExperiment()">🔧 编译代码</button>
-            <button class="exp-toolbar-btn" onclick="compileAndRunExperiment()">⚡ 编译并运行</button>
             <button class="exp-toolbar-btn secondary" onclick="clearExperimentDesign()">🗑️ 清空</button>
             <button class="exp-toolbar-btn secondary" onclick="exportExperimentJSON()">📤 导出JSON</button>
         </div>

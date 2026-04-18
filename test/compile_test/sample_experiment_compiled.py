@@ -15,7 +15,7 @@ def execute_experiment():
         if int(user_vars.get('target_temp', 0)) > 100:
             # 设置高温
             print('执行硬件操作: set_temperature')
-            # TODO: 调用硬件函数 set_temperature({'temperature': 150})
+            # 调用硬件函数 set_temperature({'temperature': 150})
             # 等待2秒
             time.sleep(2.0)  # 等待 2.0 秒
         # 等待1秒
@@ -25,7 +25,7 @@ def execute_experiment():
     for _group_iter in range(1):
         # 恢复室温
         print('执行硬件操作: set_temperature')
-        # TODO: 调用硬件函数 set_temperature({'temperature': 25})
+        # 调用硬件函数 set_temperature({'temperature': 25})
 
 if __name__ == '__main__':
     execute_experiment()

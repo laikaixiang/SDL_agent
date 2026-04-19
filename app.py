@@ -30,7 +30,7 @@ from core import (
     HardwareController,
     TaskManager,
     ExtractionEngine,
-    ExperimentDesignAgent,
+    # ExperimentDesignAgent,  # Deprecated PydanticAI version, now using Approach 2 in field_inference.py
     SoftwareManager,
     AdaptiveStreamHandler,
 )
@@ -50,7 +50,7 @@ hardware_controller = HardwareController()
 task_manager = TaskManager()
 extraction_engine = ExtractionEngine(task_manager)
 csv_writer = CSVWriter()
-experiment_agent = ExperimentDesignAgent()  # 实验设计智能体（PydanticAI 原生 tool-use）
+# experiment_agent = ExperimentDesignAgent()  # Deprecated PydanticAI version, now using Approach 2 in field_inference.py
 software_manager = SoftwareManager()        # 软件算法管理器
 adaptive_handler = AdaptiveStreamHandler(config, llm_client)  # 自适应流式响应处理器
 
@@ -822,11 +822,11 @@ def experiment_chat():
     if not user_message:
         return jsonify({'type': 'error', 'reply': '消息不能为空'})
 
-    # 使用ExperimentDesignParser生成JSON
-    from core.field_inference import ExperimentDesignParser
+    # 使用ExperimentDesignAgent生成JSON
+    from core.field_inference import ExperimentDesignAgent
     from experiment.format import ExperimentFormatConverter
 
-    parser = ExperimentDesignParser()
+    agent = ExperimentDesignAgent()
     converter = ExperimentFormatConverter()
 
     print(f"\n{'='*60}")
@@ -834,7 +834,7 @@ def experiment_chat():
     print(f"[实验设计] 用户需求: {user_message}")
     print(f"{'='*60}\n")
 
-    success, result = parser.parse_experiment_design(user_message)
+    success, result = agent.parse_experiment_design(user_message)
 
     if success:
         # 添加时间戳
@@ -878,7 +878,9 @@ def experiment_chat():
 @app.route('/api/experiment_upload', methods=['POST'])
 def experiment_upload():
     """
-    实验设计模式的 PDF 上传，上传后 AI 可通过 read_pdf 工具读取
+    实验设计模式的 PDF 上传（方案2暂不支持PDF读取）
+
+    TODO: 方案2不支持交互式PDF读取，如需此功能请使用方案1（PydanticAI）
     """
     session_id = request.form.get('session_id', 'default')
     if 'file' not in request.files:
@@ -893,14 +895,17 @@ def experiment_upload():
     path = os.path.join('./pdf_cache', safe_name)
     file.save(path)
 
-    experiment_agent.set_pdf_path(session_id, path)
+    # TODO: 方案2不支持交互式PDF读取，保留路径供未来扩展
+    # experiment_agent.set_pdf_path(session_id, path)
     return jsonify({'filename': safe_name, 'path': path})
 
 
 @app.route('/api/experiment_confirm', methods=['POST'])
 def experiment_confirm():
     """
-    处理实验确认响应
+    处理实验确认响应（方案2暂不支持交互式确认）
+
+    TODO: 方案2不支持交互式确认，如需此功能请使用方案1（PydanticAI）
 
     请求体：
     {
@@ -919,14 +924,15 @@ def experiment_confirm():
     if not request_id or not session_id:
         return jsonify({'error': 'Missing request_id or session_id'}), 400
 
+    # TODO: 方案2不支持交互式确认，保留接口供未来扩展
     # Submit response to the agent's queue
-    response = {
-        "action": action,
-        "params": params
-    }
-    experiment_agent.submit_response(request_id, response)
+    # response = {
+    #     "action": action,
+    #     "params": params
+    # }
+    # experiment_agent.submit_response(request_id, response)
 
-    return jsonify({'status': 'success'})
+    return jsonify({'status': 'success', 'message': '方案2暂不支持交互式确认'})
 
 
 # =============================================================================

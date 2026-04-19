@@ -1,5 +1,11 @@
 """
 实验设计智能体 - 基于 PydanticAI Agent 原生 tool-use，AI 自主选择工具并规划实验流程
+
+⚠️ 注意：本模块已弃用，改用方案2（JSON + 提示词）实现
+⚠️ 当前代码保留用于参考，实际实验设计请使用 core.field_inference.ExperimentDesignParser
+
+TODO: 待hardware/tools解耦完成后，可完全移除本文件或重构为方案2的辅助模块
+TODO: 如需保留PydanticAI功能，需确保模型支持Function Calling
 """
 
 import os
@@ -16,6 +22,7 @@ from .config import Config
 # 从 field_inference 导入实验设计提示词
 from .field_inference import ExperimentDesignParser
 
+# TODO: 待hardware/tools解耦完成后，从hardware/tools/REGISTRY.json读取工具定义
 # 从 hardware/tools.py 导入 PydanticAI 异步工具函数和依赖容器
 from hardware.tools import (
     Deps,                    # 依赖注入容器（包含 send_event 回调）
@@ -28,11 +35,16 @@ from hardware.tools import (
 
 class ExperimentDesignAgent:
     """
-    实验设计智能体
+    实验设计智能体（PydanticAI版本 - 已弃用）
+
+    ⚠️ 本类已弃用，改用 core.field_inference.ExperimentDesignParser（方案2）
+    ⚠️ 保留代码用于参考或特殊场景（需Function Calling支持的模型）
 
     AI 通过工具函数的 docstring 理解每个工具的功能和参数，
     在对话过程中自主决定何时调用哪个工具、使用什么参数。
     支持多步实验设计：先读论文 -> 注册多步实验 -> 启动执行。
+
+    TODO: 待hardware/tools解耦完成后，可完全移除或重构为方案2的辅助模块
 
     Attributes:
         config    : 配置管理器

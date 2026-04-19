@@ -7,11 +7,11 @@
 from .config import Config
 from .llm_client import LLMClient
 from .pdf_processor import PDFProcessor
-from .field_inference import FieldInference, AlgorithmParser, ExperimentDesignParser
+from .field_inference import FieldInference, AlgorithmParser, ExperimentDesignAgent
 from .hardware_controller import HardwareController
 from .task_manager import TaskManager
 from .extraction_engine import ExtractionEngine
-from .experiment_agent import ExperimentDesignAgent
+# from .experiment_agent import ExperimentDesignAgent  # Deprecated PydanticAI version, now using Approach 2 in field_inference.py
 from .software_manager import SoftwareManager
 from .adaptive_stream import AdaptiveStreamHandler
 
@@ -21,11 +21,11 @@ __all__ = [
     'PDFProcessor',
     'FieldInference',
     'AlgorithmParser',
-    'ExperimentDesignParser',
+    'ExperimentDesignAgent',
     'HardwareController',
     'TaskManager',
     'ExtractionEngine',
-    'ExperimentDesignAgent',
+    # 'ExperimentDesignAgent',  # 已弃用
     'SoftwareManager',
     'AdaptiveStreamHandler',
 ]

@@ -4,6 +4,7 @@
 """
 
 import json
+import os
 from typing import List, Tuple, Dict, Any
 from pydantic import BaseModel, Field, ValidationError
 
@@ -169,55 +170,198 @@ class FieldInference:
 
 
 
-class ExperimentDesignParser:
+class ExperimentDesignAgent:
     """
-    实验设计解析器 - 将自然语言转换为实验设计JSON
+    Experiment Design Agent - Converts natural language to experiment design JSON (Approach 2)
 
-    职责：
-    - 解析用户的实验需求描述
-    - 生成统一格式的实验设计JSON
-    - 提供实验设计智能体的系统提示词
+    Responsibilities:
+    - Parse user's experiment requirements
+    - Generate unified format experiment design JSON
+    - Dynamically generate system prompts from registries (hardware tools + software algorithms + helper operations)
+
+    This is the Approach 2 implementation using JSON + prompt-based method.
+    Does not require Function Calling support, works with any LLM.
     """
-
-    # 实验设计智能体系统提示词
-    EXPERIMENT_AGENT_SYSTEM_PROMPT = (
-        "你是一位经验丰富的材料科学家，专门设计钙钛矿太阳能电池实验。\n"
-        "你的任务是根据用户需求，设计详细的实验方案并输出JSON格式。\n\n"
-        "可用的实验操作类型：\n"
-        "1. spin_coating - 旋涂实验\n"
-        "   参数: spin_speed(转速rpm), spin_acc(加速度rpm/s), spin_dur(时长ms), reagent(试剂名), volume(体积μL)\n"
-        "2. set_temperature - 温度控制\n"
-        "   参数: temperature(温度℃)\n"
-        "3. move_robot_arm - 机械臂移动\n"
-        "   参数: x, y, z(坐标mm)\n"
-        "4. collect_spectrum - 光谱采集\n"
-        "   参数: duration(时长秒)\n"
-        "5. WAIT - 等待辅助操作\n"
-        "   参数: duration(时长ms)\n\n"
-        "输出格式要求：\n"
-        "🚨 必须输出纯JSON，不要有Markdown标记（如```json）、代码块或解释文字。\n"
-        "🚨 JSON格式：\n"
-        "{\n"
-        '  "experiment_name": "实验名称",\n'
-        '  "description": "实验描述",\n'
-        '  "steps": [\n'
-        '    {"type": "tool", "name": "spin_coating", "params": {...}, "description": "步骤描述"},\n'
-        '    {"type": "helper", "name": "WAIT", "params": {"duration": 5000}, "description": "等待5秒"},\n'
-        '    ...\n'
-        '  ],\n'
-        '  "notes": "注意事项"\n'
-        "}\n\n"
-        "设计原则：\n"
-        "- 旋涂步骤必须包含试剂名称和体积\n"
-        "- 多步旋涂需要在步骤间添加WAIT\n"
-        "- 温度设置应在旋涂前完成\n"
-        "- 每个步骤必须有清晰的description说明\n"
-    )
 
     def __init__(self):
-        """初始化实验设计解析器"""
+        """Initialize experiment design agent"""
         self.config = Config()
         self.llm_client = LLMClient()
+        self.hardware_registry = self._load_hardware_registry()
+        self.software_registry = self._load_software_registry()
+        self.helper_registry = self._get_helper_registry()
+        self.system_prompt = self._generate_system_prompt()
+
+    def _load_hardware_registry(self) -> Dict:
+        """从hardware/tools/REGISTRY.json加载硬件工具注册表"""
+        # 获取项目根目录
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(current_dir)
+        registry_path = os.path.join(project_root, "hardware", "tools", "REGISTRY.json")
+
+        try:
+            with open(registry_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except FileNotFoundError:
+            print(f"[警告] 硬件工具注册表未找到: {registry_path}")
+            return {}
+        except json.JSONDecodeError as e:
+            print(f"[错误] 硬件工具注册表JSON解析失败: {e}")
+            return {}
+
+    def _load_software_registry(self) -> List[Dict]:
+        """从software模块加载算法注册表"""
+        try:
+            # TODO: 解耦后从software/algorithms/REGISTRY.json读取
+            # 当前通过SoftwareController动态获取
+            from software.software_controller import SoftwareController
+            controller = SoftwareController()
+            return controller.list_algorithms()
+        except Exception as e:
+            print(f"[警告] 软件算法注册表加载失败: {e}")
+            return []
+
+    def _get_helper_registry(self) -> Dict:
+        """获取辅助操作注册表（内置定义）"""
+        return {
+            "WAIT": {
+                "name": "WAIT",
+                "description": "等待辅助操作 - 暂停指定时长",
+                "params": {
+                    "duration": {
+                        "type": "int",
+                        "description": "等待时长(ms)",
+                        "required": True,
+                        "default": 5000
+                    }
+                }
+            },
+            "LOOP": {
+                "name": "LOOP",
+                "description": "循环辅助操作 - 重复执行步骤",
+                "params": {
+                    "count": {
+                        "type": "int",
+                        "description": "循环次数",
+                        "required": True
+                    }
+                }
+            },
+            "GROUP": {
+                "name": "GROUP",
+                "description": "分组辅助操作 - 将多个步骤组合",
+                "params": {}
+            },
+            "CONDITION": {
+                "name": "CONDITION",
+                "description": "条件辅助操作 - 根据条件执行",
+                "params": {
+                    "condition": {
+                        "type": "str",
+                        "description": "条件表达式",
+                        "required": True
+                    }
+                }
+            },
+            "END": {
+                "name": "END",
+                "description": "结束标记 - 标记LOOP/GROUP/CONDITION的结束",
+                "params": {}
+            },
+            "USER_INPUT": {
+                "name": "USER_INPUT",
+                "description": "用户输入 - 运行时请求用户输入",
+                "params": {
+                    "prompt": {
+                        "type": "str",
+                        "description": "提示信息",
+                        "required": True
+                    },
+                    "var_name": {
+                        "type": "str",
+                        "description": "变量名",
+                        "required": True
+                    }
+                }
+            }
+        }
+
+    def _generate_system_prompt(self) -> str:
+        """动态生成系统提示词"""
+        # 硬件工具部分
+        hardware_tools_desc = []
+        for idx, (name, info) in enumerate(self.hardware_registry.items(), 1):
+            params_list = []
+            for param_name, param_info in info.get("params", {}).items():
+                param_desc = f"{param_name}({param_info['description']})"
+                params_list.append(param_desc)
+            params_str = ", ".join(params_list) if params_list else "无参数"
+            hardware_tools_desc.append(
+                f"{idx}. {name} - {info['description']}\n"
+                f"   参数: {params_str}"
+            )
+
+        # 软件算法部分
+        software_tools_desc = []
+        for idx, algo in enumerate(self.software_registry, 1):
+            params_list = []
+            for param_name, param_info in algo.get("params_schema", {}).items():
+                param_desc = f"{param_name}({param_info.get('description', '')})"
+                params_list.append(param_desc)
+            params_str = ", ".join(params_list) if params_list else "无参数"
+            software_tools_desc.append(
+                f"{idx}. {algo['name']} - {algo.get('chinese_name', algo['name'])} - {algo['description']}\n"
+                f"   参数: {params_str}"
+            )
+
+        # 辅助操作部分
+        helper_tools_desc = []
+        for idx, (name, info) in enumerate(self.helper_registry.items(), 1):
+            params_list = []
+            for param_name, param_info in info.get("params", {}).items():
+                param_desc = f"{param_name}({param_info['description']})"
+                params_list.append(param_desc)
+            params_str = ", ".join(params_list) if params_list else "无参数"
+            helper_tools_desc.append(
+                f"{idx}. {name} - {info['description']}\n"
+                f"   参数: {params_str}"
+            )
+
+        # 组装完整提示词
+        prompt = (
+            "你是一位经验丰富的材料科学家，专门设计钙钛矿太阳能电池实验。\n"
+            "你的任务是根据用户需求，设计详细的实验方案并输出JSON格式。\n\n"
+            "可用的硬件工具（type: \"tool\"）：\n"
+            f"{chr(10).join(hardware_tools_desc)}\n\n"
+            "可用的数据分析算法（type: \"software\"）：\n"
+            f"{chr(10).join(software_tools_desc) if software_tools_desc else '暂无可用算法'}\n\n"
+            "可用的辅助操作（type: \"helper\"）：\n"
+            f"{chr(10).join(helper_tools_desc)}\n\n"
+            "输出格式要求：\n"
+            "🚨 必须输出纯JSON，不要有Markdown标记（如```json）、代码块或解释文字。\n"
+            "🚨 JSON格式：\n"
+            "{\n"
+            '  "experiment_name": "实验名称",\n'
+            '  "description": "实验描述",\n'
+            '  "steps": [\n'
+            '    {"type": "tool", "name": "spin_coating", "params": {...}, "description": "步骤描述"},\n'
+            '    {"type": "helper", "name": "WAIT", "params": {"duration": 5000}, "description": "等待5秒"},\n'
+            '    {"type": "software", "name": "data_statistics", "params": {...}, "input_file": "path/to/data.csv", "output_file": "path/to/result.json", "description": "数据统计分析"},\n'
+            '    ...\n'
+            '  ],\n'
+            '  "notes": "注意事项"\n'
+            "}\n\n"
+            "设计原则：\n"
+            "- 硬件工具步骤使用 type: \"tool\"\n"
+            "- 数据分析步骤使用 type: \"software\"，必须指定input_file和output_file\n"
+            "- 辅助操作步骤使用 type: \"helper\"\n"
+            "- 旋涂步骤必须包含试剂名称和体积\n"
+            "- 多步旋涂需要在步骤间添加WAIT\n"
+            "- 温度设置应在旋涂前完成\n"
+            "- 每个步骤必须有清晰的description说明\n"
+        )
+
+        return prompt
 
     def parse_experiment_design(self, user_description: str) -> Tuple[bool, Dict | str]:
         """
@@ -230,7 +374,7 @@ class ExperimentDesignParser:
             (成功状态, JSON字典或错误信息)
         """
         prompt = (
-            f"{self.EXPERIMENT_AGENT_SYSTEM_PROMPT}\n\n"
+            f"{self.system_prompt}\n\n"
             f"用户需求：{user_description}\n\n"
             "请根据上述需求设计实验方案，直接输出JSON格式。"
         )

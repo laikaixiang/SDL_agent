@@ -14,7 +14,7 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from .config import Config
 
 # 从 field_inference 导入实验设计提示词
-from .field_inference import ExperimentDesignParser
+from .field_inference import ExperimentDesignAgent
 
 # 从 hardware/tools.py 导入 PydanticAI 异步工具函数和依赖容器
 from hardware.tools import (

@@ -19,11 +19,18 @@ async function startExperimentChat(command) {
 
     setNormalLoadingState(true);
     try {
+        // 设置30秒超时，因为LLM生成实验设计需要10-15秒
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
+
         const res = await fetch('/api/experiment_chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ session_id: sessionId, message: command })
+            body: JSON.stringify({ session_id: sessionId, message: command }),
+            signal: controller.signal
         });
+
+        clearTimeout(timeoutId);
         const data = await res.json();
         setNormalLoadingState(false);
 
@@ -41,6 +48,10 @@ async function startExperimentChat(command) {
         }
     } catch (e) {
         setNormalLoadingState(false);
-        appendMessage('实验设计通信异常: ' + e.message, 'ai');
+        if (e.name === 'AbortError') {
+            appendMessage('⚠️ 实验设计生成超时（>30秒），请重试或简化需求描述', 'ai');
+        } else {
+            appendMessage('实验设计通信异常: ' + e.message, 'ai');
+        }
     }
 }

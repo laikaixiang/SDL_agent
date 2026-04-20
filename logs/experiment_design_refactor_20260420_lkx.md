@@ -106,7 +106,7 @@ registry_path = os.path.join(project_root, "hardware", "tools", "REGISTRY.json")
 ### 运行测试
 
 ```bash
-cd test/experiment_design_v2
+cd test/experiment_design_test
 python test_experiment_design_v2.py
 ```
 

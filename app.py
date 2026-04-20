@@ -62,7 +62,7 @@ adaptive_handler = AdaptiveStreamHandler(config, llm_client)  # 自适应流式�
 SESSION_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 # 创建会话专属文件夹
-SESSION_BASE_PATH = os.path.join("dialogue data", SESSION_TIMESTAMP)
+SESSION_BASE_PATH = os.path.join(config.DIALOGUE_DATA_DIR, SESSION_TIMESTAMP)
 os.makedirs(os.path.join(SESSION_BASE_PATH, "extract"), exist_ok=True)
 os.makedirs(os.path.join(SESSION_BASE_PATH, "temporal"), exist_ok=True)
 os.makedirs(os.path.join(SESSION_BASE_PATH, "results"), exist_ok=True)
@@ -1122,7 +1122,7 @@ def browse_csv():
     paths_to_scan = [
         get_session_path("extract"),
         get_session_path("temporal"),
-        os.path.join("dialogue data", "const_data", "extract"),
+        os.path.join(config.DIALOGUE_DATA_DIR, "const_data", "extract"),
     ]
     for folder in paths_to_scan:
         for fp in glob.glob(os.path.join(folder, "*.csv")):
@@ -1140,7 +1140,7 @@ def browse_output_dirs():
     dirs = []
     session_results = get_session_path("results")
     dirs.append({'path': session_results.replace('\\', '/'), 'label': '当前会话 results（默认）', 'is_default': True})
-    const_result = os.path.join("dialogue data", "const_data", "result")
+    const_result = os.path.join(config.DIALOGUE_DATA_DIR, "const_data", "result")
     if os.path.isdir(const_result):
         for name in sorted(os.listdir(const_result)):
             full = os.path.join(const_result, name)

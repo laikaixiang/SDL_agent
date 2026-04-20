@@ -29,11 +29,6 @@ class Config:
     - 管理文件路径
     - 管理其他运行时参数
 
-    使用示例::
-
-        config = Config()
-        print(config.API_URL)                    # API 地址
-        print(config.EXPERIMENT_MODEL_NAME)      # 实验设计Agent模型名称
     """
 
     # ======================== API 配置 ========================
@@ -53,9 +48,10 @@ class Config:
     MODEL_NAME_TALK: str = "Qwen/Qwen3-VL-30B-A3B-Instruct"  # 对话模型（普通聊天、命令解析）
 
     # ======================== 文件路径配置 ========================
-    PDF_FOLDER: str = r"test"          # PDF 文件存储目录（用户上传的文献）
-    EXTRACT_DIR: str = "extract"       # 提取结果存储目录（CSV 文件）
-    TEMPORAL_DIR: str = "temporal"     # 临时文件存储目录（实时任务数据）
+    DIALOGUE_DATA_DIR: str = "dialogue data/history"  # 历史对话数据根目录
+    PDF_FOLDER: str = r"dialogue data/PDF_TARGET"          # PDF 文件存储目录（用户上传的文献）
+    EXTRACT_DIR: str = "dialogue data/extract"  # 提取结果存储目录（CSV 文件）
+    TEMPORAL_DIR: str = "dialogue data/temporal"     # 临时文件存储目录（实时任务数据）
     TEMPLATES_DIR: str = "templates"   # HTML 模板文件目录
 
     # ======================== 处理参数配置 ========================
@@ -86,6 +82,7 @@ class Config:
     # ======================== 试剂配置 ========================
     # 试剂布局配置文件路径（JSON 格式），记录每个位置上装载的试剂名称
     # 默认位于项目根目录的 reagent_layout.json
+    # TODO: 修改试剂布局
     REAGENT_LAYOUT_PATH: str = "reagent_layout.json"
 
     @classmethod

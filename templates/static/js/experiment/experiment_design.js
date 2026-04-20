@@ -390,16 +390,10 @@ function clearExperimentDesign() {
 /**
  * 解析标准实验 JSON，将步骤写入 experimentSteps，刷新画布和 JSON 编辑器。
  * 兼容旧格式（action 字段）和新格式（name 字段）。
- * 加载前会清空原有的实验步骤和 JSON 显示。
  * @param {Object} json - 标准实验 JSON 格式 { experiment_name, steps }
  */
 function loadExperimentFromJSON(json) {
     try {
-        // 清空原有数据
-        experimentSteps = [];
-        experimentName = '未命名实验';
-
-        // 加载新数据
         experimentName  = json.experiment_name || '未命名实验';
         experimentSteps = json.steps.map(step => {
             const s = {
@@ -415,15 +409,9 @@ function loadExperimentFromJSON(json) {
             }
             return s;
         });
-
-        // 刷新画布和 JSON 显示
         renderExperimentSteps();
         updateExperimentJSON();
-
-        console.log('[ExperimentDesign] 已加载实验设计:', experimentName);
-        console.log('[ExperimentDesign] 步骤数量:', experimentSteps.length);
     } catch (e) {
-        console.error('[ExperimentDesign] 加载失败:', e);
         alert('加载实验设计失败: ' + e.message);
     }
 }

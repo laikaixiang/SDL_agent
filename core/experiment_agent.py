@@ -1,42 +1,73 @@
 """
-实验设计智能体 - 基于 Approach 2（JSON + 提示词）的交互式实验设计
-
-完全使用 core/field_inference.py 的 ExperimentDesignAgent（Approach 2）
-不依赖 PydanticAI，支持任何 LLM
+实验设计智能体 - 基于 PydanticAI Agent 原生 tool-use，AI 自主选择工具并规划实验流程
 """
 
+import os
 import asyncio
 import queue as thread_queue
 from typing import Dict
 
+from pydantic_ai import Agent
+from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.openai import OpenAIProvider
+
 from .config import Config
-from .field_inference import ExperimentDesignAgent as FieldInferenceAgent
+
+# 从 field_inference 导入实验设计提示词
+from .field_inference import ExperimentDesignParser
+
+# 从 hardware/tools.py 导入 PydanticAI 异步工具函数和依赖容器
+from hardware.tools import (
+    Deps,                    # 依赖注入容器（包含 send_event 回调）
+    read_pdf,                # 读取 PDF 文件内容
+    save_experiment_step,    # 注册一步旋涂实验参数
+    start_experiment,        # 启动已注册的实验序列
+    get_all_reagents,        # 列出所有可用试剂
+)
 
 
 class ExperimentDesignAgent:
     """
-    实验设计智能体 - 基于 Approach 2 的交互式版本
+    实验设计智能体
 
-    使用 core/field_inference.py 的 ExperimentDesignAgent 生成实验设计
-    支持多轮对话和会话管理
+    AI 通过工具函数的 docstring 理解每个工具的功能和参数，
+    在对话过程中自主决定何时调用哪个工具、使用什么参数。
+    支持多步实验设计：先读论文 -> 注册多步实验 -> 启动执行。
 
     Attributes:
         config    : 配置管理器
-        _agent    : FieldInference ExperimentDesignAgent 实例
+        _agent    : PydanticAI Agent 实例（所有会话共享）
         _sessions : 会话存储 {session_id: {"history": [...], "pdf_path": "..."}}
     """
 
     def __init__(self):
         self.config = Config()
-        self._agent = FieldInferenceAgent()  # 使用 Approach 2 的实验设计代理
-        self._sessions: Dict[str, dict] = {}  # 每个会话独立的对话历史
+        self._agent = self._create_agent()       # PydanticAI Agent（全局单例）
+        self._sessions: Dict[str, dict] = {}     # 每个会话独立的对话历史
         self._response_queues: Dict[str, thread_queue.Queue] = {}  # {request_id: queue} 线程安全队列，用于等待用户确认
+
+    def _create_agent(self) -> Agent:
+        """创建 PydanticAI Agent，绑定 API 和实验工具"""
+        model = OpenAIChatModel(
+            self.config.EXPERIMENT_MODEL_NAME,          # 复用大语言模型
+            provider=OpenAIProvider(
+                base_url=self.config.API_URL.rsplit('/chat/completions', 1)[0],  # 提取 base_url
+                api_key=self.config.API_KEY,
+            ),
+        )
+        return Agent(
+            model,
+            system_prompt=ExperimentDesignParser.EXPERIMENT_AGENT_SYSTEM_PROMPT,
+            deps_type=Deps,
+            # AI 会自动分析每个函数的 docstring，理解功能后自主决定调用
+            tools=[read_pdf, save_experiment_step, start_experiment, get_all_reagents],
+        )
 
     def _get_or_create_session(self, session_id: str) -> dict:
         """获取或创建会话（含对话历史和 PDF 路径）"""
         if session_id not in self._sessions:
             self._sessions[session_id] = {
-                "history": [],      # 对话历史消息列表
+                "history": [],      # PydanticAI 对话历史消息列表
                 "pdf_path": None,   # 当前关联的 PDF 文件路径
             }
         return self._sessions[session_id]
@@ -52,14 +83,14 @@ class ExperimentDesignAgent:
                            签名: async def send_event(event: dict) -> None
 
         Returns:
-            str: AI 生成的回复文本（实验设计 JSON 或错误信息）
+            str: AI 生成的回复文本
         """
         print(f"[ExperimentAgent] 开始处理会话 {session_id}")
         print(f"[ExperimentAgent] 用户消息: {user_message[:100]}...")
 
         session = self._get_or_create_session(session_id)
 
-        # 如果有关联的 PDF，在消息前附加路径提示
+        # 如果有关联的 PDF，在消息前附加路径提示，让 AI 知道文件位置
         if session["pdf_path"]:
             full_input = f"[Current PDF is at: {session['pdf_path']}]\n\n{user_message}"
             print(f"[ExperimentAgent] PDF路径: {session['pdf_path']}")
@@ -67,60 +98,22 @@ class ExperimentDesignAgent:
             full_input = user_message
             print(f"[ExperimentAgent] 无关联PDF")
 
-        # 使用 Approach 2 生成实验设计
-        print(f"[ExperimentAgent] 开始调用 Approach 2 Agent...")
-        success, result = self._agent.parse_experiment_design(full_input)
+        # 创建依赖容器，将 send_event 回调、agent 引用和 session_id 注入到所有工具函数中
+        deps = Deps(send_event=send_event, agent=self, session_id=session_id)
+        print(f"[ExperimentAgent] 依赖容器已创建")
+
+        # 调用 PydanticAI Agent：AI 自主选择工具、决定参数、规划调用顺序
+        print(f"[ExperimentAgent] 开始调用PydanticAI Agent...")
+        result = await self._agent.run(
+            full_input, deps=deps, message_history=session["history"],
+        )
         print(f"[ExperimentAgent] Agent调用完成")
 
-        if success:
-            # 成功生成实验设计
-            import json
-            experiment_json = json.dumps(result, ensure_ascii=False, indent=2)
+        # 更新会话的对话历史（包含本轮的工具调用记录）
+        session["history"] = list(result.all_messages())
+        print(f"[ExperimentAgent] 会话历史已更新，共 {len(session['history'])} 条消息")
 
-            # 更新会话历史
-            session["history"].append({
-                "role": "user",
-                "content": user_message
-            })
-            session["history"].append({
-                "role": "assistant",
-                "content": f"已生成实验设计：{result.get('experiment_name', '未命名实验')}"
-            })
-
-            print(f"[ExperimentAgent] 会话历史已更新，共 {len(session['history'])} 条消息")
-
-            # 推送成功事件到前端
-            await send_event({
-                "type": "experiment_design_generated",
-                "experiment_json": result,
-                "experiment_name": result.get('experiment_name', '未命名实验'),
-                "steps_count": len(result.get('steps', []))
-            })
-
-            return f"✅ 已生成实验设计方案：{result.get('experiment_name', '未命名实验')}\n\n共 {len(result.get('steps', []))} 个步骤。"
-        else:
-            # 生成失败
-            error_message = f"❌ 实验设计生成失败：{result}"
-
-            # 更新会话历史
-            session["history"].append({
-                "role": "user",
-                "content": user_message
-            })
-            session["history"].append({
-                "role": "assistant",
-                "content": error_message
-            })
-
-            print(f"[ExperimentAgent] 生成失败: {result}")
-
-            # 推送失败事件到前端
-            await send_event({
-                "type": "error",
-                "message": error_message
-            })
-
-            return error_message
+        return result.output
 
     def set_pdf_path(self, session_id: str, pdf_path: str):
         """为会话关联 PDF 文件路径（上传 PDF 后调用）"""
@@ -154,7 +147,7 @@ class ExperimentDesignAgent:
         Returns:
             dict: 用户响应 {"action": "confirm"|"skip"|"cancel"|"timeout", "params": {...}}
         """
-        # 如果队列不存在则自动创建
+        # 如果队列不存在则自动创建（工具函数在 send_event 之后立即调用此方法）
         if request_id not in self._response_queues:
             self._response_queues[request_id] = thread_queue.Queue()
         q = self._response_queues[request_id]

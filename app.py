@@ -30,9 +30,9 @@ from core import (
     HardwareController,
     TaskManager,
     ExtractionEngine,
+    # ExperimentDesignAgent,  # Deprecated PydanticAI version, now using Approach 2 in field_inference.py
     SoftwareManager,
     AdaptiveStreamHandler,
-    ExperimentDesignAgent,
 )
 from utils import CSVWriter
 
@@ -50,9 +50,9 @@ hardware_controller = HardwareController()
 task_manager = TaskManager()
 extraction_engine = ExtractionEngine(task_manager)
 csv_writer = CSVWriter()
+# experiment_agent = ExperimentDesignAgent()  # Deprecated PydanticAI version, now using Approach 2 in field_inference.py
 software_manager = SoftwareManager()        # 软件算法管理器
 adaptive_handler = AdaptiveStreamHandler(config, llm_client)  # 自适应流式响应处理器
-experiment_agent = ExperimentDesignAgent()  # 实验设计智能体（Approach 2）
 
 # =============================================================================
 # 会话管理系统
@@ -803,108 +803,76 @@ def internal_error(error):
 @app.route('/api/experiment_chat', methods=['POST'])
 def experiment_chat():
     """
-    实验设计对话 - 使用交互式 ExperimentDesignAgent
+    实验设计对话 - 使用自然语言生成实验设计JSON
 
-    流程：
-    1. LLM 生成实验设计 JSON
-    2. 使用 ExperimentManager 验证
-    3. 返回纯 JSON 格式给前端
+    直接生成统一格式的实验设计JSON，打印到控制台并推送到前端
 
     返回格式：
     {
         "type": "experiment_design",
-        "experiment_json": {...},
+        "experiment_json": {...},  # 统一格式的实验设计JSON
+        "visual_data": {...},      # 前端可视化格式
         "reply": "AI的解释说明"
     }
     """
-    print("\n" + "="*60)
-    print("[实验设计] /api/experiment_chat 路由被调用")
-    print("="*60)
+    data = request.json
+    session_id = data.get('session_id', 'default')
+    user_message = data.get('message', '').strip()
 
-    try:
-        data = request.json
-        print(f"[实验设计] 请求数据: {data}")
+    if not user_message:
+        return jsonify({'type': 'error', 'reply': '消息不能为空'})
 
-        session_id = data.get('session_id', 'default')
-        user_message = data.get('message', '').strip()
+    # 使用ExperimentDesignAgent生成JSON
+    from core.field_inference import ExperimentDesignAgent
+    from experiment.format import ExperimentFormatConverter
 
-        print(f"[实验设计] Session: {session_id}")
-        print(f"[实验设计] 用户需求: {user_message}")
+    agent = ExperimentDesignAgent()
+    converter = ExperimentFormatConverter()
 
-        if not user_message:
-            return jsonify({'type': 'error', 'reply': '消息不能为空'})
+    print(f"\n{'='*60}")
+    print(f"[实验设计] 开始生成实验方案")
+    print(f"[实验设计] 用户需求: {user_message}")
+    print(f"{'='*60}\n")
 
-        # 使用交互式 ExperimentDesignAgent 和 ExperimentManager
-        from core.experiment_manager import ExperimentManager
-        import asyncio
+    success, result = agent.parse_experiment_design(user_message)
 
-        experiment_manager = ExperimentManager(software_manager=software_manager)
-        events = []
+    if success:
+        # 添加时间戳
+        import datetime
+        result['created_at'] = datetime.datetime.now().isoformat()
 
-        # 事件收集回调
-        async def collect_event(event):
-            events.append(event)
+        # 打印生成的JSON到控制台
+        print(f"\n{'='*60}")
+        print(f"[实验设计] ✅ 生成成功")
+        print(f"[实验设计] 实验名称: {result.get('experiment_name', '未命名实验')}")
+        print(f"[实验设计] 步骤数量: {len(result.get('steps', []))}")
+        print(f"\n[实验设计] 完整JSON:")
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        print(f"{'='*60}\n")
 
-        # 运行异步 agent
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        result_text = loop.run_until_complete(
-            experiment_agent.run(session_id, user_message, collect_event)
-        )
-        loop.close()
+        # 转换为前端可视化格式
+        visual_data = converter.json_to_visual(result)
 
-        # 检查是否有实验设计生成事件
-        experiment_event = None
-        for event in events:
-            if event.get('type') == 'experiment_design_generated':
-                experiment_event = event
-                break
+        print(f"[实验设计] 已转换为前端可视化格式")
+        print(f"[实验设计] 节点数量: {len(visual_data.get('nodes', []))}")
+        print(f"[实验设计] 边数量: {len(visual_data.get('edges', []))}\n")
 
-        if experiment_event:
-            experiment_json = experiment_event.get('experiment_json', {})
+        return jsonify({
+            'type': 'experiment_design',
+            'experiment_json': result,
+            'visual_data': visual_data,
+            'reply': f"✅ 已生成实验设计方案：{result.get('experiment_name', '未命名实验')}\n\n{result.get('description', '')}\n\n共 {len(result.get('steps', []))} 个步骤，已推送到实验流程画布。"
+        })
+    else:
+        print(f"\n{'='*60}")
+        print(f"[实验设计] ❌ 生成失败")
+        print(f"[实验设计] 错误信息: {result}")
+        print(f"{'='*60}\n")
 
-            # 添加时间戳
-            import datetime
-            experiment_json['created_at'] = datetime.datetime.now().isoformat()
-
-            # 验证实验方案
-            is_valid, error_msg = experiment_manager.validate_plan(experiment_json)
-            if not is_valid:
-                print(f"[实验设计] ⚠️ 验证警告: {error_msg}")
-
-            # 打印生成的JSON（仅JSON，便于解析）
-            print(f"\n[实验设计] ========== 生成的实验 JSON ==========")
-            print(json.dumps(experiment_json, ensure_ascii=False, indent=2))
-            print(f"[实验设计] ==========================================\n")
-
-            response_data = {
-                'type': 'experiment_design',
-                'experiment_json': experiment_json,
-                'reply': result_text
-            }
-            print(f"[实验设计] 准备返回响应，type={response_data['type']}")
-            return jsonify(response_data)
-        else:
-            # 没有生成实验设计
-            print(f"[实验设计] ❌ 未生成实验设计: {result_text}")
-            response_data = {
-                'type': 'error',
-                'reply': result_text
-            }
-            print(f"[实验设计] 准备返回错误响应，type={response_data['type']}")
-            return jsonify(response_data)
-
-    except Exception as e:
-        print(f"[实验设计] ❌ 异常: {str(e)}")
-        import traceback
-        traceback.print_exc()
-
-        response_data = {
+        return jsonify({
             'type': 'error',
-            'reply': f"❌ 实验设计生成失败：{str(e)}"
-        }
-        print(f"[实验设计] 准备返回异常响应，type={response_data['type']}")
-        return jsonify(response_data)
+            'reply': f"❌ 实验设计生成失败：{result}"
+        })
 
 
 @app.route('/api/experiment_upload', methods=['POST'])
@@ -927,15 +895,17 @@ def experiment_upload():
     path = os.path.join('./pdf_cache', safe_name)
     file.save(path)
 
-    # 关联 PDF 到实验设计会话
-    experiment_agent.set_pdf_path(session_id, path)
+    # TODO: 方案2不支持交互式PDF读取，保留路径供未来扩展
+    # experiment_agent.set_pdf_path(session_id, path)
     return jsonify({'filename': safe_name, 'path': path})
 
 
 @app.route('/api/experiment_confirm', methods=['POST'])
 def experiment_confirm():
     """
-    处理实验确认响应
+    处理实验确认响应（方案2暂不支持交互式确认）
+
+    TODO: 方案2不支持交互式确认，如需此功能请使用方案1（PydanticAI）
 
     请求体：
     {
@@ -954,14 +924,15 @@ def experiment_confirm():
     if not request_id or not session_id:
         return jsonify({'error': 'Missing request_id or session_id'}), 400
 
+    # TODO: 方案2不支持交互式确认，保留接口供未来扩展
     # Submit response to the agent's queue
-    response = {
-        "action": action,
-        "params": params
-    }
-    experiment_agent.submit_response(request_id, response)
+    # response = {
+    #     "action": action,
+    #     "params": params
+    # }
+    # experiment_agent.submit_response(request_id, response)
 
-    return jsonify({'status': 'success'})
+    return jsonify({'status': 'success', 'message': '方案2暂不支持交互式确认'})
 
 
 # =============================================================================

@@ -7,11 +7,11 @@
 from .config import Config
 from .llm_client import LLMClient
 from .pdf_processor import PDFProcessor
-from .field_inference import FieldInference, AlgorithmParser
+from .field_inference import FieldInference, AlgorithmParser, ExperimentDesignAgent
 from .hardware_controller import HardwareController
 from .task_manager import TaskManager
 from .extraction_engine import ExtractionEngine
-from .experiment_agent import ExperimentDesignAgent  # Interactive experiment design agent (Approach 2 based)
+# from .experiment_agent import ExperimentDesignAgent  # Deprecated PydanticAI version, now using Approach 2 in field_inference.py
 from .software_manager import SoftwareManager
 from .adaptive_stream import AdaptiveStreamHandler
 

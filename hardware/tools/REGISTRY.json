@@ -1,22 +1,25 @@
 {
   "spin_coating": {
     "name": "spin_coating",
-    "description": "执行旋涂实验，向平台发送旋涂参数",
+    "description": "旋涂实验 - 在基板上旋涂试剂溶液",
     "params": {
       "spin_speed": {
         "type": "int",
-        "description": "转速(rpm)",
-        "required": true
+        "description": "旋涂转速(rpm)",
+        "required": true,
+        "default": 3000
       },
       "spin_acc": {
         "type": "int",
-        "description": "加速度(rpm/s)",
-        "required": true
+        "description": "旋涂加速度(rpm/s)",
+        "required": true,
+        "default": 1000
       },
       "spin_dur": {
         "type": "int",
-        "description": "持续时间(ms)",
-        "required": true
+        "description": "旋涂时长(ms)",
+        "required": true,
+        "default": 30000
       },
       "reagent": {
         "type": "str",
@@ -24,17 +27,18 @@
         "required": true
       },
       "volume": {
-        "type": "int",
-        "description": "体积(µl)",
-        "required": true
+        "type": "float",
+        "description": "试剂体积(μL)",
+        "required": true,
+        "default": 10.0
       }
     }
   },
   "set_temperature": {
     "name": "set_temperature",
-    "description": "设置加热台温度",
+    "description": "温度控制 - 设置加热台温度",
     "params": {
-      "target": {
+      "temperature": {
         "type": "float",
         "description": "目标温度(℃)",
         "required": true
@@ -43,40 +47,40 @@
   },
   "move_robot_arm": {
     "name": "move_robot_arm",
-    "description": "移动机械臂到指定坐标",
+    "description": "机械臂移动 - 移动机械臂到指定坐标",
     "params": {
       "x": {
         "type": "float",
-        "description": "X坐标",
+        "description": "X坐标(mm)",
         "required": true
       },
       "y": {
         "type": "float",
-        "description": "Y坐标",
+        "description": "Y坐标(mm)",
         "required": true
       },
       "z": {
         "type": "float",
-        "description": "Z坐标",
+        "description": "Z坐标(mm)",
         "required": true
+      }
+    }
+  },
+  "collect_spectrum": {
+    "name": "collect_spectrum",
+    "description": "光谱采集 - 启动光谱仪采集数据",
+    "params": {
+      "duration": {
+        "type": "int",
+        "description": "采集时长(秒)",
+        "required": true,
+        "default": 10
       }
     }
   },
   "start_experiment": {
     "name": "start_experiment",
-    "description": "启动已注册的实验序列",
+    "description": "启动实验 - 启动已注册的实验序列",
     "params": {}
-  },
-  "collect_spectrum": {
-    "name": "collect_spectrum",
-    "description": "启动光谱仪数据采集",
-    "params": {
-      "duration": {
-        "type": "int",
-        "description": "采集时长(秒)",
-        "required": false,
-        "default": 60
-      }
-    }
   }
 }

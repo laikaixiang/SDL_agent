@@ -46,7 +46,7 @@ class Config:
 
     # ======================== 实验设计智能体模型配置 ========================
     # 实验设计智能体使用的API，使用对话模型
-    EXPERIMENT_MODEL_NAME: str = "Qwen/Qwen3-VL-30B-A3B-Instruct"
+    EXPERIMENT_MODEL_NAME: str = "Pro/MiniMaxAI/MiniMax-M2.5"
 
     # ======================== 模型配置 ========================
     MODEL_NAME_VL: str = "Qwen/Qwen3-VL-30B-A3B-Instruct"  # 视觉语言模型（文献图表识别）

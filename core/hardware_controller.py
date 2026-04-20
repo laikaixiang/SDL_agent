@@ -184,7 +184,7 @@ class HardwareAgent:
 
     def execute_tool_call(self, tool_call: Dict[str, Any]) -> Dict[str, Any]:
         """
-        执行单个工具调用，分派到 hardware/tools.py 底层函数
+        执行单个工具调用，分派到 hardware/tools底层函数
 
         Args:
             tool_call: {"name": "工具名", "params": {参数}}

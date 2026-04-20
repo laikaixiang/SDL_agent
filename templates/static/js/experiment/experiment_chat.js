@@ -19,9 +19,9 @@ async function startExperimentChat(command) {
 
     setNormalLoadingState(true);
     try {
-        // 设置30秒超时，因为LLM生成实验设计需要10-15秒
+        // 设置120秒超时，因为LLM生成实验设计需要10-15秒
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000);
+        const timeoutId = setTimeout(() => controller.abort(), 240000);
 
         const res = await fetch('/api/experiment_chat', {
             method: 'POST',

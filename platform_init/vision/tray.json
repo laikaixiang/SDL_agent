@@ -1,0 +1,81 @@
+{
+  "substrate_trays": [
+    {
+      "dimensions": {
+        "height": 60,
+        "length": 44,
+        "width": 24
+      },
+      "slot_grid": {
+        "rows": 5,
+        "columns": 5
+      },
+      "layout_offset": {
+        "left_top": {
+          "x": 8,
+          "y": 4
+        },
+        "right_bottom": {
+          "x": 40,
+          "y": 20
+        }
+      },
+      "position": {
+        "x": 23,
+        "y": 76
+      }
+    },
+    {
+      "dimensions": {
+        "height": 60,
+        "length": 44,
+        "width": 24
+      },
+      "slot_grid": {
+        "rows": 5,
+        "columns": 5
+      },
+      "layout_offset": {
+        "left_top": {
+          "x": 8,
+          "y": 4
+        },
+        "right_bottom": {
+          "x": 40,
+          "y": 20
+        }
+      },
+      "position": {
+        "x": null,
+        "y": null
+      }
+    }
+  ],
+  "bottle_trays": [
+    {
+      "dimensions": {
+        "height": 60,
+        "length": 44,
+        "width": 24
+      },
+      "slot_grid": {
+        "rows": 5,
+        "columns": 5
+      },
+      "layout_offset": {
+        "left_top": {
+          "x": 8,
+          "y": 4
+        },
+        "right_bottom": {
+          "x": 40,
+          "y": 20
+        }
+      },
+      "position": {
+        "x": 58,
+        "y": 81
+      }
+    }
+  ]
+}

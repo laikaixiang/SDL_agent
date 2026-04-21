@@ -1,7 +1,7 @@
 """
 机械臂移动工具
 """
-
+from ..mqtt import get_mqtt_client
 from .registry import register_tool
 
 
@@ -9,9 +9,10 @@ from .registry import register_tool
     name="move_robot_arm",
     description="移动机械臂到指定坐标",
     params={
-        "x": {"type": "float", "description": "X坐标", "required": True},
-        "y": {"type": "float", "description": "Y坐标", "required": True},
-        "z": {"type": "float", "description": "Z坐标", "required": True}
+        "x": {"type": "float", "description": "X坐标", "required": True, "default": 220},
+        "y": {"type": "float", "description": "Y坐标", "required": True, "default": -220},
+        "z": {"type": "float", "description": "Z坐标", "required": True, "default": 20},
+        "r": {"type": "float", "description": "Z坐标", "required": True, "default": 0}
     }
 )
 def execute_move_robot_arm(x: float, y: float, z: float) -> str:
@@ -29,12 +30,19 @@ def execute_move_robot_arm(x: float, y: float, z: float) -> str:
         str: 机械臂移动结果消息
     """
     try:
-        # TODO: 取消以下注释以连接真实硬件
-        # res = subprocess.run(
-        #     ["python", "arm_ctrl.py", str(x), str(y), str(z)],
-        #     capture_output=True, text=True,
-        # )
-        # return res.stdout.strip()
-        return f"机械臂已精准移动至坐标 ({x}, {y}, {z})"
+        client = get_mqtt_client()
+        experiment_topic = "do_experiment"
+        if client.is_connected:
+            client.publish(experiment_topic, f"a{x},{y},{z},{r}")
+            client.publish(experiment_topic, "astart")
+            return f"机械臂已精准移动至坐标 ({x}, {y}, {z})"    
+        else:
+            connect_state = client.connect()
+            if connect_state:
+                client.publish(experiment_topic, f"a{x},{y},{z},{r}")
+                client.publish(experiment_topic, "astart")
+                return f"机械臂已精准移动至坐标 ({x}, {y}, {z})"
+            else:
+                return f"机械臂移动失败: {str(e)}"
     except Exception as e:
         return f"机械臂移动失败: {str(e)}"

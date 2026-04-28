@@ -10,6 +10,7 @@
  */
 
 expCodeJSON = document.getElementById('exp-code-content').value;
+let editingStepIndex = -1;  // 当前正在编辑的步骤索引，-1 表示无
 
 /** 同时打开单步控制面板和实验设计画布面板，切换到实验设计模式，显示辅助函数栏。 */
 function openExperimentDesignDialog() {
@@ -115,14 +116,16 @@ function renderExperimentSteps() {
     const canvas    = document.getElementById('exp-canvas-area');
     const emptyState = document.getElementById('exp-empty-state');
 
-    // 清空现有步骤元素
     canvas.querySelectorAll('.exp-step-item').forEach(el => el.remove());
 
     if (experimentSteps.length === 0) {
         emptyState.style.display = 'block';
+        editingStepIndex = -1;
         return;
     }
     emptyState.style.display = 'none';
+
+    const wasEditing = editingStepIndex;
 
     experimentSteps.forEach((step, index) => {
         const stepEl = document.createElement('div');
@@ -144,6 +147,7 @@ function renderExperimentSteps() {
             }
         });
 
+        const isEditing = (index === wasEditing);
         stepEl.innerHTML = `
         <div class="exp-step-header">
             <div class="exp-step-type">
@@ -153,12 +157,18 @@ function renderExperimentSteps() {
             <div class="exp-step-controls">
                 <button class="exp-step-btn" onclick="moveStepUp(${index})" title="上移">▲</button>
                 <button class="exp-step-btn" onclick="moveStepDown(${index})" title="下移">▼</button>
-                <button class="exp-step-btn" onclick="openStepEditModal(${index})" title="编辑">✏️</button>
+                <button class="exp-step-btn" id="edit-btn-${index}" onclick="toggleStepEdit(${index})" title="编辑">${isEditing ? '✖' : '✏️'}</button>
                 <button class="exp-step-btn" onclick="deleteStep(${index})" title="删除">🗑️</button>
             </div>
-        </div>`;
+        </div>
+        <div class="exp-step-edit-area" id="edit-area-${index}" style="${isEditing ? '' : 'display:none;'}"></div>`;
 
         canvas.appendChild(stepEl);
+
+        // 如果之前在编辑此步骤，重新填充编辑表单
+        if (isEditing) {
+            _fillEditArea(index);
+        }
     });
 }
 
@@ -315,30 +325,55 @@ function moveStepDown(index) {
     }
 }
 
-/** 打开步骤编辑模态框，显示类似单步控制面板的参数表单，支持编辑所有字段。 */
-function openStepEditModal(index) {
-    const step = experimentSteps[index];
-    const modal = document.getElementById('step-edit-modal');
-    const form = document.getElementById('step-edit-form');
+/** 展开/收起指定步骤的内联编辑面板。每次只有一个步骤处于编辑状态。 */
+function toggleStepEdit(index) {
+    if (editingStepIndex === index) {
+        // 关闭当前编辑
+        editingStepIndex = -1;
+        const area = document.getElementById('edit-area-' + index);
+        if (area) area.style.display = 'none';
+        const btn = document.getElementById('edit-btn-' + index);
+        if (btn) btn.textContent = '✏️';
+        return;
+    }
 
-    // 构建表单内容
-    let formHtml = `<h3>编辑步骤: ${step.name}</h3>`;
-    formHtml += `<div class="edit-field"><label>英文名称:</label><input type="text" id="edit-name" value="${step.name || ''}" disabled style="background:#f3f4f6;" /></div>`;
-    formHtml += `<div class="edit-field"><label>中文描述:</label><input type="text" id="edit-description" value="${step.description || ''}" /></div>`;
+    // 关闭之前的编辑
+    if (editingStepIndex >= 0) {
+        const prevArea = document.getElementById('edit-area-' + editingStepIndex);
+        if (prevArea) prevArea.style.display = 'none';
+        const prevBtn = document.getElementById('edit-btn-' + editingStepIndex);
+        if (prevBtn) prevBtn.textContent = '✏️';
+    }
+
+    editingStepIndex = index;
+    const area = document.getElementById('edit-area-' + index);
+    if (area) area.style.display = '';
+    const btn = document.getElementById('edit-btn-' + index);
+    if (btn) btn.textContent = '✖';
+    _fillEditArea(index);
+}
+
+/** 填充指定步骤的内联编辑区域表单。 */
+function _fillEditArea(index) {
+    const step = experimentSteps[index];
+    const area = document.getElementById('edit-area-' + index);
+    if (!area) return;
+
+    let formHtml = '';
+    formHtml += `<div class="edit-field"><label>中文描述:</label><input type="text" id="edit-desc-${index}" value="${step.description || ''}" /></div>`;
 
     // 根据步骤类型生成参数表单
     if (step.type === 'tool') {
         const tool = stepPanelTools.find(t => t.name === step.name);
         if (tool && tool.parameters) {
             for (const param of tool.parameters) {
-                const currentValue = step.params[param.name] || param.default || '';
+                const currentValue = step.params[param.name] !== undefined ? step.params[param.name] : (param.default || '');
                 formHtml += `<div class="edit-field">
                     <label>${param.name}:</label>
                     <input type="text" data-param="${param.name}" value="${currentValue}" placeholder="${param.description || ''}" />
                 </div>`;
             }
         } else {
-            // 工具定义不存在时，显示现有参数
             for (const [k, v] of Object.entries(step.params)) {
                 formHtml += `<div class="edit-field">
                     <label>${k}:</label>
@@ -347,9 +382,24 @@ function openStepEditModal(index) {
             }
         }
     } else if (step.type === 'software') {
-        formHtml += `<div class="edit-field"><label>算法名称:</label><input type="text" id="edit-algo-name" value="${step.name}" disabled /></div>`;
-        formHtml += `<div class="edit-field"><label>输入文件:</label><input type="text" id="edit-input-file" value="${step.input_file || ''}" /></div>`;
-        formHtml += `<div class="edit-field"><label>输出文件:</label><input type="text" id="edit-output-file" value="${step.output_file || ''}" /></div>`;
+        const inputPath = step.input_file || '';
+        const outputPath = step.output_file || '';
+        formHtml += `<div class="edit-field">
+            <label>输入文件:</label>
+            <div class="edit-picker-row">
+                <span class="edit-picker-value" id="edit-input-display-${index}">${inputPath || '未选择'}</span>
+                <button type="button" class="algo-picker-btn" onclick="pickInputFile(${index})">选择</button>
+                <input type="hidden" id="edit-input-file-${index}" value="${inputPath}" />
+            </div>
+        </div>`;
+        formHtml += `<div class="edit-field">
+            <label>输出目录:</label>
+            <div class="edit-picker-row">
+                <span class="edit-picker-value" id="edit-output-display-${index}">${outputPath || '未选择'}</span>
+                <button type="button" class="algo-picker-btn" onclick="pickOutputDir(${index})">选择</button>
+                <input type="hidden" id="edit-output-file-${index}" value="${outputPath}" />
+            </div>
+        </div>`;
         for (const [k, v] of Object.entries(step.params || {})) {
             formHtml += `<div class="edit-field">
                 <label>${k}:</label>
@@ -368,55 +418,66 @@ function openStepEditModal(index) {
     }
 
     formHtml += `<div class="edit-actions">
-        <button onclick="saveStepEdit(${index})" class="btn-yes">保存</button>
-        <button onclick="closeStepEditModal()" class="btn-no">取消</button>
+        <button onclick="saveInlineStepEdit(${index})" class="btn-yes">保存</button>
     </div>`;
 
-    form.innerHTML = formHtml;
-    modal.style.display = 'flex';
+    area.innerHTML = formHtml;
 }
 
-/** 关闭步骤编辑模态框。 */
-function closeStepEditModal() {
-    document.getElementById('step-edit-modal').style.display = 'none';
-}
-
-/** 从编辑表单收集数据，更新 experimentSteps 中的步骤，刷新画布和 JSON。 */
-function saveStepEdit(index) {
+/** 从内联编辑表单收集数据，更新步骤并刷新。 */
+function saveInlineStepEdit(index) {
     const step = experimentSteps[index];
-    const form = document.getElementById('step-edit-form');
+    const area = document.getElementById('edit-area-' + index);
+    if (!area) return;
 
     // 更新描述
-    const descInput = form.querySelector('#edit-description');
+    const descInput = document.getElementById('edit-desc-' + index);
     if (descInput) step.description = descInput.value;
 
     // 更新参数
-    const paramInputs = form.querySelectorAll('input[data-param]');
+    const paramInputs = area.querySelectorAll('input[data-param]');
     paramInputs.forEach(input => {
         const paramName = input.dataset.param;
         let value = input.value;
-        // 尝试解析 JSON（用于 helper 类型的复杂参数）
         try {
             const parsed = JSON.parse(value);
             value = parsed;
-        } catch (e) {
-            // 保持字符串
-        }
+        } catch (e) {}
         step.params[paramName] = value;
     });
 
     // software 类型特殊字段
     if (step.type === 'software') {
-        const inputFile = form.querySelector('#edit-input-file');
-        const outputFile = form.querySelector('#edit-output-file');
+        const inputFile = document.getElementById('edit-input-file-' + index);
+        const outputFile = document.getElementById('edit-output-file-' + index);
         if (inputFile) step.input_file = inputFile.value;
         if (outputFile) step.output_file = outputFile.value;
     }
 
+    editingStepIndex = -1;
     renderExperimentSteps();
     updateExperimentJSON();
-    closeStepEditModal();
     setStepStatus(`✅ 已更新步骤: ${step.name}`, false);
+}
+
+/** 为 software 步骤选择输入文件。 */
+function pickInputFile(index) {
+    showFileSelector((path, name) => {
+        const display = document.getElementById('edit-input-display-' + index);
+        const hidden  = document.getElementById('edit-input-file-' + index);
+        if (display) display.textContent = path;
+        if (hidden)  hidden.value = path;
+    });
+}
+
+/** 为 software 步骤选择输出目录。 */
+function pickOutputDir(index) {
+    showOutputDirSelector((dirPath, label) => {
+        const display = document.getElementById('edit-output-display-' + index);
+        const hidden  = document.getElementById('edit-output-file-' + index);
+        if (display) display.textContent = dirPath;
+        if (hidden)  hidden.value = dirPath;
+    });
 }
 
 /** 弹出 prompt 让用户以 JSON 格式编辑指定步骤的参数，解析成功后刷新画布和 JSON。 */

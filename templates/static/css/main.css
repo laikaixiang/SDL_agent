@@ -114,6 +114,8 @@ body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background-color:
 .edit-field input:focus { outline: none; border-color: #7c3aed; }
 .edit-field input:disabled { background: #f3f4f6; cursor: not-allowed; }
 .edit-actions { margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end; }
+.edit-picker-row { display: flex; align-items: center; gap: 8px; }
+.edit-picker-value { flex: 1; min-width: 0; padding: 8px 12px; background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.85rem; color: #6b7280; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── 5. 面板 ── */
 
@@ -201,10 +203,11 @@ body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background-color:
 .exp-panel-header { padding: 15px 20px; background: #7c3aed; color: #fff; font-weight: bold; font-size: 0.95rem; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
 .exp-panel-body { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .exp-canvas-area { flex: 1; overflow-y: auto; padding: 16px; background: #f9fafb; border-bottom: 1px solid #e5e7eb; }
-.exp-step-item { background: #fff; border: 2px solid #e5e7eb; border-radius: 8px; padding: 12px; margin-bottom: 10px; cursor: move; transition: all 0.2s; position: relative; min-height: 60px; display: flex; align-items: center; }
+.exp-step-item { background: #fff; border: 2px solid #e5e7eb; border-radius: 8px; padding: 12px; margin-bottom: 10px; cursor: move; transition: all 0.2s; position: relative; display: flex; flex-direction: column; }
 .exp-step-item:hover { border-color: #7c3aed; box-shadow: 0 2px 8px rgba(124, 58, 237, 0.1); }
 .exp-step-item.dragging { opacity: 0.5; }
 .exp-step-header { display: flex; justify-content: space-between; align-items: center; width: 100%; }
+.exp-step-edit-area { margin-top: 10px; padding-top: 10px; border-top: 1px solid #e5e7eb; }
 .exp-step-type { font-weight: bold; color: #7c3aed; font-size: 0.9rem; display: flex; flex-direction: column; gap: 2px; }
 .exp-step-type-en { font-size: 0.75rem; color: #9ca3af; font-weight: normal; }
 .exp-step-controls { display: flex; gap: 6px; flex-shrink: 0; }

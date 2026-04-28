@@ -15,6 +15,9 @@ import json
 import queue
 import uuid
 import asyncio
+import atexit
+import signal
+import sys
 import webbrowser
 import requests
 from threading import Timer
@@ -70,6 +73,83 @@ os.makedirs(os.path.join(SESSION_BASE_PATH, "experiment_designs"), exist_ok=True
 
 print(f"[会话管理] 应用启动，会话时间戳: {SESSION_TIMESTAMP}")
 print(f"[会话管理] 数据保存路径: {SESSION_BASE_PATH}")
+
+def _update_session_index(session_info):
+    """更新 sessions_index.json，upsert 当前会话条目。"""
+    index_path = os.path.join(config.DIALOGUE_DATA_DIR, "sessions_index.json")
+    if os.path.exists(index_path):
+        with open(index_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    else:
+        data = {"sessions": []}
+
+    ts = session_info["timestamp"]
+    for entry in data["sessions"]:
+        if entry["timestamp"] == ts:
+            entry.update(session_info)
+            break
+    else:
+        data["sessions"].append(session_info)
+
+    with open(index_path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+def _generate_title(messages):
+    """取前2条用户消息调用 LLM 生成会话标题。"""
+    user_msgs = [m["content"] for m in messages if m.get("role") == "user"]
+    if len(user_msgs) < 2:
+        return None
+    lines = "\n".join(f"{i+1}. {user_msgs[i]}" for i in range(min(3, len(user_msgs))))
+    prompt = f"请用一句话（不超过20个汉字）总结以下对话的主题，只返回总结文本，不要引号或额外解释：\n{lines}"
+    try:
+        result = adaptive_handler.generate_non_streaming_response(
+            prompt, model=config.MODEL_NAME_TALK
+        )
+        result = result.strip().strip('"''「」『』\n')
+        if len(result) > 50:
+            result = result[:50]
+        return result if result else None
+    except Exception as e:
+        print(f"[历史] 标题生成失败: {e}")
+        return None
+
+def _scan_session_outputs():
+    """扫描当前会话子目录，返回 outputs 字典。"""
+    outputs = {}
+    for subdir in ["extract", "temporal", "results", "experiment_designs"]:
+        dir_path = os.path.join(SESSION_BASE_PATH, subdir)
+        if os.path.isdir(dir_path):
+            files = sorted(os.listdir(dir_path))
+            outputs[subdir] = files
+        else:
+            outputs[subdir] = []
+    return outputs
+
+def _on_shutdown():
+    """服务关闭时更新 sessions_index.json 的 saved_at。"""
+    try:
+        _update_session_index({
+            "timestamp": SESSION_TIMESTAMP,
+            "started_at": SESSION_TIMESTAMP,
+            "saved_at": datetime.now().isoformat(),
+            "path": SESSION_TIMESTAMP
+        })
+    except Exception:
+        pass  # 静默失败，避免阻塞关闭
+
+atexit.register(_on_shutdown)
+signal.signal(signal.SIGINT, lambda s, f: (_on_shutdown(), sys.exit(0)))
+signal.signal(signal.SIGTERM, lambda s, f: (_on_shutdown(), sys.exit(0)))
+
+# 启动时注册当前会话到索引
+_update_session_index({
+    "timestamp": SESSION_TIMESTAMP,
+    "started_at": datetime.now().isoformat(),
+    "saved_at": datetime.now().isoformat(),
+    "message_count": 0,
+    "title": None,
+    "path": SESSION_TIMESTAMP
+})
 
 def get_session_path(subdir=""):
     """
@@ -183,6 +263,7 @@ def chat():
     data = request.json
     user_message = data.get('message', '').strip()
     action = data.get('action', 'chat')  # 用于区分普通对话还是特殊指令
+    history = data.get('history', [])    # 前端传来的对话历史
 
     # 特殊流程：用户已确认数据分析参数，正式开始分析
     if action == 'start_data_analysis':
@@ -213,7 +294,7 @@ def chat():
         return handle_generate_algorithm(user_message)
 
     # 普通聊天流式输出
-    return handle_normal_chat(user_message)
+    return handle_normal_chat(user_message, history)
 
 
 def handle_extraction_start(data: dict) -> Response:
@@ -620,18 +701,18 @@ def handle_auto_analyze(user_message: str) -> Response:
     })
 
 
-def handle_normal_chat(user_message: str) -> Response:
+def handle_normal_chat(user_message: str, history: list = None) -> Response:
     """
     处理普通聊天
 
     Args:
         user_message: 用户消息
+        history: 前端传来的对话历史 [{role, content, timestamp, mode, ...}]
 
     Returns:
         流式响应（自适应：支持流式则使用流式，否则使用非流式模拟）
     """
-    # 使用自适应流式处理器
-    return adaptive_handler.generate_response(user_message)
+    return adaptive_handler.generate_response(user_message, history=history)
 
 
 def handle_generate_algorithm(user_message: str) -> Response:
@@ -1509,6 +1590,89 @@ def get_session_path_api():
         'path': path,
         'timestamp': SESSION_TIMESTAMP
     })
+
+
+# =============================================================================
+# 对话历史持久化路由
+# =============================================================================
+
+@app.route('/api/history/save_batch', methods=['POST'])
+def history_save_batch():
+    """
+    批量保存对话历史到当前会话的 chat_history.json。
+    前端每 5 条消息触发一次，页面关闭时通过 sendBeacon 触发。
+
+    请求体：
+    {
+        "messages": [
+            {"role": "user", "content": "...", "timestamp": "...", "mode": "normal", ...},
+            {"role": "ai",   "content": "...", "timestamp": "...", "mode": "normal", ...}
+        ]
+    }
+    """
+    data = request.get_json(force=True, silent=True)
+    if not data:
+        return jsonify({"success": False, "message": "请求体为空"}), 400
+
+    messages = data.get('messages', [])
+
+    # 读取已有历史文件（保留已生成的 title）
+    history_path = os.path.join(SESSION_BASE_PATH, "chat_history.json")
+    existing_title = None
+    if os.path.exists(history_path):
+        try:
+            with open(history_path, 'r', encoding='utf-8') as f:
+                existing = json.load(f)
+                existing_title = existing.get("title")
+        except Exception:
+            pass
+
+    # 标题：已有则复用，否则尝试 LLM 生成
+    title = existing_title
+    if not title and len(messages) >= 4:
+        title = _generate_title(messages)
+    if not title:
+        title = "未命名会话"
+
+    session_info = {
+        "timestamp": SESSION_TIMESTAMP,
+        "started_at": datetime.now().isoformat(),
+        "saved_at": datetime.now().isoformat(),
+        "message_count": len(messages)
+    }
+
+    history_data = {
+        "title": title,
+        "session": session_info,
+        "outputs": _scan_session_outputs(),
+        "messages": messages
+    }
+
+    with open(history_path, 'w', encoding='utf-8') as f:
+        json.dump(history_data, f, ensure_ascii=False, indent=2)
+
+    _update_session_index({
+        "timestamp": SESSION_TIMESTAMP,
+        "started_at": session_info["started_at"],
+        "saved_at": session_info["saved_at"],
+        "message_count": len(messages),
+        "title": title,
+        "path": SESSION_TIMESTAMP
+    })
+
+    return jsonify({"success": True, "saved_count": len(messages)})
+
+
+@app.route('/api/history/sessions', methods=['GET'])
+def history_sessions():
+    """返回所有历史会话的索引列表。"""
+    index_path = os.path.join(config.DIALOGUE_DATA_DIR, "sessions_index.json")
+    if os.path.exists(index_path):
+        with open(index_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    else:
+        data = {"sessions": []}
+    return jsonify(data)
 
 
 if __name__ == '__main__':

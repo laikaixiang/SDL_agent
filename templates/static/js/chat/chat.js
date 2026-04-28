@@ -52,7 +52,7 @@ async function sendMessage() {
         const response = await fetch('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'chat', message: finalPayload }),
+            body: JSON.stringify({ action: 'chat', message: finalPayload, history: messageHistory }),
             signal: abortController.signal
         });
 
@@ -86,14 +86,14 @@ function _dispatchJsonResponse(data) {
             : renderFieldConfirm(data.task_desc, data.fields, data.reply);
     } else if (data.type === 'experiment_design_mode') {
         // 进入实验设计模式，启动 Agent 对话
-        appendMessage(data.reply, 'ai');
+        appendMessage(data.reply, 'ai', data.type);
         startExperimentChat(data.command);
     } else if (data.type === 'task_trigger') {
         // 触发后台长任务，打开 SSE 监听
-        appendMessage(data.reply, 'ai');
+        appendMessage(data.reply, 'ai', data.type);
         startTaskStream();
     } else {
-        appendMessage(data.reply || '', 'ai');
+        appendMessage(data.reply || '', 'ai', data.type);
     }
 }
 
@@ -114,5 +114,6 @@ async function _readStreamResponse(response) {
         if (readErr.name !== 'AbortError') throw readErr;
         msgDiv.textContent += '\n(已停止生成)';
     }
+    recordStreamingMessage(msgDiv.textContent, 'ai');
     setChatStreamingState(false);
 }

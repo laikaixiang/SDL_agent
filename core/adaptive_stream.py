@@ -113,13 +113,28 @@ class AdaptiveStreamHandler:
             self._last_check_time = current_time
             return False
 
-    def generate_streaming_response(self, user_message: str, model: Optional[str] = None) -> Generator[str, None, None]:
+    def _build_messages(self, user_message: str, history: list = None) -> list:
+        """将前端对话历史（role: user/ai）转换为 LLM API 格式（role: user/assistant），拼接当前消息。"""
+        messages = []
+        if history:
+            for m in history:
+                role = m.get("role", "user")
+                content = m.get("content", "")
+                if not content:
+                    continue
+                api_role = "assistant" if role == "ai" else "user"
+                messages.append({"role": api_role, "content": content})
+        messages.append({"role": "user", "content": user_message})
+        return messages
+
+    def generate_streaming_response(self, user_message: str, model: Optional[str] = None, history: list = None) -> Generator[str, None, None]:
         """
         生成流式响应
 
         Args:
             user_message: 用户消息
             model: 模型名称（可选，默认使用配置中的对话模型）
+            history: 前端对话历史 [{role, content, ...}]
 
         Yields:
             响应内容片段
@@ -127,7 +142,7 @@ class AdaptiveStreamHandler:
         headers = self.llm_client.get_default_headers()
         payload = {
             "model": model or self.config.MODEL_NAME_TALK,
-            "messages": [{"role": "user", "content": user_message}],
+            "messages": self._build_messages(user_message, history),
             "stream": True
         }
 
@@ -162,13 +177,14 @@ class AdaptiveStreamHandler:
         except Exception as e:
             yield f"\n[请求失败: {str(e)}]"
 
-    def generate_non_streaming_response(self, user_message: str, model: Optional[str] = None) -> str:
+    def generate_non_streaming_response(self, user_message: str, model: Optional[str] = None, history: list = None) -> str:
         """
         生成非流式响应
 
         Args:
             user_message: 用户消息
             model: 模型名称（可选，默认使用配置中的对话模型）
+            history: 前端对话历史 [{role, content, ...}]
 
         Returns:
             完整的响应内容
@@ -176,7 +192,7 @@ class AdaptiveStreamHandler:
         headers = self.llm_client.get_default_headers()
         payload = {
             "model": model or self.config.MODEL_NAME_TALK,
-            "messages": [{"role": "user", "content": user_message}],
+            "messages": self._build_messages(user_message, history),
             "stream": False
         }
 
@@ -202,7 +218,7 @@ class AdaptiveStreamHandler:
         except Exception as e:
             return f"[请求失败: {str(e)}]"
 
-    def generate_response(self, user_message: str, model: Optional[str] = None, force_mode: Optional[str] = None) -> Response:
+    def generate_response(self, user_message: str, model: Optional[str] = None, force_mode: Optional[str] = None, history: list = None) -> Response:
         """
         自适应生成响应（自动选择流式或非流式）
 
@@ -210,6 +226,7 @@ class AdaptiveStreamHandler:
             user_message: 用户消息
             model: 模型名称（可选）
             force_mode: 强制模式 ("streaming" 或 "non-streaming"，可选)
+            history: 前端对话历史 [{role, content, ...}]
 
         Returns:
             Flask Response对象
@@ -217,24 +234,24 @@ class AdaptiveStreamHandler:
         # 如果强制指定模式
         if force_mode == "streaming":
             return Response(
-                self.generate_streaming_response(user_message, model),
+                self.generate_streaming_response(user_message, model, history=history),
                 content_type='text/plain; charset=utf-8'
             )
         elif force_mode == "non-streaming":
-            content = self.generate_non_streaming_response(user_message, model)
+            content = self.generate_non_streaming_response(user_message, model, history=history)
             return Response(content, content_type='text/plain; charset=utf-8')
 
         # 自适应模式：根据检测结果选择
         if self.supports_streaming():
             # 使用流式响应
             return Response(
-                self.generate_streaming_response(user_message, model),
+                self.generate_streaming_response(user_message, model, history=history),
                 content_type='text/plain; charset=utf-8'
             )
         else:
             # 使用非流式响应，但模拟流式输出（逐字输出）
             def simulate_streaming():
-                content = self.generate_non_streaming_response(user_message, model)
+                content = self.generate_non_streaming_response(user_message, model, history=history)
                 # 逐字输出，模拟流式效果
                 for char in content:
                     yield char

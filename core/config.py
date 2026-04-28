@@ -33,7 +33,7 @@ class Config:
 
     # ======================== API 配置 ========================
     # 用于文献提取（视觉语言模型）和普通对话（文本模型）
-    API_KEY: str = "sk-zskagakurneevlklkhhzbaxunehikfyeinnjvyizyfstvtci"
+    API_KEY: str = "sk-vlpvtfghnyyovdqrdzyorsijeysmlojvvocmlukyengolcds"
     # 注意：API_URL 是完整的 endpoint，已包含 /chat/completions 路径
     # 直接使用即可，不需要再拼接 /chat/completions
     # 如果需要 base_url（如 PydanticAI），使用 API_URL.rsplit('/chat/completions', 1)[0]

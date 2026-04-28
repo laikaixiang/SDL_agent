@@ -43,6 +43,10 @@ let expPythonCode     = '';
 let panelZIndexCounter = 100;       // 每次打开面板递增，确保新面板在最上层
 const activePanels     = new Set(); // 当前已打开的面板 ID 集合
 
+/* ── 对话历史持久化 ── */
+let messageHistory        = [];   // 内存中的消息记录数组
+let historyLastSavedIndex = 0;    // 上次保存时的 messageHistory.length
+
 /**
  * 从工具参数表单中收集并类型转换参数值。
  * step_panel.js 和 experiment_design.js 共用此逻辑。

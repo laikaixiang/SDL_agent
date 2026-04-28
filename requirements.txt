@@ -6,4 +6,6 @@ flask>=3.0.0
 paho-mqtt>=2.1.0
 pydantic-ai
 pydantic
+opencv-python
 numpy
+ultralytics>=8.4.37

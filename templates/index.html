@@ -154,10 +154,14 @@
         <div class="exp-toolbar">
             <button class="exp-toolbar-btn" onclick="saveExperimentDesign()">💾 保存设计</button>
             <button class="exp-toolbar-btn" onclick="executeExperimentDesign()">▶ 执行实验</button>
+            <button class="exp-toolbar-btn" onclick="importExperimentDesign()">📥 导入设计</button>
             <button class="exp-toolbar-btn secondary" onclick="clearExperimentDesign()">🗑️ 清空</button>
         </div>
     </div>
 </div>
+
+<!-- 隐藏的文件选择器：导入实验设计 JSON -->
+<input type="file" id="import-experiment-file" accept=".json" style="display:none;" onchange="handleImportExperimentFile(event)">
 
 <!-- 步骤编辑模态框 -->
 <div class="modal-overlay" id="step-edit-modal">

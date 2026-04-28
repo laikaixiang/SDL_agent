@@ -534,6 +534,45 @@ async function saveExperimentDesign() {
     showNotification('实验设计已下载', 'success');
 }
 
+/** 打开文件选择器导入实验设计 JSON 文件。优先使用原生对话框，回退到隐藏的 file input。 */
+async function importExperimentDesign() {
+    if (window.showOpenFilePicker) {
+        try {
+            const [handle] = await window.showOpenFilePicker({
+                types: [{ description: 'JSON 文件', accept: { 'application/json': ['.json'] } }]
+            });
+            const file = await handle.getFile();
+            const text = await file.text();
+            const json = JSON.parse(text);
+            loadExperimentFromJSON(json);
+            showNotification('实验设计已导入', 'success');
+        } catch (e) {
+            if (e.name === 'AbortError') return;
+            showNotification('导入失败: ' + e.message, 'error');
+        }
+    } else {
+        document.getElementById('import-experiment-file').click();
+    }
+}
+
+/** 处理隐藏 file input 的文件选择（非原生对话框回退方案）。 */
+function handleImportExperimentFile(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function() {
+        try {
+            const json = JSON.parse(reader.result);
+            loadExperimentFromJSON(json);
+            showNotification('实验设计已导入', 'success');
+        } catch (e) {
+            showNotification('JSON 解析失败: ' + e.message, 'error');
+        }
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+}
+
 /** 弹出确认框后将当前实验方案 POST 到 /api/execute_experiment_design，成功则启动 SSE 监听执行进度。 */
 async function executeExperimentDesign() {
     if (experimentSteps.length === 0) { alert('请先添加实验步骤'); return; }

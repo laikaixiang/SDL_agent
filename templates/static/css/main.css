@@ -215,7 +215,11 @@ body { margin: 0; padding: 0; height: 100vh; overflow: hidden; background-color:
 .exp-code-area { height: 250px; background: #1f2937; color: #e5e7eb; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem; display: flex; flex-direction: column; flex-shrink: 0; transition: height 0.3s ease; }
 .exp-code-area.minimized { height: 40px; }
 .exp-code-header { padding: 8px 16px; background: #374151; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #4b5563; flex-shrink: 0; }
-.exp-code-header-title { font-size: 0.85rem; font-weight: bold; color: #9ca3af; }
+.exp-code-view-tabs { display: flex; gap: 2px; align-items: center; }
+.exp-code-view-btn { background: transparent; border: 1px solid transparent; color: #9ca3af; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 0.78rem; font-weight: 500; transition: all 0.2s; display: flex; align-items: center; gap: 5px; }
+.exp-code-view-btn:hover { background: #4b5563; color: #e5e7eb; }
+.exp-code-view-btn.active { background: #7c3aed; border-color: #7c3aed; color: #fff; }
+.exp-code-view-btn svg { flex-shrink: 0; }
 .exp-code-header-actions { display: flex; gap: 8px; align-items: center; }
 .exp-code-action-btn { background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 1.1rem; padding: 4px 8px; border-radius: 4px; transition: all 0.2s; line-height: 1; }
 .exp-code-action-btn:hover { background: #4b5563; color: #e5e7eb; }

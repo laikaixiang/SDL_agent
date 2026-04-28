@@ -120,7 +120,16 @@
         </div>
         <div class="exp-code-area" id="exp-code-area">
             <div class="exp-code-header">
-                <span class="exp-code-header-title">实验设计 JSON</span>
+                <div class="exp-code-view-tabs">
+                    <button class="exp-code-view-btn active" id="code-view-json" onclick="switchCodeView('json')">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 5H6a3 3 0 0 0-3 3v1a3 3 0 0 1-1.5 2.6A3 3 0 0 1 3 14v1a3 3 0 0 0 3 3h2"/><path d="M16 5h2a3 3 0 0 1 3 3v1a3 3 0 0 0 1.5 2.6A3 3 0 0 0 21 14v1a3 3 0 0 1-3 3h-2"/></svg>
+                        JSON
+                    </button>
+                    <button class="exp-code-view-btn" id="code-view-python" onclick="switchCodeView('python')">
+                        <svg width="14" height="14" viewBox="0 0 112 112"><path d="M55 0C28 0 22 12 22 24v19h34v6H14C5 49 0 56 0 71s5 22 14 22h8V73c0-9 5-17 17-17h33c10 0 17-7 17-17V16C89 5 81 0 72 0H55z" fill="#3776AB"/><path d="M57 112c27 0 33-12 33-24V69H56v-6h42c9 0 14-7 14-22s-5-22-14-22h-8v20c0 9-5 17-17 17H40c-10 0-17 7-17 17v23c0 11 8 16 17 16h17z" fill="#FFD43B"/></svg>
+                        Python
+                    </button>
+                </div>
                 <div class="exp-code-header-actions">
                     <button class="exp-code-action-btn" onclick="syncCodeToCanvas()" title="重新同步代码到画布">
                         <span>↻</span>

@@ -8,10 +8,10 @@
 /**
  * 显示右上角浮动通知。
  * @param {string} message - 通知文字
- * @param {'info'|'success'|'error'} type - 通知类型，决定背景色
+ * @param {'info'|'success'|'error'|'warning'} type - 通知类型，决定背景色
  */
 function showNotification(message, type = 'info') {
-    const colors = { success: '#10b981', error: '#ef4444', info: '#3b82f6' };
+    const colors = { success: '#10b981', error: '#ef4444', info: '#3b82f6', warning: '#f59e0b' };
     const el = document.createElement('div');
     el.className = `notification notification-${type}`;
     el.textContent = message;

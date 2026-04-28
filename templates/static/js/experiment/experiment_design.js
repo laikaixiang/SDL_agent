@@ -9,6 +9,8 @@
  *       hardware/task_stream.js（startTaskStream）
  */
 
+expCodeJSON = document.getElementById('exp-code-content').value;
+
 /** 同时打开单步控制面板和实验设计画布面板，切换到实验设计模式，显示辅助函数栏。 */
 function openExperimentDesignDialog() {
     modeMenu.style.display = 'none';
@@ -160,7 +162,7 @@ function renderExperimentSteps() {
     });
 }
 
-/** 将 experimentSteps 序列化为 JSON 并写入底部代码编辑器，保持画布与 JSON 同步。 */
+/** 将 experimentSteps 序列化为 JSON 并写入底部代码编辑器，保持画布与 JSON 同步。仅在 JSON 视图模式下更新。 */
 function updateExperimentJSON() {
     const steps = experimentSteps.map(step => {
         const s = { type: step.type, name: step.name, params: step.params, description: step.description };
@@ -171,11 +173,61 @@ function updateExperimentJSON() {
         }
         return s;
     });
-    document.getElementById('exp-code-content').value = JSON.stringify({
+    const jsonStr = JSON.stringify({
         experiment_name: experimentName,
         created_at: new Date().toISOString(),
         steps
     }, null, 2);
+    expCodeJSON = jsonStr;
+    if (expCodeViewMode === 'json') {
+        document.getElementById('exp-code-content').value = jsonStr;
+    }
+}
+
+/** 在 JSON 和 Python 代码视图之间切换。 */
+async function switchCodeView(mode) {
+    expCodeViewMode = mode;
+    document.getElementById('code-view-json').classList.toggle('active', mode === 'json');
+    document.getElementById('code-view-python').classList.toggle('active', mode === 'python');
+
+    if (mode === 'json') {
+        document.getElementById('exp-code-content').value = expCodeJSON;
+    } else {
+        await _loadPythonCodeView();
+    }
+}
+
+/** 调用编译 API 获取 Python 代码并显示在编辑器中。 */
+async function _loadPythonCodeView() {
+    if (experimentSteps.length === 0) {
+        document.getElementById('exp-code-content').value = '# 暂无实验步骤，请先添加步骤';
+        return;
+    }
+
+    document.getElementById('exp-code-content').value = '# 正在编译...';
+
+    try {
+        const res = await fetch('/api/compile_experiment', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                experiment_json: {
+                    experiment_name: experimentName,
+                    created_at: new Date().toISOString(),
+                    steps: experimentSteps
+                }
+            })
+        });
+        const data = await res.json();
+        if (data.success) {
+            expPythonCode = data.code;
+            document.getElementById('exp-code-content').value = data.code;
+        } else {
+            document.getElementById('exp-code-content').value = `# 编译失败: ${data.message}`;
+        }
+    } catch (e) {
+        document.getElementById('exp-code-content').value = `# 编译异常: ${e.message}`;
+    }
 }
 
 /** 切换底部 JSON 代码区域的最小化/展开状态，同步更新折叠图标。 */
@@ -416,45 +468,56 @@ function loadExperimentFromJSON(json) {
     }
 }
 
-/** 弹出目录选择器让用户选择保存路径，然后将当前实验方案 POST 到 /api/save_experiment_design 保存到服务器。 */
+/** 使用系统原生保存对话框将实验设计保存为 JSON 文件。优先使用 File System Access API，不支持时回退到浏览器下载。同时同步保存到服务端会话目录。 */
 async function saveExperimentDesign() {
     if (experimentSteps.length === 0) {
-        alert('请先添加实验步骤');
+        showNotification('请先添加实验步骤', 'warning');
         return;
     }
 
-    const name = prompt('请输入实验名称:', experimentName);
-    if (!name) return;
-    experimentName = name;
     updateExperimentJSON();
 
-    // 打开目录选择器
-    showOutputDirSelector(async (dirPath, dirLabel) => {
-        const filename = `${experimentName}_${Date.now()}.json`;
-        const fullPath = `${dirPath}/${filename}`;
+    const jsonData = {
+        experiment_name: experimentName,
+        created_at: new Date().toISOString(),
+        steps: experimentSteps
+    };
+    const jsonStr = JSON.stringify(jsonData, null, 2);
+    const filename = `${experimentName.replace(/[\\/:*?"<>|]/g, '_')}.json`;
 
+    // 同步保存到服务端会话目录（fire-and-forget）
+    fetch('/api/save_experiment_design', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(jsonData)
+    }).catch(() => {});
+
+    // 优先使用原生保存对话框
+    if (window.showSaveFilePicker) {
         try {
-            const res = await fetch('/api/save_experiment_design', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    experiment_name: experimentName,
-                    created_at: new Date().toISOString(),
-                    steps: experimentSteps,
-                    save_path: fullPath
-                })
+            const handle = await window.showSaveFilePicker({
+                suggestedName: filename,
+                types: [{ description: 'JSON 文件', accept: { 'application/json': ['.json'] } }]
             });
-            const data = await res.json();
-            if (data.success) {
-                appendMessage(`✅ 实验设计已保存: ${data.filepath}`, 'ai');
-                showNotification('保存成功', 'success');
-            } else {
-                appendMessage(`❌ 保存失败: ${data.message}`, 'ai');
-            }
+            const writable = await handle.createWritable();
+            await writable.write(jsonStr);
+            await writable.close();
+            showNotification('实验设计已保存', 'success');
+            return;
         } catch (e) {
-            appendMessage(`❌ 保存异常: ${e.message}`, 'ai');
+            if (e.name === 'AbortError') return;
         }
-    });
+    }
+
+    // 回退：浏览器下载
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+    showNotification('实验设计已下载', 'success');
 }
 
 /** 弹出确认框后将当前实验方案 POST 到 /api/execute_experiment_design，成功则启动 SSE 监听执行进度。 */

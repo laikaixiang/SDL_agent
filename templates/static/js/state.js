@@ -35,6 +35,9 @@ let stepPanelCollapsed = false;
 let experimentSteps   = [];
 let experimentName    = '未命名实验';
 let draggedStepIndex  = null;
+let expCodeViewMode   = 'json';
+let expCodeJSON       = '';
+let expPythonCode     = '';
 
 /* ── 面板 z-index 管理 ── */
 let panelZIndexCounter = 100;       // 每次打开面板递增，确保新面板在最上层

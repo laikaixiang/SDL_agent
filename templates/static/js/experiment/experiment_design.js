@@ -197,6 +197,20 @@ async function switchCodeView(mode) {
     }
 }
 
+/** 编译画布内容并切换到 Python 代码视图。 */
+async function compileToPythonView() {
+    if (experimentSteps.length === 0) {
+        showNotification('请先添加实验步骤', 'warning');
+        return;
+    }
+
+    // 先切换到 Python 视图（会触发编译加载）
+    expCodeViewMode = 'python';
+    document.getElementById('code-view-json').classList.remove('active');
+    document.getElementById('code-view-python').classList.add('active');
+    await _loadPythonCodeView();
+}
+
 /** 调用编译 API 获取 Python 代码并显示在编辑器中。 */
 async function _loadPythonCodeView() {
     if (experimentSteps.length === 0) {

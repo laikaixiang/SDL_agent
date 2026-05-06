@@ -13,11 +13,11 @@ from typing import Dict, Any, Optional, List, Tuple
 from pydantic import BaseModel, Field, create_model, ValidationError
 from typing import Optional as TypingOptional
 
-from .config import Config
-from .llm_client import LLMClient
+from core.config import Config
+from core.llm_client import LLMClient
 from .pdf_processor import PDFProcessor
-from .field_inference import FieldInference, DynamicFieldsResponse
-from .task_manager import TaskManager
+from core.field_inference import FieldInference, DynamicFieldsResponse
+from core.task_manager import TaskManager
 from .embedding_service import create_embedding_service
 from .vector_store import ChromaVectorStore
 from .page_indexer import PageIndexer, make_page_id

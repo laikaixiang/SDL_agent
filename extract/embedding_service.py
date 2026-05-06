@@ -20,7 +20,7 @@ from typing import Optional
 
 import requests
 
-from .config import Config
+from core.config import Config
 
 
 class EmbeddingService(ABC):
@@ -118,7 +118,7 @@ class APIEmbeddingService(EmbeddingService):
         self.model = model
         self.api_url = api_url
         # 从 Config 读取截断长度，默认 1000（保守适应 512 token 限制）
-        from .config import Config
+        from core.config import Config
         self._max_chars = Config.EMBEDDING_MAX_CHARS
 
     def _truncate(self, text: str) -> str:

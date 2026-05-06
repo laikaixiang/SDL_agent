@@ -22,11 +22,11 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
 from core.config import Config
-from core.embedding_service import APIEmbeddingService
-from core.vector_store import ChromaVectorStore
-from core.page_indexer import PageIndexer, make_page_id
-from core.page_filter import PageFilter
-from core.pdf_processor import PDFProcessor
+from extract.embedding_service import APIEmbeddingService
+from extract.vector_store import ChromaVectorStore
+from extract.page_indexer import PageIndexer, make_page_id
+from extract.page_filter import PageFilter
+from extract.pdf_processor import PDFProcessor
 
 
 def compare_models(pdf_path: str, task_text: str, threshold: float = 0.3):

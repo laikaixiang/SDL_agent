@@ -29,7 +29,7 @@ Phase 1: 页面预筛选模块
 import math
 from typing import Optional
 
-from .config import Config
+from core.config import Config
 from .embedding_service import EmbeddingService
 from .vector_store import VectorStore
 from .page_indexer import make_page_id

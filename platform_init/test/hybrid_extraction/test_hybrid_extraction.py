@@ -8,7 +8,7 @@ import os
 sys.path.insert(0, os.path.dirname(__file__))
 
 from core.config import Config
-from core.pdf_processor import PDFProcessor
+from extract.pdf_processor import PDFProcessor
 from utils.pdf_to_markdown import detect_complex_content
 
 

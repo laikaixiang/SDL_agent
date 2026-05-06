@@ -37,7 +37,7 @@ import os
 import sqlite3
 from typing import Optional
 
-from .config import Config
+from core.config import Config
 from .embedding_service import EmbeddingService
 from .vector_store import VectorStore
 from .pdf_processor import PDFProcessor

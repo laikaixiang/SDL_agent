@@ -27,16 +27,15 @@ from datetime import datetime
 from core import (
     Config,
     LLMClient,
-    PDFProcessor,
     FieldInference,
     AlgorithmParser,
     HardwareController,
     TaskManager,
-    ExtractionEngine,
     # ExperimentDesignAgent,  # Deprecated PydanticAI version, now using Approach 2 in field_inference.py
     SoftwareManager,
     AdaptiveStreamHandler,
 )
+from core.extract_manager import PDFProcessor, ExtractionEngine
 from utils import CSVWriter
 
 # 初始化Flask应用，static 文件夹已移入 templates/static

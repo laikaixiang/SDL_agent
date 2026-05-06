@@ -1,0 +1,70 @@
+{
+    "_用法说明": "复制本文件为 config.json，填入你的实际配置值。config.json 已被 .gitignore 忽略，不会提交到 git。",
+    "_复制命令": "cp config.example.json config.json",
+
+    "_API配置": "=== LLM 服务 API（文献提取和普通对话）===",
+    "API_KEY": "sk-your-api-key-here",
+    "API_URL": "https://api.siliconflow.cn/v1/chat/completions",
+
+    "_实验设计模型": "=== 实验设计智能体使用的模型 ===",
+    "EXPERIMENT_MODEL_NAME": "Pro/MiniMaxAI/MiniMax-M2.5",
+
+    "_模型配置": "=== 各功能模块使用的模型名称 ===",
+    "MODEL_NAME_VL": "Qwen/Qwen3-VL-30B-A3B-Instruct",
+    "MODEL_NAME_TALK": "Qwen/Qwen3-VL-30B-A3B-Instruct",
+
+    "_Embedding配置": "=== RAG 页面预筛选和 Few-Shot 检索使用的 Embedding 服务 ===",
+    "EMBEDDING_BACKEND": "api",
+    "EMBEDDING_API_KEY": "sk-your-api-key-here",
+    "EMBEDDING_API_URL": "https://api.siliconflow.cn/v1/embeddings",
+    "EMBEDDING_MODEL": "Qwen/Qwen3-VL-Embedding-8B",
+    "EMBEDDING_DIM": 4096,
+    "EMBEDDING_MAX_CHARS": 1000,
+    "LOCAL_EMBEDDING_MODEL": "",
+
+    "_向量存储配置": "=== 向量数据库 ===",
+    "VECTOR_STORE_BACKEND": "chromadb",
+    "CHROMADB_PERSIST_DIR": "dialogue data/vector_store",
+
+    "_页面预筛选": "=== RAG1: 页面预筛选参数 ===",
+    "PAGE_FILTER_ENABLED": true,
+    "PAGE_FILTER_THRESHOLD": 0.25,
+    "PAGE_FILTER_TOP_K": 4000,
+
+    "_FewShot配置": "=== RAG2: 历史示例检索参数 ===",
+    "FEW_SHOT_ENABLED": true,
+    "FEW_SHOT_TOP_K": 3,
+
+    "_语义搜索": "=== RAG3: 语义搜索（未实现）===",
+    "SEMANTIC_SEARCH_ENABLED": false,
+
+    "_文件路径": "=== 数据存储和模板目录 ===",
+    "DIALOGUE_DATA_DIR": "dialogue data/history",
+    "PDF_FOLDER": "dialogue data/PDF_TARGET",
+    "EXTRACT_DIR": "dialogue data/extract",
+    "TEMPORAL_DIR": "dialogue data/temporal",
+    "TEMPLATES_DIR": "templates",
+
+    "_处理参数": "=== API 调用和 PDF 处理参数 ===",
+    "DPI": 200,
+    "REQUEST_DELAY": 3.0,
+    "MAX_RETRIES": 3,
+    "TIMEOUT": 60,
+    "STREAM_TIMEOUT": 90,
+
+    "_提取模式": "=== PDF 提取模式: 'vision' | 'text' | 'hybrid' ===",
+    "EXTRACTION_MODE": "vision",
+
+    "_硬件控制": "=== 硬件操作超时时间（秒）===",
+    "HARDWARE_TIMEOUT": 20,
+
+    "_MQTT配置": "=== 光谱仪 MQTT 连接参数（EMQX 服务器）===",
+    "SPECTROMETER_BROKER_IP": "192.168.120.129",
+    "SPECTROMETER_BROKER_PORT": 1883,
+    "SPECTROMETER_CLIENT_ID": "987zyx",
+    "SPECTROMETER_USERNAME": "your-username",
+    "SPECTROMETER_PASSWORD": "your-password",
+
+    "_试剂配置": "=== 试剂布局文件路径 ===",
+    "REAGENT_LAYOUT_PATH": "reagent_layout.json"
+}

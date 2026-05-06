@@ -10,7 +10,7 @@ import io
 from typing import List, Dict, Any, Optional, Tuple
 from PIL import Image
 
-from .config import Config
+from core.config import Config
 from utils.pdf_to_markdown import pdf_page_to_markdown, detect_complex_content
 
 

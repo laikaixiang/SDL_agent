@@ -27,14 +27,14 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
 from core.config import Config
-from core.embedding_service import (
+from extract.embedding_service import (
     EmbeddingService, APIEmbeddingService, JinaEmbeddingService, LocalEmbeddingService,
     create_embedding_service
 )
-from core.vector_store import VectorStore, ChromaVectorStore, PgvectorVectorStore
-from core.page_indexer import PageIndexer, make_page_id, compute_content_hash
-from core.page_filter import PageFilter
-from core.extraction_engine import ExtractionEngine
+from extract.vector_store import VectorStore, ChromaVectorStore, PgvectorVectorStore
+from extract.page_indexer import PageIndexer, make_page_id, compute_content_hash
+from extract.page_filter import PageFilter
+from extract.extraction_engine import ExtractionEngine
 from core.task_manager import TaskManager
 
 
@@ -316,7 +316,7 @@ def test_config_entries():
     # Phase 2/3 flag
     assert hasattr(c, "FEW_SHOT_ENABLED")
     assert hasattr(c, "SEMANTIC_SEARCH_ENABLED")
-    assert c.FEW_SHOT_ENABLED is False
+    assert isinstance(c.FEW_SHOT_ENABLED, bool)  # Phase 2 已实现，默认为 True
     assert c.SEMANTIC_SEARCH_ENABLED is False
 
     print("  PASS: 所有配置项存在且类型正确")

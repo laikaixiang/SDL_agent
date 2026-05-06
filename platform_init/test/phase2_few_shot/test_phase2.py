@@ -33,11 +33,11 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
 from core.config import Config
-from core.embedding_service import EmbeddingService
-from core.vector_store import ChromaVectorStore
-from core.page_indexer import make_page_id
-from core.few_shot_retriever import FewShotRetriever
-from core.extraction_engine import ExtractionEngine
+from extract.embedding_service import EmbeddingService
+from extract.vector_store import ChromaVectorStore
+from extract.page_indexer import make_page_id
+from extract.few_shot_retriever import FewShotRetriever
+from extract.extraction_engine import ExtractionEngine
 from core.task_manager import TaskManager
 
 
@@ -602,7 +602,7 @@ def test_with_real_api():
         print("  SKIP: EMBEDDING_API_KEY 未配置")
         return
 
-    from core.embedding_service import create_embedding_service
+    from extract.embedding_service import create_embedding_service
 
     test_dir = tempfile.mkdtemp(prefix="phase2_real_")
     try:

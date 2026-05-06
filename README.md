@@ -3,7 +3,7 @@
 <div align="center">
   <img src="https://img.shields.io/badge/Python-3.10+-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/Flask-2.3.3-green.svg" alt="Flask">
-  <img src="https://img.shields.io/badge/PydanticAI-Latest-orange.svg" alt="PydanticAI">
+  <img src="https://img.shields.io/badge/LongCat-Flash-orange.svg" alt="LongCat">
 </div>
 <br>
 
@@ -23,11 +23,11 @@ SDL_agent 是一套集**学术文献PDF数据智能提取**、**AI算法自动�
 
 ```mermaid
 flowchart TD
-    A["前端交互层<br/>index.html"] -->|用户指令/文件上传| B["Web服务层<br/>app.py"]
+    A["前端交互层<br/>index.html + 16 JS模块"] -->|用户指令/文件上传| B["Web服务层<br/>app.py"]
 
     %% 文献提取分支
-    B -->|分支1：文献提取| C["PDF解析与转码"]
-    C --> D["调用Qwen2.5-VL大模型<br/>提取实验参数"]
+    B -->|分支1：文献提取| C["PDF解析与转码<br/>core/pdf_processor.py"]
+    C --> D["调用Vision-LLM大模型<br/>提取实验参数"]
     D --> E["数据清洗&CSV持久化<br/>(extract/temporal目录)"]
     E -->|结果回显至前端| B
 
@@ -41,39 +41,38 @@ flowchart TD
     I --> K["自动化实验平台<br/>执行原位旋涂实验"]
     K -->|实验状态回传至前端| B
 
-    H -->|set_temperature/move_robot_arm| J["调用C/C++/Python底层程序"]
+    H -->|set_temperature/move_robot_arm| J["调用底层硬件程序"]
     J --> L["硬件设备<br/>(温控/机械臂)"]
     L -->|硬件状态回传至前端| B
 
-    %% 实验设计Agent分支
-    B -->|分支3：实验设计| M["PydanticAI Agent"]
-    M -->|自主调用工具| N["read_pdf/save_experiment_step"]
-    N -->|注册实验序列| I
-    M -->|光谱数据采集| O["SpectrometerClient"]
-    O -->|3D可视化| P["visualization.py"]
-    P -->|图表回传前端| B
+    %% 实验设计分支
+    B -->|分支3：实验设计| M["ExperimentDesignAgent<br/>core/field_inference.py"]
+    M -->|读取工具注册表| N["hardware/tools/REGISTRY.json<br/>+ software/algorithms/"]
+    N -->|生成JSON计划| O["experiment/format.py<br/>JSON↔Visual格式转换"]
+    O -->|可视化编辑| P["前端Canvas画布"]
+    P -->|编译执行| Q["experiment/compiler.py<br/>JSON→Python代码"]
 
     %% 数据分析分支
-    B -->|分支4：数据分析| Q["读取CSV列名<br/>(temporal/extraction.csv)"]
-    Q --> R["LLM智能选择算法<br/>+ 读取方式"]
-    R --> S["执行数据分析算法<br/>(software_controller.py)"]
-    S --> T["保存结果至results/目录<br/>(覆盖写 + 时间戳存档)"]
-    T -->|分析结果推送至前端| B
+    B -->|分支4：数据分析| R["读取CSV列名<br/>(temporal/extraction.csv)"]
+    R --> S["LLM智能选择算法<br/>+ 读取方式"]
+    S --> T["执行数据分析算法<br/>(core/software_manager.py)"]
+    T --> U["保存结果至results/目录<br/>(覆盖写 + 时间戳存档)"]
+    U -->|分析结果推送至前端| B
 ```
 
 ### 2. 流程拆解
 
-#### （1）前端交互（index.html）
+#### （1）前端交互（index.html + 16 JS模块）
 
 用户通过可视化Web界面操作，支持**5种核心模式**：
 
 - **普通问答模式**：基础对话交互，支持流式输出与中断生成；
 - **文献提取模式**：上传/选择PDF文献，输入提取任务描述（如"提取旋涂转速、试剂体积"），支持任务中断；
 - **硬件操控模式**：下发硬件控制指令（如"执行原位旋涂实验，转速3000rpm"），执行期间不可中断；
-- **实验设计模式**：AI自主读取文献并规划多步实验流程，支持可视化编辑和JSON导出；
+- **实验设计模式**：AI自主生成实验流程JSON，前端Canvas画布支持可视化编辑、JSON/Python代码切换查看、编译执行；
 - **数据分析模式**：LLM智能选择算法并执行分析，结果可视化展示。
 
-界面支持PDF预览、算法面板、实验设计画布、进度实时展示、任务中断等能力。
+界面支持PDF预览、算法面板、实验设计画布、进度实时展示、任务中断等能力。前端采用16个JS模块分工协作（chat/extraction/hardware/analysis/experiment/ui），所有CSS集中在 `main.css`。
 
 
 <div align="center">
@@ -100,26 +99,43 @@ flowchart TD
 
 #### （3）硬件控制
 
-1. **指令解析**：接收大模型输出的JSON格式指令，清洗并解析`action`（操作类型）和`params`（参数）；
+1. **指令解析**：接收大模型输出的JSON格式指令，清洗并解析`type`/`name`（操作类型）和`params`（参数）；
 2. **路由分发**：
    - `do_experiment`：解析旋涂实验参数（转速、加速度、时长、试剂、体积），读取试剂位置配置文件，通过MQTT协议（EMQX服务器）向自动化平台下发实验指令；
-   - `set_temperature`：调用C/C++可执行文件控制温控设备；
+   - `set_temperature`：调用底层程序控制温控设备；
    - `move_robot_arm`：调用Python脚本控制机械臂；
-3. **通信保障**：MQTT连接带超时机制，断连自动重连，确保指令可靠下发。
+3. **通信保障**：MQTT连接带超时机制，断连自动重连，确保指令可靠下发；
+4. **工具注册表**：硬件工具定义在 `hardware/tools/REGISTRY.json` 中，实现函数在 `hardware/tools/{tool_name}.py` 中，通过 `platform_init/update_registry.py` 自动扫描同步。
 
 #### （4）实验设计智能体
 
-**设计阶段**（基于ExperimentDesignParser）：
-1. **AI生成JSON**：用户输入"实验设计：<描述>"，LLM生成标准JSON实验计划；
-2. **格式转换**：`ExperimentManager.json_to_visual()`将JSON转为前端可视化格式（节点+边）；
-3. **可视化编辑**：前端画布支持拖拽节点、编辑参数、调整执行顺序；
-4. **双向同步**：`visual_to_json()`将前端修改转回标准JSON格式。
+**设计阶段**（基于 `core/field_inference.py:ExperimentDesignAgent`）：
+1. **动态提示词构建**：自动加载 REGISTRY.json 硬件工具 + software/algorithms/ 软件算法 + 内置辅助操作（WAIT/LOOP/GROUP/CONDITION/END/USER_INPUT），生成~2300字符系统提示词；
+2. **AI生成JSON**：用户输入"实验设计：<描述>"，LLM生成标准JSON实验计划；
+3. **格式转换**：`experiment/format.py:json_to_visual()`将JSON转为前端可视化格式（节点+边）；
+4. **可视化编辑**：前端Canvas画布支持拖拽节点、编辑参数、调整执行顺序；
+5. **双向同步**：`visual_to_json()`将前端修改转回标准JSON格式；
+6. **代码编译**：`experiment/compiler.py` 将JSON编译为Python代码，支持直接编译执行（`compile_and_run()`）。
 
-**执行阶段**（基于ExperimentManager）：
+**执行阶段**（基于 `experiment/executor.py:ExperimentExecutor`）：
 1. **计划验证**：检查JSON结构、参数完整性、试剂可用性；
 2. **拓扑排序**：根据节点依赖关系确定执行顺序；
-3. **顺序执行**：逐步调用硬件工具（spin_coating、set_temperature等）；
+3. **顺序执行**：逐步调用硬件工具（spin_coating、set_temperature等）和软件算法；
 4. **进度推送**：通过SSE实时推送执行状态到前端。
+
+**统一JSON格式**：
+```json
+{
+  "experiment_name": "实验名称",
+  "steps": [
+    {"type": "tool", "name": "spin_coating", "params": {...}, "description": "..."},
+    {"type": "helper", "name": "WAIT", "params": {"duration": 5000}, "description": "..."},
+    {"type": "software", "name": "data_normalization", "input_file": "...", "output_file": "..."}
+  ]
+}
+```
+- `type`: "tool"（硬件操作）、"helper"（WAIT/LOOP/GROUP/CONDITION/END/USER_INPUT）、或 "software"（算法）
+- `name`: 操作名称（兼容旧 `action` 字段）
 
 **为何分离设计与执行**：原PydanticAI方案依赖Function Calling（部分模型不支持），分离后任意LLM均可设计实验，用户可审查编辑后再执行。
 
@@ -134,17 +150,17 @@ flowchart TD
 1. **CSV列名读取**：自动读取`{session}/temporal/extraction.csv`的列名列表；
 2. **智能算法选择**：调用LLM分析列名，从可用算法列表中选择最适合的算法和读取方式；
 3. **动态数据读取**：LLM指定读取函数（如`read_spectrum_format`或`read_numeric_columns`），Python通过`READER_REGISTRY`动态调用；
-4. **算法执行**：调用`software_controller.py`执行选定算法，支持`data_statistics`、`data_normalization`、`spectrum_analysis`等；
+4. **算法执行**：调用`core/software_manager.py`执行选定算法，支持`data_statistics`、`data_normalization`、`spectrum_analysis`等；
 5. **结果保存**：完整结果保存至`{session}/results/`目录，采用覆盖写（`analysis_{algorithm}.json`）+ 时间戳存档（`analysis_{algorithm}_{timestamp}.json`）模式；
 6. **结果推送**：通过SSE向前端推送分析进度、结果摘要和文件路径，前端渲染蓝色结果卡片。
 
-#### （6）AI算法生成（新功能）
+#### （6）AI算法生成
 
 1. **自然语言描述**：用户在算法面板输入算法需求（如"计算光谱峰值波长"）；
-2. **规格提取**：`prompt_template.py`调用LLM提取算法规格（输入/输出/逻辑）；
+2. **规格提取**：`software/algorithms/extra_algorithms_fromProjects/prompt_template.py`调用LLM提取算法规格（输入/输出/逻辑）；
 3. **代码生成**：LLM生成完整Python代码，继承`BaseAlgorithm`基类；
 4. **自动保存**：代码保存到`software/algorithms/extra_algorithms_fromProjects/`；
-5. **热加载**：`software_controller.py`自动重新扫描算法目录，新算法立即可用；
+5. **热加载**：`core/software_manager.py`自动重新扫描算法目录，新算法立即可用；
 6. **前端集成**：算法面板实时更新，用户可直接调用新生成的算法。
 
 ![生成新算法](D:\PycharmProjects\SDL_agent\figures\生成新算法.png)
@@ -164,45 +180,74 @@ flowchart TD
 
 ```
 SDL_agent/
-├── app.py                      # Flask Web服务入口，路由与请求处理
+├── app.py                      # Flask Web服务入口，所有API路由
 ├── config.txt                  # API配置文件（API_KEY、API_URL、MODEL_NAME等）
+├── requirements.txt            # Python依赖
 ├── core/                       # 核心业务逻辑模块
 │   ├── config.py               # 全局配置类（读取config.txt）
 │   ├── llm_client.py           # LLM API封装（流式/非流式调用）
 │   ├── pdf_processor.py        # PDF解析与图像转换
-│   ├── field_inference.py      # 动态字段推断、算法解析、实验设计提示词
+│   ├── field_inference.py      # 动态字段推断、算法解析、ExperimentDesignAgent
 │   ├── extraction_engine.py    # 提取引擎核心（PDF遍历、LLM交互、结果汇总）
 │   ├── task_manager.py         # 任务队列管理（进度推送、取消控制）
-│   ├── hardware_controller.py  # 硬件控制智能体（指令解析、工具调用）
-│   ├── experiment_agent.py     # 实验设计智能体（PydanticAI，legacy模式）
-│   ├── experiment_manager.py   # 实验执行、验证、JSON↔visual格式转换
-│   ├── software_manager.py     # 软件算法管理器（桥接software模块）
+│   ├── hardware_controller.py  # 硬件控制（指令解析、工具调用分发）
+│   ├── software_manager.py     # 软件算法管理器（注册、热加载、generate_algorithm()）
 │   └── csv_writer.py           # CSV文件读写与合并
+├── experiment/                 # 实验设计与执行模块
+│   ├── agent.py                # 实验设计Agent（PydanticAI，已弃用保留参考）
+│   ├── executor.py             # 实验计划验证与执行
+│   ├── compiler.py             # 实验JSON→Python代码编译（compile_to_python/compile_and_run）
+│   └── format.py               # JSON↔Visual格式转换（json_to_visual/visual_to_json）
 ├── hardware/                   # 硬件通信层
-│   ├── agent_client.py         # MQTT连接器（EMQX客户端）
-│   ├── tools.py                # 底层硬件函数（MQTT发布、子进程调用）
-│   ├── spec_client.py          # 光谱仪数据采集客户端
-│   └── visualization.py        # 光谱数据3D可视化模块
+│   ├── tools.py                # 统一硬件工具函数（同步execute_*函数）
+│   ├── tools/                  # 工具目录（模块化硬件工具）
+│   │   ├── REGISTRY.json       # 工具元数据注册表（LLM读取）
+│   │   ├── spin_coating.py     # 旋涂实验工具
+│   │   ├── temperature.py      # 温控工具
+│   │   ├── robot_arm.py        # 机械臂工具
+│   │   ├── spectrum.py         # 光谱采集工具
+│   │   ├── experiment_control.py # 实验控制工具
+│   │   ├── registry.py         # 工具注册装饰器
+│   │   └── README.md           # 工具目录结构说明
+│   ├── mqtt/                   # MQTT客户端管理（惰性加载单例）
+│   ├── utils/                  # 试剂查找等工具函数
+│   └── pydantic_ai/            # 弃用的PydanticAI异步工具（保留参考）
 ├── software/                   # 纯软件算法与数据处理模块
-│   ├── software_controller.py  # 算法注册表与统一调用入口
-│   ├── readfile.py             # CSV读取工具（LLM动态调用接口）
-│   ├── auto_analyze.py         # 自动分析流水线（LLM选算法 + 执行）
-│   └── algorithms/             # 算法实现目录
+│   └── algorithms/
 │       ├── base.py             # BaseAlgorithm基类
-│       ├── default/            # 内置算法（data_statistics等）
+│       ├── default/            # 内置算法（data_statistics、data_normalization、spectrum_analysis）
 │       └── extra_algorithms_fromProjects/  # AI生成算法 + prompt_template.py
+├── platform_init/              # 平台初始化工具
+│   └── update_registry.py      # 自动扫描tools/*.py同步到REGISTRY.json
+├── test/                       # 测试目录
+│   └── compile_test/           # 实验编译器测试套件
 ├── templates/
-│   └── index.html              # 前端可视化界面（算法面板、实验设计画布）
+│   ├── index.html              # 前端主界面骨架（~200行，CSS/JS完全解耦）
+│   └── static/                 # 前端静态资源
+│       ├── css/main.css        # 所有UI样式
+│       ├── js/                 # 16个JS模块（按功能域拆分）
+│       │   ├── state.js        # 全局状态（最先加载）
+│       │   ├── chat/           # 聊天模块（chat.js、history.js）
+│       │   ├── extraction/     # 文献提取模块（extraction.js、file_upload.js）
+│       │   ├── hardware/       # 硬件控制模块（hardware.js、step_panel.js、task_stream.js）
+│       │   ├── analysis/       # 数据分析模块（analysis.js、algorithm_panel.js）
+│       │   ├── experiment/     # 实验设计模块（experiment_chat.js、experiment_design.js、experiment_confirm.js）
+│       │   ├── ui/             # UI模块（menu.js、panel.js、input_state.js）
+│       │   └── notification.js # 通知模块
+│       └── README.md           # JS模块结构及加载顺序说明
 ├── dialogue data/              # 会话数据目录（每次启动创建时间戳文件夹）
-│   └── YYYYMMDD_HHMMSS/        # 单次会话目录
-│       ├── extract/            # 归档提取结果（带时间戳CSV）
-│       ├── temporal/           # 临时工作文件（extraction.csv）
-│       ├── results/            # 分析结果（JSON格式）
-│       └── experiment_designs/ # 实验设计JSON文件
+│   ├── YYYYMMDD_HHMMSS/        # 单次会话目录
+│   │   ├── extract/            # 归档提取结果（带时间戳CSV）
+│   │   ├── temporal/           # 临时工作文件（extraction.csv）
+│   │   ├── results/            # 分析结果（JSON格式）
+│   │   ├── experiment_designs/ # 实验设计JSON文件
+│   │   └── chat_history.json   # 自动保存的对话历史
+│   ├── const_data/             # 常量数据目录
+│   └── history/                # 会话索引（sessions_index.json）
 ├── pdf_cache/                  # 实验设计模式PDF临时缓存
 ├── figures/                    # README插图 + 光谱可视化图表输出
-├── reagent_layout.json         # 试剂位置配置文件
-└── requirements.txt            # Python依赖
+├── logs/                       # 日志文件目录
+└── reagent_layout.json         # 试剂位置配置文件
 ```
 
 ---
@@ -214,13 +259,18 @@ SDL_agent/
 | `app.py` | Flask Web服务主程序 | 路由分发、会话管理、任务调度、实验设计集成 |
 | `config.txt` | 配置文件 | API_KEY、API_URL、MODEL_NAME_VL、MODEL_NAME_TALK |
 | `core/config.py` | 配置类 | 读取config.txt、提供全局配置访问接口 |
-| `core/field_inference.py` | 字段推断与解析 | 动态CSV列名生成、算法解析、ExperimentDesignParser |
-| `core/experiment_manager.py` | 实验管理器 | 实验执行、验证、JSON↔visual格式转换 |
+| `core/field_inference.py` | 字段推断与实验设计 | 动态CSV列名生成、算法解析、ExperimentDesignAgent |
 | `core/extraction_engine.py` | 提取引擎 | 逐页提取、会话路径管理、结果解析 |
-| `core/software_manager.py` | 算法管理器 | 算法注册、generate_algorithm()、热加载 |
-| `hardware/tools.py` | 硬件执行层 | MQTT发布实验指令、温控/机械臂调用 |
-| `software/algorithms/ extra_algorithms_fromProjects/ prompt_template.py` | 算法生成器 | LLM生成算法代码、规格提取 |
-| `templates/index.html` | 前端界面 | 算法面板、实验设计画布、PDF预览、进度展示 |
+| `core/hardware_controller.py` | 硬件控制 | 读取REGISTRY.json发现工具、指令分发 |
+| `core/software_manager.py` | 算法管理器 | 算法注册、热加载、generate_algorithm() |
+| `experiment/executor.py` | 实验执行器 | 计划验证、拓扑排序、顺序执行、进度回调 |
+| `experiment/compiler.py` | 实验编译器 | JSON→Python代码编译、compile_and_run() |
+| `experiment/format.py` | 格式转换器 | json_to_visual()、visual_to_json() |
+| `hardware/tools.py` | 硬件执行层 | 统一同步工具函数（execute_*） |
+| `hardware/tools/REGISTRY.json` | 工具注册表 | LLM可读的工具元数据（名称、描述、参数） |
+| `software/algorithms/extra_algorithms_fromProjects/prompt_template.py` | 算法生成器 | LLM生成算法代码、规格提取 |
+| `templates/index.html` | 前端界面骨架 | 面板结构、模式切换 |
+| `templates/static/js/` | 前端逻辑（16模块） | 按功能域拆分，全局函数通信 |
 | `dialogue data/{timestamp}/` | 会话目录 | 单次运行的所有数据（extract/temporal/results/experiment_designs） |
 
 ---
@@ -244,7 +294,6 @@ pip install -r requirements.txt
 # requests==2.31.0
 # paho-mqtt==1.6.1
 # python-dotenv==1.0.0
-# pydantic-ai>=0.0.1
 # matplotlib>=3.5.0
 # numpy>=1.21.0
 # pandas>=1.3.0
@@ -258,9 +307,9 @@ pip install -r requirements.txt
 
 ```ini
 API_KEY=你的API密钥
-API_URL=https://api.siliconflow.cn/v1/chat/completions
-MODEL_NAME_VL=Qwen/Qwen2.5-VL-72B-Instruct
-MODEL_NAME_TALK=Qwen/Qwen2.5-72B-Instruct
+API_URL=https://api.longcat.chat/v1/chat/completions
+MODEL_NAME_VL=LongCat-Flash-Omni
+MODEL_NAME_TALK=LongCat-Flash-Thinking
 PDF_FOLDER=D:/your/pdf/folder
 ```
 
@@ -271,9 +320,9 @@ PDF_FOLDER=D:/your/pdf/folder
 ```python
 # 大模型API配置
 API_KEY = "你的API密钥"
-MODEL_NAME_VL = "Qwen/Qwen2.5-VL-72B-Instruct"
-MODEL_NAME_TALK = "Qwen/Qwen2.5-72B-Instruct"
-API_URL = "https://api.siliconflow.cn/v1/chat/completions"
+MODEL_NAME_VL = "LongCat-Flash-Omni"
+MODEL_NAME_TALK = "LongCat-Flash-Thinking"
+API_URL = "https://api.longcat.chat/v1/chat/completions"
 
 # PDF存储目录
 PDF_FOLDER = "本地PDF文件夹路径"
@@ -281,7 +330,7 @@ PDF_FOLDER = "本地PDF文件夹路径"
 
 **MQTT配置**（用于硬件控制）：
 
-修改 `hardware/agent_client.py`：
+修改 `hardware/mqtt/` 目录下的MQTT客户端配置（惰性加载单例模式）：
 
 ```python
 class Client_Conf:
@@ -339,10 +388,11 @@ class Client_Conf:
 
 ### 界面效果说明
 
-- 左侧/顶部：系统状态与模式切换区；
+- 左侧：模式切换菜单（主菜单 + 硬件子菜单）；
 - 中间：对话/提取结果展示区，支持实验参数提取结果卡片化展示；
+- 右侧：可滑入面板（算法面板、PDF面板、步骤控制面板、实验设计面板），使用 `transform: translateX()` 动画；
 - 底部：输入区，支持文件上传、模式选择、指令输入；
-- 分屏模式：可展开PDF预览面板，实时查看AI正在处理的文献页面。
+- 实验设计画布：支持节点拖拽、参数编辑、JSON/Python代码切换查看。
 
 ---
 
@@ -352,13 +402,12 @@ class Client_Conf:
 2. **动态字段适配**：根据用户任务描述自动生成CSV列名，无需固定模板；
 3. **会话管理**：每次启动创建时间戳会话文件夹，所有数据归档到独立目录；
 4. **AI算法生成**：自然语言描述算法需求，LLM自动生成Python代码并热加载；
-5. **实验设计可视化**：AI生成JSON实验计划，前端画布支持拖拽编辑和执行；
+5. **实验设计可视化**：AI生成JSON实验计划，前端Canvas画布支持拖拽编辑，支持编译为Python代码执行；
 6. **硬件控制闭环**：提取的实验参数可直接驱动自动化实验平台执行；
 7. **智能数据分析**：LLM自动读取CSV列名，智能选择算法并执行分析；
-8. **可视化交互**：全流程Web界面操作，支持PDF预览、算法面板、实验设计画布；
+8. **模块化前端**：16个JS模块按功能域拆分，CSS完全解耦，无ES模块依赖；
 9. **灵活中断控制**：对话与提取任务支持随时中断，硬件执行期间自动锁定防止误操作；
 10. **高可靠性**：MQTT通信带超时重连，任务支持手动中断，异常自动捕获。
-
 
 ---
 
@@ -374,18 +423,18 @@ import pandas as pd
 
 class MyNewAlgorithm(BaseAlgorithm):
     """你的算法描述"""
-    
+    chinese_name = "我的新算法"  # 前端算法面板显示名称
+
     def run(self, data: pd.DataFrame) -> dict:
         """
         执行算法逻辑
-        
+
         Args:
             data: 输入数据
-            
+
         Returns:
             分析结果字典
         """
-        # 你的算法逻辑
         result = {"summary": "分析结果"}
         return result
 ```
@@ -398,36 +447,48 @@ class MyNewAlgorithm(BaseAlgorithm):
 
 ---
 
-### 2. 添加新硬件设备
+### 2. 添加新硬件工具
 
 以添加"超声波清洗机"为例：
 
-**第一步**：在 `hardware/tools.py` 中添加执行函数
+**第一步**：在 `hardware/tools/` 下创建工具文件 `ultrasonic_clean.py`
 
 ```python
-def execute_ultrasonic_clean(frequency: int, duration: int, power: int) -> str:
-    """执行超声波清洗"""
-    payload = f"ultrasonic,{frequency},{duration},{power}"
-    local_client.publish("ultrasonic_clean", payload)
-    return f"超声波清洗已启动: {frequency}kHz, {duration}s, {power}W"
-```
+from hardware.tools.registry import register_tool
+from hardware.mqtt import get_mqtt_client
 
-**第二步**：在 `core/hardware_controller.py` 的 `_load_hardware_tools()` 中注册
-
-```python
-HardwareTool(
+@register_tool(
     name="ultrasonic_clean",
     description="执行超声波清洗",
     params={
         "frequency": {"type": "int", "description": "清洗频率(kHz)", "required": True},
         "duration": {"type": "int", "description": "持续时间(秒)", "required": True},
         "power": {"type": "int", "description": "功率(W)", "required": False, "default": 100}
-    },
-    function="execute_ultrasonic_clean"
+    }
 )
+def execute_ultrasonic_clean(frequency: int, duration: int, power: int = 100) -> str:
+    """执行超声波清洗"""
+    client = get_mqtt_client()
+    payload = f"ultrasonic,{frequency},{duration},{power}"
+    client.client.publish("ultrasonic_clean", payload)
+    return f"超声波清洗已启动: {frequency}kHz, {duration}s, {power}W"
 ```
 
-**第三步**：在 `execute_tool_call()` 中添加分发逻辑
+**第二步**：在 `hardware/tools/REGISTRY.json` 中添加工具元数据
+
+```json
+"ultrasonic_clean": {
+  "name": "ultrasonic_clean",
+  "description": "执行超声波清洗",
+  "params": {
+    "frequency": {"type": "int", "description": "清洗频率(kHz)", "required": true},
+    "duration": {"type": "int", "description": "持续时间(秒)", "required": true},
+    "power": {"type": "int", "description": "功率(W)", "required": false, "default": 100}
+  }
+}
+```
+
+**第三步**：在 `core/hardware_controller.py:execute_tool_call()` 中添加分发逻辑
 
 ```python
 elif tool_name == "ultrasonic_clean":
@@ -438,34 +499,63 @@ elif tool_name == "ultrasonic_clean":
     )
 ```
 
+**第四步**：运行注册表同步脚本（可选）
+
+```bash
+python platform_init/update_registry.py
+```
+
 > **注册完成后**，LLM会自动识别新硬件工具，用户输入"执行超声波清洗，40kHz，5分钟"时自动调用。
 
 ---
 
-### 3. 自定义实验设计模板
+### 3. 自定义实验设计提示词
 
-修改 `core/field_inference.py` 中的 `ExperimentDesignParser.EXPERIMENT_AGENT_SYSTEM_PROMPT`：
+实验设计Agent的系统提示词由 `core/field_inference.py:ExperimentDesignAgent` 动态生成，自动加载：
 
-```python
-EXPERIMENT_AGENT_SYSTEM_PROMPT = """
-You are an experienced materials scientist.
-Design experiments in JSON format with the following structure:
-{
-  "experiment_name": "实验名称",
-  "steps": [
-    {"type": "tool", "name": "spin_coating", "params": {...}, "description": "..."},
-    {"type": "helper", "name": "WAIT", "params": {"duration": 5000}, "description": "..."}
-  ]
-}
-Available tools: spin_coating, set_temperature, move_robot_arm, collect_spectrum
-"""
-```
+- `hardware/tools/REGISTRY.json` 中的硬件工具
+- `software/algorithms/` 中的软件算法
+- 内置辅助操作（WAIT、LOOP、GROUP、CONDITION、END、USER_INPUT）
 
-重启应用后，AI会按照新提示词生成实验计划。
+如需自定义提示词逻辑，修改 `ExperimentDesignAgent` 类中的提示词构建方法即可，重启应用后生效。
 
 ---
 
-## 九、注意事项
+## 九、测试
+
+项目采用手动测试为主，通过Web界面逐功能验证。
+
+### Web界面测试
+
+1. 启动应用：`python app.py`
+2. 在浏览器中测试各模式：
+   - **Chat模式**：基础对话，验证LLM连通性
+   - **文献提取**：上传PDF → 发送"帮我搜寻：<描述>" → 验证CSV输出
+   - **硬件控制**：发送"硬件控制：<命令>" → 验证MQTT通信
+   - **实验设计**：发送"实验设计：<描述>" → 验证JSON计划生成
+   - **数据分析**：发送"数据分析" → 选择算法 → 验证结果
+
+### 实验编译器测试
+
+```bash
+# 内置测试
+python experiment/compiler.py
+
+# 完整测试套件
+cd test/compile_test && python test_experiment_compiler.py
+```
+
+### 调试技巧
+
+- 查看 `logs/` 目录获取错误日志
+- 监控Flask控制台输出查看MQTT连接状态
+- 浏览器开发者工具 Network 面板查看请求/响应详情
+- 前端JS中添加 `console.log('[ModuleName] message')` 跟踪调用链
+- 后端Python中添加 `print(f"[ModuleName] message")` 跟踪服务端逻辑
+
+---
+
+## 十、注意事项
 
 1. **API配置**：首次运行前必须在 `config.txt` 中设置 `API_KEY`，否则所有LLM调用失败；
 2. **会话数据**：每次启动app.py创建新会话文件夹，旧会话数据保留在 `dialogue data/` 下，可手动清理；
@@ -475,46 +565,96 @@ Available tools: spin_coating, set_temperature, move_robot_arm, collect_spectrum
 6. **试剂配置**：`reagent_layout.json` 需与实际硬件平台试剂摆放一致；
 7. **算法热加载**：AI生成的算法自动保存到 `extra_algorithms_fromProjects/`，无需重启即可使用；
 8. **Python版本**：建议使用Python 3.10+，避免依赖兼容问题；
-9. **文件路径**：Windows环境下使用正斜杠 `/` 或双反斜杠 `\\`，避免路径解析错误；
-10. **代码修改**：修改后端代码后需重启Flask应用，前端HTML修改刷新浏览器即可。
+9. **文件路径**：Windows环境下使用正斜杠 `/`，避免路径解析错误；
+10. **代码修改**：修改后端代码后需重启Flask应用（无热重载），前端HTML/JS/CSS修改刷新浏览器即可；
+11. **硬件工具注册**：`hardware/tools.py` 文件与 `hardware/tools/` 目录存在命名冲突，Python优先将目录识别为包，文件可能不可访问；
+12. **前端fetch超时**：LLM操作（实验设计）需10-15秒，前端使用 AbortController 设置30秒超时。
 
 ---
 
-## 十、常见问题
+## 十一、常见问题
 
-**Q1: 启动后提示"API_KEY未配置"？**  
+**Q1: 启动后提示"API_KEY未配置"？**
 A: 在项目根目录创建 `config.txt`，添加 `API_KEY=你的密钥`。
 
-**Q2: 文献提取失败，提示"PDF文件未找到"？**  
+**Q2: 文献提取失败，提示"PDF文件未找到"？**
 A: 检查 `config.txt` 中的 `PDF_FOLDER` 路径是否正确，确保PDF文件存在。
 
-**Q3: 硬件控制无响应？**  
-A: 检查MQTT服务器是否运行，`hardware/agent_client.py` 中的IP和端口是否正确。
+**Q3: 硬件控制无响应？**
+A: 检查MQTT服务器是否运行，`hardware/mqtt/` 中的IP和端口配置是否正确。
 
-**Q4: 如何查看会话历史数据？**  
+**Q4: 如何查看会话历史数据？**
 A: 进入 `dialogue data/` 目录，每个时间戳文件夹对应一次会话，包含extract/temporal/results子目录。
 
-**Q5: AI生成的算法在哪里？**  
+**Q5: AI生成的算法在哪里？**
 A: 保存在 `software/algorithms/extra_algorithms_fromProjects/`，文件名为算法名称。
 
-**Q6: 如何清理旧会话数据？**  
+**Q6: 如何清理旧会话数据？**
 A: 手动删除 `dialogue data/` 下的旧时间戳文件夹即可。
+
+**Q7: 如何添加新的硬件工具？**
+A: 参见"扩展指南 → 添加新硬件工具"，核心是在 `hardware/tools/` 下创建工具文件并更新 `REGISTRY.json`。
 
 ---
 
-## 十一、技术栈
+## 十二、技术栈
 
 - **后端框架**：Flask 2.3.3
 - **PDF处理**：PyMuPDF (fitz)
-- **LLM交互**：OpenAI API兼容接口（支持Qwen、GPT等）
+- **LLM交互**：OpenAI API兼容接口（LongCat-Flash-Omni / LongCat-Flash-Thinking）
 - **硬件通信**：MQTT (paho-mqtt)
-- **实验设计**：PydanticAI (legacy模式) + 自定义JSON解析器
+- **实验设计**：自定义JSON解析器（`core/field_inference.py`）+ 格式转换（`experiment/format.py`）
+- **实验编译**：`experiment/compiler.py`（JSON→Python代码）
 - **数据分析**：Pandas、NumPy、Matplotlib
-- **前端**：原生HTML/CSS/JavaScript + Canvas API
+- **前端**：原生HTML/CSS/JavaScript（16 JS模块 + Canvas API，无ES模块依赖）
 
 ---
 
-## 十二、贡献指南
+## 十三、TODO：RAG增强文献提取
+
+> 详细设计文档：[rag_extraction_enhancement_design.md](rag_extraction_enhancement_design.md)
+
+### 背景
+当前提取管线对每篇PDF的每一页都调用LLM，大量无关页面（参考文献、背景介绍等）浪费token和耗时。计划通过"多模态Embedding + 向量数据库 + 历史提取缓存"加速提取。
+
+### 分阶段计划
+
+| 阶段 | 目标 | 说明 | 状态 |
+|------|------|------|------|
+| Phase 1 | 页面预筛选 | 多模态embedding判断页面与提取目标的相关性，跳过无关页面 | ⏳ 待实现 |
+| Phase 2 | Few-shot增强 | 检索历史提取结果作为示例，提升LLM提取准确率 | ⏳ 待实现 |
+| Phase 3 | 语义搜索 | 全文献库语义搜索，命中后再做深度提取 | ⏳ 待实现 |
+
+### 新增文件清单
+
+| 文件 | 说明 | 状态 |
+|------|------|------|
+| `core/embedding_service.py` | 多模态Embedding抽象接口 + Jina AI API实现 + 本地模型接口(TODO) | ⏳ |
+| `core/vector_store.py` | 向量存储抽象接口 + ChromaDB实现 + pgvector实现(TODO) | ⏳ |
+| `core/page_indexer.py` | PDF页面一次性预嵌入 + 去重逻辑 | ⏳ |
+| `core/page_filter.py` | 查询时页面相关性过滤 | ⏳ |
+| `core/few_shot_retriever.py` | Phase 2：历史提取示例检索 | ⏳ |
+| `core/semantic_search.py` | Phase 3：语义搜索逻辑 | ⏳ |
+| `rag_extraction_enhancement_design.md` | 完整设计文档 | ✅ |
+
+### 技术选型
+
+- **Embedding模型**：Jina AI `jina-clip-v2`（多模态，支持图文混合输入），预留本地模型接口
+- **向量数据库**：ChromaDB（当前），预留 pgvector 迁移接口应对大数据量
+- **结构化缓存**：SQLite（存储历史提取结果、页面元数据）
+- **去重策略**：`md5(pdf_path)_pageNum` 作为页面唯一ID，内容哈希检测变更
+
+### 配置项（待添加到 `core/config.py`）
+
+- `EMBEDDING_BACKEND` — `"jina"` | `"local"`
+- `EMBEDDING_API_KEY` — Jina AI API密钥
+- `VECTOR_STORE_BACKEND` — `"chromadb"` | `"pgvector"`
+- `PAGE_FILTER_ENABLED` / `PAGE_FILTER_THRESHOLD` / `PAGE_FILTER_TOP_K`
+- `FEW_SHOT_ENABLED` / `SEMANTIC_SEARCH_ENABLED`
+
+---
+
+## 十四、贡献指南
 
 欢迎提交Issue和Pull Request！
 
@@ -527,4 +667,3 @@ A: 手动删除 `dialogue data/` 下的旧时间戳文件夹即可。
 ---
 
 ## 十四、致谢
-

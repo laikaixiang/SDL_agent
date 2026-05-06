@@ -164,6 +164,7 @@ function _openOutputPickerModal(algoName) {
 function addAlgoToExperiment(algoName, description, icon) {
     experimentSteps.push({ type: 'software', name: algoName, params: {}, description });
     if (typeof renderExperimentSteps === 'function') renderExperimentSteps();
+    if (typeof updateExperimentJSON === 'function') updateExperimentJSON();
     showNotification(`已添加 ${description} 至实验设计`, 'success');
 }
 

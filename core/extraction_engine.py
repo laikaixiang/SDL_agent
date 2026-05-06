@@ -18,6 +18,11 @@ from .llm_client import LLMClient
 from .pdf_processor import PDFProcessor
 from .field_inference import FieldInference, DynamicFieldsResponse
 from .task_manager import TaskManager
+from .embedding_service import create_embedding_service
+from .vector_store import ChromaVectorStore
+from .page_indexer import PageIndexer, make_page_id
+from .page_filter import PageFilter
+from .few_shot_retriever import FewShotRetriever
 
 
 class PageExtractionResponse(BaseModel):
@@ -51,6 +56,67 @@ class ExtractionEngine:
         self.field_inference = FieldInference()
         self.task_manager = task_manager
         self.session_path = session_path
+        # Phase 1: 页面预筛选（延迟初始化，在 process_pdf_library 中按需创建）
+        self.page_filter: Optional[PageFilter] = None
+        self.page_indexer: Optional[PageIndexer] = None
+        # Phase 2: Few-Shot 检索（延迟初始化）
+        self.few_shot_retriever: Optional[FewShotRetriever] = None
+        self.embedding_service = None
+        self.vector_store = None
+
+    def _init_page_filter_services(self):
+        """
+        按需初始化 Phase 1 + Phase 2 所需的所有服务
+
+        初始化链路：
+          Config → EmbeddingService → ChromaVectorStore
+            → PageIndexer (预索引) + PageFilter (查询时过滤)
+            → FewShotRetriever (Phase 2 历史示例检索)
+
+        异常处理：
+          如果任何初始化步骤失败（如 API key 未配置、ChromaDB 无法写入），
+          则优雅降级：self.page_filter = None，后续页面处理不进行筛选。
+          Phase 2 的 FewShotRetriever 也会同步降级。
+
+        这样设计是为了保证：
+          - 即使 embedding 服务不可用，提取任务仍可正常运行
+          - 新用户无需配置 API key 即可使用其他功能
+        """
+        if not self.config.PAGE_FILTER_ENABLED:
+            return
+
+        try:
+            # 1. 创建 Embedding 服务
+            self.embedding_service = create_embedding_service()
+
+            # 2. 创建 ChromaDB 向量存储
+            chroma_dir = self.config.CHROMADB_PERSIST_DIR
+            self.vector_store = ChromaVectorStore(persist_dir=chroma_dir)
+
+            # 3. 创建页面索引器（用于一次性预索引 PDF 文献库）
+            sqlite_path = os.path.join(chroma_dir, "page_metadata.db")
+            self.page_indexer = PageIndexer(
+                self.embedding_service, self.vector_store, sqlite_path, self.pdf_processor
+            )
+
+            # 4. 创建页面筛选器（用于查询时逐页判断相关性）
+            self.page_filter = PageFilter(
+                self.embedding_service, self.vector_store,
+                threshold=self.config.PAGE_FILTER_THRESHOLD,
+                top_k=self.config.PAGE_FILTER_TOP_K
+            )
+
+            # 5. Phase 2: 创建 Few-Shot 检索器
+            if self.config.FEW_SHOT_ENABLED:
+                fs_sqlite_path = os.path.join(chroma_dir, "extraction_history.db")
+                self.few_shot_retriever = FewShotRetriever(
+                    self.embedding_service, self.vector_store, fs_sqlite_path
+                )
+        except Exception as e:
+            print(f"[PageFilter] 初始化失败: {e}，已禁用页面筛选和Few-Shot")
+            self.page_filter = None
+            self.page_indexer = None
+            self.few_shot_retriever = None
 
     def infer_fields(self, task_description: str) -> Tuple[bool, List[str] | str]:
         """
@@ -119,6 +185,18 @@ class ExtractionEngine:
 
             self.task_manager.put_task_message("progress", f"发现 {total_files} 篇PDF文献")
 
+            # ===== Phase 1: 页面预筛选初始化与索引 =====
+            self._init_page_filter_services()
+            if self.page_indexer:
+                self.task_manager.put_task_message("info", "📊 正在索引 PDF 页面（首次运行较慢，后续增量更新）...")
+                indexed, skipped = self.page_indexer.index_all_pdfs()
+                self.task_manager.put_task_message(
+                    "info", f"📊 页面索引完成: {indexed} 页新增, {skipped} 页跳过（内容未变更）"
+                )
+            if self.page_filter:
+                # 将任务描述预嵌入为向量，后续每个页面直接比对
+                self.page_filter.set_task(task_description)
+
             # 处理每个PDF文件
             for file_idx, pdf_path in enumerate(pdf_files):
                 if self.task_manager.is_task_cancelled():
@@ -132,7 +210,8 @@ class ExtractionEngine:
                     fields=fields,
                     schema_str=schema_str,
                     all_extracted_data=all_extracted_data,
-                    task_id=task_id
+                    task_id=task_id,
+                    task_description=task_description
                 )
 
             # 保存结果
@@ -162,7 +241,8 @@ class ExtractionEngine:
         fields: List[str],
         schema_str: str,
         all_extracted_data: List[Dict[str, Any]],
-        task_id: str
+        task_id: str,
+        task_description: str = ""
     ) -> None:
         """
         处理单个PDF文件
@@ -175,6 +255,7 @@ class ExtractionEngine:
             schema_str: Schema字符串
             all_extracted_data: 所有提取数据
             task_id: 任务ID
+            task_description: 任务描述（Phase 1 页面预筛选用）
         """
         filename = os.path.basename(pdf_path)
         doc_id = os.path.splitext(filename)[0]
@@ -194,6 +275,14 @@ class ExtractionEngine:
                 if self.task_manager.is_task_cancelled():
                     break
 
+                # Phase 1: 页面预筛选 —— 跳过与任务不相关的页面
+                if self.page_filter:
+                    if not self.page_filter.should_process(pdf_path, page_num):
+                        self.task_manager.put_task_message(
+                            "info", f"⏭️ 跳过第{page_num + 1}页 (相似度低于阈值)"
+                        )
+                        continue
+
                 self._process_single_page(
                     pdf_path=pdf_path,
                     page_num=page_num,
@@ -201,7 +290,8 @@ class ExtractionEngine:
                     fields=fields,
                     schema_str=schema_str,
                     all_extracted_data=all_extracted_data,
-                    task_id=task_id
+                    task_id=task_id,
+                    task_description=task_description
                 )
 
         except Exception as e:
@@ -215,7 +305,8 @@ class ExtractionEngine:
         fields: List[str],
         schema_str: str,
         all_extracted_data: List[Dict[str, Any]],
-        task_id: str
+        task_id: str,
+        task_description: str = ""
     ) -> None:
         """
         处理单个PDF页面（支持混合提取模式）
@@ -228,6 +319,7 @@ class ExtractionEngine:
             schema_str: Schema字符串
             all_extracted_data: 所有提取数据
             task_id: 任务ID
+            task_description: 任务描述（Phase 2 用于检索 Few-Shot 示例）
         """
         try:
             # 获取提取模式
@@ -250,7 +342,8 @@ class ExtractionEngine:
                     all_extracted_data=all_extracted_data,
                     task_id=task_id,
                     img_base64=img_base64,
-                    markdown_text=markdown_text
+                    markdown_text=markdown_text,
+                    task_description=task_description
                 )
             else:
                 # 使用文本API处理
@@ -262,7 +355,8 @@ class ExtractionEngine:
                     schema_str=schema_str,
                     all_extracted_data=all_extracted_data,
                     task_id=task_id,
-                    markdown_text=markdown_text
+                    markdown_text=markdown_text,
+                    task_description=task_description
                 )
 
         except Exception as e:
@@ -278,7 +372,8 @@ class ExtractionEngine:
         all_extracted_data: List[Dict[str, Any]],
         task_id: str,
         img_base64: str,
-        markdown_text: Optional[str] = None
+        markdown_text: Optional[str] = None,
+        task_description: str = ""
     ) -> None:
         """使用Vision API处理页面"""
         if not img_base64:
@@ -305,6 +400,9 @@ class ExtractionEngine:
             "🚨 你必须直接输出一个 JSON 对象，绝不要包含 Markdown 标记（如 ```json）或任何其他解释性文字！\n"
             f"🚨 必须严格遵循以下 JSON 格式：\n{example_json}"
         )
+
+        # Phase 2: 检索历史 Few-Shot 示例并注入 prompt
+        sys_prompt = self._inject_few_shot_examples(sys_prompt, task_description, fields)
 
         # 构建消息
         messages = [
@@ -334,6 +432,10 @@ class ExtractionEngine:
                     "details": item_dict
                 })
 
+            # Phase 2: 保存提取结果到历史数据库
+            self._save_to_extraction_history(pdf_path, page_num, result["data"],
+                                             task_description, doc_id)
+
     def _process_with_text(
         self,
         pdf_path: str,
@@ -343,7 +445,8 @@ class ExtractionEngine:
         schema_str: str,
         all_extracted_data: List[Dict[str, Any]],
         task_id: str,
-        markdown_text: str
+        markdown_text: str,
+        task_description: str = ""
     ) -> None:
         """使用文本API处理页面"""
         if not markdown_text or len(markdown_text.strip()) < 50:
@@ -366,6 +469,9 @@ class ExtractionEngine:
             "🚨 你必须直接输出一个 JSON 对象，绝不要包含 Markdown 标记（如 ```json）或任何其他解释性文字！\n"
             f"🚨 必须严格遵循以下 JSON 格式：\n{example_json}"
         )
+
+        # Phase 2: 检索历史 Few-Shot 示例并注入 prompt
+        sys_prompt = self._inject_few_shot_examples(sys_prompt, task_description, fields)
 
         # 构建消息
         messages = [
@@ -394,6 +500,83 @@ class ExtractionEngine:
                     "filename": os.path.basename(pdf_path),
                     "details": item_dict
                 })
+
+            # Phase 2: 保存提取结果到历史数据库
+            self._save_to_extraction_history(pdf_path, page_num, result["data"],
+                                             task_description, doc_id)
+
+    def _inject_few_shot_examples(self, sys_prompt: str, task_description: str,
+                                    fields: List[str]) -> str:
+        """
+        从历史提取记录中检索 Few-Shot 示例并注入到 system prompt
+
+        如果 FewShotRetriever 未初始化或没有找到历史记录，则原样返回 sys_prompt。
+
+        Args:
+            sys_prompt: 原始系统提示词
+            task_description: 当前提取任务描述
+            fields: 当前提取字段列表
+
+        Returns:
+            可能添加了 Few-Shot 示例的新 sys_prompt
+        """
+        if not self.few_shot_retriever:
+            return sys_prompt
+
+        examples = self.few_shot_retriever.retrieve_examples(
+            task_description, fields,
+            top_k=self.config.FEW_SHOT_TOP_K
+        )
+
+        if not examples:
+            return sys_prompt
+
+        # 格式化示例为 JSON，每个一行
+        examples_text = "\n".join(
+            f"示例 {i + 1}: {json.dumps(ex, ensure_ascii=False)}"
+            for i, ex in enumerate(examples)
+        )
+        few_shot_block = (
+            "\n\n📋 参考历史提取示例（从相似页面中提取的数据，供你参考格式和内容）：\n"
+            f"{examples_text}\n"
+            "请参考以上示例的提取风格和详细程度来处理当前页面。"
+        )
+
+        return few_shot_block + "\n\n" + sys_prompt
+
+    def _save_to_extraction_history(self, pdf_path: str, page_num: int,
+                                     extracted_items: list,
+                                     task_description: str, source_doc: str):
+        """
+        将提取结果保存到历史数据库供后续 Few-Shot 检索
+
+        仅当 FewShotRetriever 已初始化时才执行保存。
+        对 LLM 返回的 data 数组中的每一项分别保存。
+
+        Args:
+            pdf_path: PDF 文件路径
+            page_num: 页码
+            extracted_items: LLM 返回的 data 列表中的每一项（dict 或 Pydantic model）
+            task_description: 当前任务描述
+            source_doc: 来源文档名
+        """
+        if not self.few_shot_retriever:
+            return
+
+        page_id = make_page_id(pdf_path, page_num)
+
+        for item in extracted_items:
+            item_dict = item if isinstance(item, dict) else item.model_dump()
+            # 保存的副本中去除内部字段
+            clean_dict = {k: v for k, v in item_dict.items() if not k.startswith('_')}
+            if not clean_dict:
+                continue
+            try:
+                self.few_shot_retriever.save_extraction(
+                    page_id, clean_dict, task_description, source_doc
+                )
+            except Exception:
+                pass  # 保存失败不影响提取流程
 
     def _call_vision_api_with_stream(
         self,

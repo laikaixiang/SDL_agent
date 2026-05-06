@@ -610,47 +610,81 @@ A: 参见"扩展指南 → 添加新硬件工具"，核心是在 `hardware/tools
 
 ---
 
-## 十三、TODO：RAG增强文献提取
+## 十三、RAG增强文献提取
 
 > 详细设计文档：[rag_extraction_enhancement_design.md](rag_extraction_enhancement_design.md)
 
 ### 背景
-当前提取管线对每篇PDF的每一页都调用LLM，大量无关页面（参考文献、背景介绍等）浪费token和耗时。计划通过"多模态Embedding + 向量数据库 + 历史提取缓存"加速提取。
+当前提取管线对每篇PDF的每一页都调用LLM，大量无关页面（参考文献、背景介绍等）浪费token和耗时。通过"Embedding + 向量数据库 + 相似度筛选"在LLM调用前预筛选页面。
 
 ### 分阶段计划
 
 | 阶段 | 目标 | 说明 | 状态 |
 |------|------|------|------|
-| Phase 1 | 页面预筛选 | 多模态embedding判断页面与提取目标的相关性，跳过无关页面 | ⏳ 待实现 |
-| Phase 2 | Few-shot增强 | 检索历史提取结果作为示例，提升LLM提取准确率 | ⏳ 待实现 |
+| Phase 1 | 页面预筛选 | Embedding向量相似度判断页面与提取目标的相关性，跳过无关页面 | ✅ 已完成 |
+| Phase 2 | Few-shot增强 | 检索历史提取结果作为示例，提升LLM提取准确率 | ✅ 已完成 |
 | Phase 3 | 语义搜索 | 全文献库语义搜索，命中后再做深度提取 | ⏳ 待实现 |
 
-### 新增文件清单
+### Phase 1 已实现文件清单
 
-| 文件 | 说明 | 状态 |
-|------|------|------|
-| `core/embedding_service.py` | 多模态Embedding抽象接口 + Jina AI API实现 + 本地模型接口(TODO) | ⏳ |
-| `core/vector_store.py` | 向量存储抽象接口 + ChromaDB实现 + pgvector实现(TODO) | ⏳ |
-| `core/page_indexer.py` | PDF页面一次性预嵌入 + 去重逻辑 | ⏳ |
-| `core/page_filter.py` | 查询时页面相关性过滤 | ⏳ |
-| `core/few_shot_retriever.py` | Phase 2：历史提取示例检索 | ⏳ |
-| `core/semantic_search.py` | Phase 3：语义搜索逻辑 | ⏳ |
-| `rag_extraction_enhancement_design.md` | 完整设计文档 | ✅ |
+| 文件 | 说明 |
+|------|------|
+| `core/embedding_service.py` | Embedding 服务抽象层：`APIEmbeddingService`（SiliconFlow BGE / Qwen / DeepSeek 通用接口）+ `JinaEmbeddingService`（多模态图文）+ `LocalEmbeddingService`（TODO 占位）+ 工厂函数 |
+| `core/vector_store.py` | 向量存储抽象层：`ChromaVectorStore`（ChromaDB 持久化 + 余弦距离 + upsert 去重）+ `PgvectorVectorStore`（TODO 占位） |
+| `core/page_indexer.py` | PDF 页面预索引：`make_page_id()` / `compute_content_hash()` + `PageIndexer`（SQLite 元数据库 + 内容 hash 增量去重） |
+| `core/page_filter.py` | 页面预筛选：`PageFilter.set_task()` 缓存任务向量 + `should_process()` 逐页余弦相似度比较 |
+| `core/config.py` | 新增 17 个配置项：Embedding（7）+ VectorStore（2）+ PageFilter（3）+ FewShot（2 flag）+ SemanticSearch（1 flag） |
+| `core/extraction_engine.py` | 新增 `_init_page_filter_services()` 优雅降级初始化、`process_pdf_library()` 预索引步骤、`_process_single_pdf()` 页面循环插入 `page_filter.should_process()` 检查 |
+| `requirements.txt` | 新增 `chromadb` 依赖 |
 
-### 技术选型
+### Phase 2 已实现文件清单
 
-- **Embedding模型**：Jina AI `jina-clip-v2`（多模态，支持图文混合输入），预留本地模型接口
-- **向量数据库**：ChromaDB（当前），预留 pgvector 迁移接口应对大数据量
-- **结构化缓存**：SQLite（存储历史提取结果、页面元数据）
-- **去重策略**：`md5(pdf_path)_pageNum` 作为页面唯一ID，内容哈希检测变更
+| 文件 | 说明 |
+|------|------|
+| `core/few_shot_retriever.py` | Few-Shot 检索器：`save_extraction()` 将 LLM 提取结果存入 SQLite（`extraction_history` 表），`retrieve_examples()` 通过向量搜索 + SQLite 联合查询检索历史示例 |
+| `core/extraction_engine.py` | 新增 `_inject_few_shot_examples()`（检索示例并注入 system prompt）、`_save_to_extraction_history()`（提取后保存）、`task_description` 参数传递链 |
+| `core/config.py` | `FEW_SHOT_ENABLED=True`（已启用），`FEW_SHOT_TOP_K=3` |
 
-### 配置项（待添加到 `core/config.py`）
+### Phase 2 工作流程
 
-- `EMBEDDING_BACKEND` — `"jina"` | `"local"`
-- `EMBEDDING_API_KEY` — Jina AI API密钥
-- `VECTOR_STORE_BACKEND` — `"chromadb"` | `"pgvector"`
-- `PAGE_FILTER_ENABLED` / `PAGE_FILTER_THRESHOLD` / `PAGE_FILTER_TOP_K`
-- `FEW_SHOT_ENABLED` / `SEMANTIC_SEARCH_ENABLED`
+```
+LLM提取完成 → 保存到 extraction_history.db (page_id, extracted JSON, task_description)
+下次提取前 → embed 任务描述 → 向量搜索相似页面
+         → SQLite 查询这些页面的历史提取记录
+         → 注入 Top-K 示例到 system prompt 作为 Few-Shot 参考
+```
+
+### 技术栈
+
+- **Embedding 后端**：`EMBEDDING_BACKEND="api"` 支持任意 OpenAI 兼容接口（默认 SiliconFlow `BAAI/bge-large-en-v1.5`，1024维）
+- **推荐模型**：`BAAI/bge-large-en-v1.5`（英文科学文献实测最优，区分度 Spread=0.23）
+- **向量数据库**：ChromaDB（持久化 + cosine 距离），预留 pgvector 迁移接口
+- **去重策略**：`md5(pdf_path)_p{page_num}` 作为页面唯一 ID，SHA256 内容哈希检测变更
+- **默认阈值**：0.3（保守），实测英文模型下可正确区分相关内容
+
+### 配置说明
+
+```python
+# core/config.py 关键配置项
+EMBEDDING_BACKEND = "api"                              # "api" | "jina" | "local"
+EMBEDDING_API_KEY  = "sk-xxx"                         # SiliconFlow API Key
+EMBEDDING_MODEL    = "BAAI/bge-large-en-v1.5"         # 推荐英文文献模型
+PAGE_FILTER_ENABLED    = True                         # 开启预筛选
+PAGE_FILTER_THRESHOLD  = 0.3                          # 余弦相似度阈值
+FEW_SHOT_ENABLED       = True                         # Phase 2: 检索历史 Few-Shot 示例
+FEW_SHOT_TOP_K         = 3                            # 注入提示词的示例数
+SEMANTIC_SEARCH_ENABLED = False                       # Phase 3 flag
+```
+
+### 测试
+
+```bash
+# 功能测试
+python platform_init/test/phase1_page_filter/test_phase1.py
+
+# 模型对比测试（BGE-en-v1.5 vs Qwen3-VL-Embedding-8B）
+python platform_init/test/phase1_page_filter/test_model_comparison.py
+```
 
 ---
 

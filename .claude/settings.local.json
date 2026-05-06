@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python test/api_test/api_test.py)"
+      "Bash(python test/api_test/api_test.py)",
+      "WebSearch",
+      "Bash(python \"platform_init\\\\test\\\\phase1_page_filter\\\\test_phase1.py\")",
+      "Bash(python platform_init/test/phase2_few_shot/test_phase2.py)"
     ]
   },
   "enabledPlugins": {}

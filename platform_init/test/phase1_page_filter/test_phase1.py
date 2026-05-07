@@ -317,7 +317,7 @@ def test_config_entries():
     assert hasattr(c, "FEW_SHOT_ENABLED")
     assert hasattr(c, "SEMANTIC_SEARCH_ENABLED")
     assert isinstance(c.FEW_SHOT_ENABLED, bool)  # Phase 2 已实现，默认为 True
-    assert c.SEMANTIC_SEARCH_ENABLED is False
+    assert isinstance(c.SEMANTIC_SEARCH_ENABLED, bool)  # Phase 3 已实现，默认为 True
 
     print("  PASS: 所有配置项存在且类型正确")
 

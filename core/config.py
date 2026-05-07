@@ -121,7 +121,16 @@ class Config:
     FEW_SHOT_TOP_K: int = _external.get("FEW_SHOT_TOP_K", 3)
 
     # ======================== Semantic Search 配置 (Phase 3) ========================
-    SEMANTIC_SEARCH_ENABLED: bool = _external.get("SEMANTIC_SEARCH_ENABLED", False)
+    SEMANTIC_SEARCH_ENABLED: bool = _external.get("SEMANTIC_SEARCH_ENABLED", True)
+
+    # ======================== 去重配置 ========================
+    # DEDUP_NORMALIZE: "strip" | "lower" | "strict"
+    # DEDUP_MERGE_STRATEGY: "longest" | "first_non_empty"
+    # TODO: 后续可扩展为语义相似度去重（embedding 聚类）
+    DEDUP_ENABLED: bool = _external.get("DEDUP_ENABLED", True)
+    DEDUP_NORMALIZE: str = _external.get("DEDUP_NORMALIZE", "strip")
+    DEDUP_MERGE_STRATEGY: str = _external.get("DEDUP_MERGE_STRATEGY", "longest")
+    DEDUP_ADD_METADATA: bool = _external.get("DEDUP_ADD_METADATA", True)
 
     # ======================== 文件路径配置 ========================
     DIALOGUE_DATA_DIR: str = _external.get("DIALOGUE_DATA_DIR", "dialogue data/history")

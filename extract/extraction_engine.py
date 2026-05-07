@@ -23,6 +23,7 @@ from .vector_store import ChromaVectorStore
 from .page_indexer import PageIndexer, make_page_id
 from .page_filter import PageFilter
 from .few_shot_retriever import FewShotRetriever
+from .dedup import deduplicate_extraction_results
 
 
 class PageExtractionResponse(BaseModel):
@@ -86,12 +87,14 @@ class ExtractionEngine:
             return
 
         try:
-            # 1. 创建 Embedding 服务
-            self.embedding_service = create_embedding_service()
+            # 1. 创建 Embedding 服务（如果外部已注入则复用）
+            if self.embedding_service is None:
+                self.embedding_service = create_embedding_service()
 
-            # 2. 创建 ChromaDB 向量存储
+            # 2. 创建 ChromaDB 向量存储（如果外部已注入则复用）
             chroma_dir = self.config.CHROMADB_PERSIST_DIR
-            self.vector_store = ChromaVectorStore(persist_dir=chroma_dir)
+            if self.vector_store is None:
+                self.vector_store = ChromaVectorStore(persist_dir=chroma_dir)
 
             # 3. 创建页面索引器（用于一次性预索引 PDF 文献库）
             sqlite_path = os.path.join(chroma_dir, "page_metadata.db")
@@ -780,6 +783,23 @@ class ExtractionEngine:
             fields: 提取字段
             prefix: 文件名前缀
         """
+        # 去重：按实体名称（fields[0]）合并重复行
+        if self.config.DEDUP_ENABLED and all_extracted_data and fields:
+            original_count = len(all_extracted_data)
+            all_extracted_data = deduplicate_extraction_results(
+                all_extracted_data,
+                fields,
+                normalize=self.config.DEDUP_NORMALIZE,
+                merge_strategy=self.config.DEDUP_MERGE_STRATEGY,
+                add_metadata=self.config.DEDUP_ADD_METADATA,
+            )
+            deduped_count = len(all_extracted_data)
+            if original_count != deduped_count:
+                self.task_manager.put_task_message(
+                    "info",
+                    f"去重完成: {original_count} 条 → {deduped_count} 条 (移除 {original_count - deduped_count} 条重复)"
+                )
+
         # 确定所有字段
         all_keys = set(fields)
         for d in all_extracted_data:

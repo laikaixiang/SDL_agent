@@ -181,10 +181,11 @@ flowchart TD
 ```
 SDL_agent/
 ├── app.py                      # Flask Web服务入口，所有API路由
-├── config.txt                  # API配置文件（API_KEY、API_URL、MODEL_NAME等）
+├── config.example.json         # 配置模板（含中文注释和占位值）
+├── config.json                  # 用户实际配置（含API Key，gitignore忽略）
 ├── requirements.txt            # Python依赖
 ├── core/                       # 核心业务逻辑模块
-│   ├── config.py               # 全局配置类（读取config.txt）
+│   ├── config.py               # 全局配置类（从config.json加载，硬编码值为fallback）
 │   ├── llm_client.py           # LLM API封装（流式/非流式调用）
 │   ├── pdf_processor.py        # PDF解析与图像转换
 │   ├── field_inference.py      # 动态字段推断、算法解析、ExperimentDesignAgent
@@ -257,8 +258,9 @@ SDL_agent/
 | 文件路径 | 核心角色 | 关键能力 |
 |----------|----------|----------|
 | `app.py` | Flask Web服务主程序 | 路由分发、会话管理、任务调度、实验设计集成 |
-| `config.txt` | 配置文件 | API_KEY、API_URL、MODEL_NAME_VL、MODEL_NAME_TALK |
-| `core/config.py` | 配置类 | 读取config.txt、提供全局配置访问接口 |
+| `config.json` | 用户配置文件 | 所有配置项（API Key等敏感信息），gitignore忽略 |
+| `config.example.json` | 配置模板 | 含中文注释和占位值，git追踪 |
+| `core/config.py` | 配置类 | 从config.json加载配置，硬编码值为fallback |
 | `core/field_inference.py` | 字段推断与实验设计 | 动态CSV列名生成、算法解析、ExperimentDesignAgent |
 | `core/extraction_engine.py` | 提取引擎 | 逐页提取、会话路径管理、结果解析 |
 | `core/hardware_controller.py` | 硬件控制 | 读取REGISTRY.json发现工具、指令分发 |
@@ -301,27 +303,37 @@ pip install -r requirements.txt
 
 ### 3. 关键配置项
 
-**方式一：修改 `config.txt`（推荐）**
+**方式一：`config.json`（推荐）**
 
-在项目根目录创建或编辑 `config.txt`：
+复制模板并编辑：
 
-```ini
-API_KEY=你的API密钥
-API_URL=https://api.longcat.chat/v1/chat/completions
-MODEL_NAME_VL=LongCat-Flash-Omni
-MODEL_NAME_TALK=LongCat-Flash-Thinking
-PDF_FOLDER=D:/your/pdf/folder
+```bash
+cp config.example.json config.json
+# 编辑 config.json，填入你的 API Key 等实际值
 ```
 
-**方式二：修改 `core/config.py`（备选）**
+```json
+{
+    "API_KEY": "sk-your-api-key-here",
+    "API_URL": "https://api.siliconflow.cn/v1/chat/completions",
+    "MODEL_NAME_VL": "Qwen/Qwen3-VL-30B-A3B-Instruct",
+    "MODEL_NAME_TALK": "Qwen/Qwen3-VL-30B-A3B-Instruct"
+}
+```
 
-如果未提供 `config.txt`，系统会使用 `config.py` 中的默认值：
+**方式二：环境变量（CI/CD 友好）**
 
-```python
-# 大模型API配置
-API_KEY = "你的API密钥"
-MODEL_NAME_VL = "LongCat-Flash-Omni"
-MODEL_NAME_TALK = "LongCat-Flash-Thinking"
+```bash
+export API_KEY="sk-xxx"
+export EMBEDDING_API_KEY="sk-xxx"
+python app.py
+```
+
+同名环境变量自动覆盖 config.json 中的值。
+
+**方式三：`core/config.py` 默认值（fallback）**
+
+如果没有 config.json 且未设环境变量，使用 `core/config.py` 中的硬编码默认值。注意：API Key 类敏感字段默认为空，不设置则 LLM 调用失败。
 API_URL = "https://api.longcat.chat/v1/chat/completions"
 
 # PDF存储目录
@@ -557,7 +569,7 @@ cd test/compile_test && python test_experiment_compiler.py
 
 ## 十、注意事项
 
-1. **API配置**：首次运行前必须在 `config.txt` 中设置 `API_KEY`，否则所有LLM调用失败；
+1. **API配置**：首次运行前复制 `config.example.json` → `config.json` 并填入 `API_KEY`，或设置同名环境变量；
 2. **会话数据**：每次启动app.py创建新会话文件夹，旧会话数据保留在 `dialogue data/` 下，可手动清理；
 3. **MQTT连接**：硬件功能需MQTT服务器（EMQX）正常运行，否则硬件控制功能不可用；
 4. **端口占用**：Flask默认绑定5000端口，确保端口未被占用；
@@ -575,10 +587,10 @@ cd test/compile_test && python test_experiment_compiler.py
 ## 十一、常见问题
 
 **Q1: 启动后提示"API_KEY未配置"？**
-A: 在项目根目录创建 `config.txt`，添加 `API_KEY=你的密钥`。
+A: 复制 `config.example.json` → `config.json`，编辑填入 `API_KEY`。或 `export API_KEY=你的密钥`。
 
 **Q2: 文献提取失败，提示"PDF文件未找到"？**
-A: 检查 `config.txt` 中的 `PDF_FOLDER` 路径是否正确，确保PDF文件存在。
+A: 检查 `config.json` 中的 `PDF_FOLDER` 路径是否正确，确保PDF文件存在。
 
 **Q3: 硬件控制无响应？**
 A: 检查MQTT服务器是否运行，`hardware/mqtt/` 中的IP和端口配置是否正确。
@@ -623,7 +635,9 @@ A: 参见"扩展指南 → 添加新硬件工具"，核心是在 `hardware/tools
 |------|------|------|------|
 | Phase 1 | 页面预筛选 | Embedding向量相似度判断页面与提取目标的相关性，跳过无关页面 | ✅ 已完成 |
 | Phase 2 | Few-shot增强 | 检索历史提取结果作为示例，提升LLM提取准确率 | ✅ 已完成 |
-| Phase 3 | 语义搜索 | 全文献库语义搜索，命中后再做深度提取 | ⏳ 待实现 |
+| Phase 3 | 语义搜索 | 全文献库语义搜索（后端API已完成，前端UI为Phase 4） | ✅ 已完成 |
+| Phase 4 | 前端搜索UI | 搜索栏、结果卡片、页面预览 | ⏳ 待实现 |
+| 去重 | 提取结果去重 | 按实体名称（fields[0]）合并重复行，保留最长描述 | ✅ 已完成 |
 
 ### Phase 1 已实现文件清单
 
@@ -654,6 +668,24 @@ LLM提取完成 → 保存到 extraction_history.db (page_id, extracted JSON, ta
          → 注入 Top-K 示例到 system prompt 作为 Few-Shot 参考
 ```
 
+### Phase 3 已实现文件清单
+
+| 文件 | 说明 |
+|------|------|
+| `extract/semantic_search.py` | 语义搜索：`SemanticSearch.search(query, top_k)` embed 查询 → 向量搜索 → SQLite 丰富 → 返回结果+相似度 |
+| `app.py` | 启动时初始化 embedding/vector_store 并注入多个消费者，新增 `POST /api/semantic_search` 和 `POST /api/page_image` |
+| `core/config.py` | `SEMANTIC_SEARCH_ENABLED=True` |
+
+### 去重 已实现文件清单
+
+| 文件 | 说明 |
+|------|------|
+| `extract/dedup.py` | `deduplicate_extraction_results(data, fields)` 按 `fields[0]` 实体名去重，规范化（strip/lower/strict），合并（longest/first_non_empty），添加 `_occurrence_count` / `_source_docs` |
+| `extract/extraction_engine.py` | `_save_extraction_results()` 中 CSV 写入前调用去重 |
+| `core/config.py` | `DEDUP_ENABLED=True`, `DEDUP_NORMALIZE="strip"`, `DEDUP_MERGE_STRATEGY="longest"`, `DEDUP_ADD_METADATA=True` |
+
+**TODO（后续优化）:** 语义相似度去重（embedding 聚类）；LLM 层面跨页感知去重
+
 ### 技术栈
 
 - **Embedding 后端**：`EMBEDDING_BACKEND="api"` 支持任意 OpenAI 兼容接口（默认 SiliconFlow `BAAI/bge-large-en-v1.5`，1024维）
@@ -664,26 +696,45 @@ LLM提取完成 → 保存到 extraction_history.db (page_id, extracted JSON, ta
 
 ### 配置说明
 
-```python
-# core/config.py 关键配置项
-EMBEDDING_BACKEND = "api"                              # "api" | "jina" | "local"
-EMBEDDING_API_KEY  = "sk-xxx"                         # SiliconFlow API Key
-EMBEDDING_MODEL    = "BAAI/bge-large-en-v1.5"         # 推荐英文文献模型
-PAGE_FILTER_ENABLED    = True                         # 开启预筛选
-PAGE_FILTER_THRESHOLD  = 0.3                          # 余弦相似度阈值
-FEW_SHOT_ENABLED       = True                         # Phase 2: 检索历史 Few-Shot 示例
-FEW_SHOT_TOP_K         = 3                            # 注入提示词的示例数
-SEMANTIC_SEARCH_ENABLED = False                       # Phase 3 flag
+所有配置集中在 `config.json`（或环境变量）中，无需编辑 Python 代码：
+
+```json
+{
+    "EMBEDDING_BACKEND": "api",
+    "EMBEDDING_API_KEY": "sk-xxx",
+    "EMBEDDING_API_URL": "https://api.siliconflow.cn/v1/embeddings",
+    "EMBEDDING_MODEL": "BAAI/bge-large-en-v1.5",
+    "PAGE_FILTER_ENABLED": true,
+    "PAGE_FILTER_THRESHOLD": 0.3,
+    "FEW_SHOT_ENABLED": true,
+    "FEW_SHOT_TOP_K": 3,
+    "SEMANTIC_SEARCH_ENABLED": true,
+    "DEDUP_ENABLED": true,
+    "DEDUP_NORMALIZE": "strip",
+    "DEDUP_MERGE_STRATEGY": "longest",
+    "DEDUP_ADD_METADATA": true
+}
 ```
+
+完整模板见 `config.example.json`。
 
 ### 测试
 
 ```bash
-# 功能测试
+# Phase 1 功能测试
 python platform_init/test/phase1_page_filter/test_phase1.py
 
-# 模型对比测试（BGE-en-v1.5 vs Qwen3-VL-Embedding-8B）
+# Phase 1 模型对比测试（BGE-en-v1.5 vs Qwen3-VL-Embedding-8B）
 python platform_init/test/phase1_page_filter/test_model_comparison.py
+
+# Phase 2 Few-Shot 测试
+python platform_init/test/phase2_few_shot/test_phase2.py
+
+# Phase 3 语义搜索测试
+python platform_init/test/phase3_semantic_search/test_phase3.py
+
+# 去重测试
+python platform_init/test/dedup/test_dedup.py
 ```
 
 ---

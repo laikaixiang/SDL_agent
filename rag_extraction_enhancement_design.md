@@ -1,7 +1,7 @@
 # RAG-enhanced Literature Extraction Design
 
-Status: **Phase 1+2 implemented (2026-05-07), Phase 3 pending**
-Date: 2026-05-06 (design) / 2026-05-07 (Phase 1+2 done)
+Status: **Phase 1+2+3 + Dedup implemented (2026-05-07), Phase 4 (frontend) pending**
+Date: 2026-05-06 (design) / 2026-05-07 (Phase 1+2+3 + Dedup done)
 
 ## 1. Problem Statement
 
@@ -22,7 +22,9 @@ For each PDF → For each page → extract content → LLM call → parse JSON �
 |-------|------|-------------|
 | Phase 1 | Page pre-filtering | Skip irrelevant pages before LLM call using multimodal embedding similarity | **DONE** |
 | Phase 2 | Few-shot retrieval | Use historical extraction results as prompt examples to improve accuracy | **DONE** |
-| Phase 3 | Semantic search | Full-text semantic search across all indexed documents |
+| Phase 3 | Semantic search | Full-text semantic search across all indexed documents | **DONE** |
+| Phase 4 | Frontend UI | Search bar, result cards, page preview in browser | TODO |
+| Dedup | Extraction dedup | Deduplicate extracted entities by name (fields[0]), merge info | **DONE** |
 
 All phases share common infrastructure (VectorStore + EmbeddingService) and are independently usable via config flags.
 
@@ -391,7 +393,7 @@ if examples:
     sys_prompt = few_shot_text + "\n\n" + sys_prompt
 ```
 
-## 9. Phase 3: Semantic Search (Outline)
+## 9. Phase 3: Semantic Search (DONE — Backend API)
 
 ### 9.1 Goal
 
@@ -499,12 +501,42 @@ SEMANTIC_SEARCH_ENABLED: bool = False    # Phase 3 flag
 | `core/extraction_engine.py` | Added `few_shot_retriever` init, `_inject_few_shot_examples()`, `_save_to_extraction_history()`, threaded `task_description` to vision/text methods |
 | `core/config.py` | Set `FEW_SHOT_ENABLED=True` (was False) |
 
-### Future Files (Phase 3)
+### Phase 3 Files (DONE — Backend)
 
 | File | Description |
 |------|-------------|
-| `core/semantic_search.py` | Phase 3: semantic search logic |
-| `app.py` (modify) | Add `/api/semantic_search` route |
+| `extract/semantic_search.py` | `SemanticSearch` class: embed query → vector search → SQLite enrich → results |
+
+### Modified Files (Phase 3, DONE)
+
+| File | Change |
+|------|--------|
+| `app.py` | Init embedding/vector_store at startup, inject into ExtractionEngine, add `/api/semantic_search` + `/api/page_image` routes |
+| `extract/extraction_engine.py` | `_init_page_filter_services()` supports externally-injected services |
+| `core/config.py` | `SEMANTIC_SEARCH_ENABLED=True` |
+
+### Dedup Files (DONE)
+
+| File | Description |
+|------|-------------|
+| `extract/dedup.py` | `deduplicate_extraction_results(data, fields)` — groups by `fields[0]` (entity name), normalizes keys (strip/lower/strict), merges duplicates (longest/first_non_empty), adds `_occurrence_count` and `_source_docs` |
+
+### Modified Files (Dedup, DONE)
+
+| File | Change |
+|------|--------|
+| `extract/extraction_engine.py` | Calls `deduplicate_extraction_results()` in `_save_extraction_results()` before CSV write, re-scans `all_keys` after dedup |
+| `core/config.py` | Added `DEDUP_ENABLED=True`, `DEDUP_NORMALIZE="strip"`, `DEDUP_MERGE_STRATEGY="longest"`, `DEDUP_ADD_METADATA=True` |
+
+**TODO (后续优化):** Semantic similarity dedup via embedding clustering; LLM-level cross-page dedup by passing already-extracted entities in prompt.
+
+### Future Files (Phase 4)
+
+| File | Description |
+|------|-------------|
+| `templates/index.html` | Phase 4: search bar + result panel UI |
+| `templates/static/js/semantic_search.js` | Phase 4: frontend search interaction |
+| `templates/static/css/main.css` | Phase 4: search panel styles |
 
 ## 12. pgvector Migration Path (TODO)
 

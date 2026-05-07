@@ -36,6 +36,9 @@ from core import (
     AdaptiveStreamHandler,
 )
 from core.extract_manager import PDFProcessor, ExtractionEngine
+from extract.embedding_service import create_embedding_service
+from extract.vector_store import ChromaVectorStore
+from extract.semantic_search import SemanticSearch
 from utils import CSVWriter
 
 # 初始化Flask应用，static 文件夹已移入 templates/static
@@ -50,7 +53,24 @@ field_inference = FieldInference()
 algorithm_parser = AlgorithmParser(llm_client)    # 算法解析器
 hardware_controller = HardwareController()
 task_manager = TaskManager()
+
+# Phase 3: 语义搜索基础设施（提前初始化，供 ExtractionEngine 复用）
+_semantic_search_instance = None
+try:
+    _embedding_service = create_embedding_service()
+    _vector_store = ChromaVectorStore(persist_dir=config.CHROMADB_PERSIST_DIR)
+    _sqlite_path = os.path.join(config.CHROMADB_PERSIST_DIR, "page_metadata.db")
+    _semantic_search_instance = SemanticSearch(_embedding_service, _vector_store, _sqlite_path)
+    print(f"[语义搜索] 初始化成功，已索引 {_vector_store.count()} 个页面向量")
+except Exception as e:
+    print(f"[语义搜索] 初始化失败: {e}，搜索功能不可用")
+
+# 初始化 ExtractionEngine，注入已创建的 embedding/vector_store
 extraction_engine = ExtractionEngine(task_manager)
+if _semantic_search_instance is not None:
+    extraction_engine.embedding_service = _embedding_service
+    extraction_engine.vector_store = _vector_store
+
 csv_writer = CSVWriter()
 # experiment_agent = ExperimentDesignAgent()  # Deprecated PydanticAI version, now using Approach 2 in field_inference.py
 software_manager = SoftwareManager()        # 软件算法管理器
@@ -1672,6 +1692,80 @@ def history_sessions():
     else:
         data = {"sessions": []}
     return jsonify(data)
+
+
+# =============================================================================
+# Phase 3: 语义搜索 API
+# =============================================================================
+
+@app.route('/api/semantic_search', methods=['POST'])
+def semantic_search():
+    """
+    语义搜索全文献库
+
+    POST body: {"query": "钙钛矿钝化剂效率对比", "top_k": 10}
+    返回匹配的页面列表，含文本片段和相似度
+    """
+    global _semantic_search_instance
+    if _semantic_search_instance is None:
+        return jsonify({"success": False, "error": "语义搜索服务未初始化，请检查 EMBEDDING_API_KEY 配置"}), 503
+
+    data = request.get_json(silent=True) or {}
+    query = (data.get("query") or "").strip()
+    top_k = data.get("top_k", 10)
+
+    if not query:
+        return jsonify({"success": False, "error": "query 不能为空"}), 400
+
+    if top_k < 1 or top_k > 100:
+        top_k = 10
+
+    results = _semantic_search_instance.search(query, top_k=top_k)
+    total_pages = _semantic_search_instance.get_total_pages()
+
+    return jsonify({
+        "success": True,
+        "query": query,
+        "total_pages_indexed": total_pages,
+        "result_count": len(results),
+        "results": results,
+    })
+
+
+@app.route('/api/page_image', methods=['POST'])
+def page_image():
+    """
+    获取 PDF 指定页面的图片（base64）
+
+    POST body: {"pdf_path": "dialogue data/PDF_TARGET/xxx.pdf", "page_num": 2}
+    返回 base64 编码的 JPEG 图片
+    """
+    data = request.get_json(silent=True) or {}
+    pdf_path = (data.get("pdf_path") or "").strip()
+    page_num = data.get("page_num", -1)
+
+    if not pdf_path:
+        return jsonify({"success": False, "error": "pdf_path 不能为空"}), 400
+
+    if page_num < 0:
+        return jsonify({"success": False, "error": "page_num 必须 >= 0"}), 400
+
+    if not os.path.isfile(pdf_path):
+        return jsonify({"success": False, "error": f"PDF 文件不存在: {pdf_path}"}), 404
+
+    try:
+        img_base64 = pdf_processor.pdf_page_to_image(pdf_path, page_num)
+        if not img_base64:
+            return jsonify({"success": False, "error": f"无法转换第 {page_num + 1} 页"}), 500
+
+        return jsonify({
+            "success": True,
+            "pdf_path": pdf_path,
+            "page_num": page_num,
+            "image_base64": img_base64,
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 if __name__ == '__main__':

@@ -35,8 +35,14 @@
     "FEW_SHOT_ENABLED": true,
     "FEW_SHOT_TOP_K": 3,
 
-    "_语义搜索": "=== RAG3: 语义搜索（未实现）===",
-    "SEMANTIC_SEARCH_ENABLED": false,
+    "_语义搜索": "=== RAG3: 语义搜索 ===",
+    "SEMANTIC_SEARCH_ENABLED": true,
+
+    "_去重配置": "=== 提取结果去重: normalize='strip'|'lower'|'strict', merge_strategy='longest'|'first_non_empty' ===",
+    "DEDUP_ENABLED": true,
+    "DEDUP_NORMALIZE": "strip",
+    "DEDUP_MERGE_STRATEGY": "longest",
+    "DEDUP_ADD_METADATA": true,
 
     "_文件路径": "=== 数据存储和模板目录 ===",
     "DIALOGUE_DATA_DIR": "dialogue data/history",

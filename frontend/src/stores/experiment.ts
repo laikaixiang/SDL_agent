@@ -62,6 +62,131 @@ export const useExperimentStore = defineStore('experiment', () => {
 
   const jsonCode = computed(() => JSON.stringify(plan.value, null, 2))
 
+  // --- Nesting & block structure ---
+
+  interface StepNestingInfo {
+    level: number
+    isBlockStart: boolean
+    isBlockEnd: boolean
+    blockType?: 'LOOP' | 'GROUP' | 'CONDITION'
+    guideLines: number[]
+  }
+
+  const BLOCK_OPENERS = new Set(['LOOP', 'GROUP', 'CONDITION'])
+
+  const nestingInfo = computed<StepNestingInfo[]>(() => {
+    const result: StepNestingInfo[] = []
+    const stack: string[] = []
+
+    for (const step of steps.value) {
+      const currentLevel = stack.length
+      const isHelper = step.type === 'helper'
+      const isBlockStart = isHelper && BLOCK_OPENERS.has(step.name)
+      const isBlockEnd = isHelper && step.name === 'END'
+
+      if (isBlockStart) {
+        result.push({
+          level: currentLevel,
+          isBlockStart: true,
+          isBlockEnd: false,
+          blockType: step.name as 'LOOP' | 'GROUP' | 'CONDITION',
+          guideLines: Array.from({ length: currentLevel }, (_, j) => j),
+        })
+        stack.push(step.name)
+      } else if (isBlockEnd) {
+        if (stack.length > 0) {
+          stack.pop()
+          result.push({
+            level: stack.length,
+            isBlockStart: false,
+            isBlockEnd: true,
+            guideLines: Array.from({ length: stack.length }, (_, j) => j),
+          })
+        } else {
+          result.push({
+            level: 0,
+            isBlockStart: false,
+            isBlockEnd: true,
+            guideLines: [],
+          })
+        }
+      } else {
+        result.push({
+          level: currentLevel,
+          isBlockStart: false,
+          isBlockEnd: false,
+          guideLines: Array.from({ length: currentLevel }, (_, j) => j),
+        })
+      }
+    }
+
+    return result
+  })
+
+  const blockErrors = computed(() => {
+    const stack: string[] = []
+    let orphanedEnd: number | null = null
+
+    for (let i = 0; i < steps.value.length; i++) {
+      const step = steps.value[i]
+      if (step.type === 'helper' && BLOCK_OPENERS.has(step.name)) {
+        stack.push(step.name)
+      } else if (step.type === 'helper' && step.name === 'END') {
+        if (stack.length > 0) {
+          stack.pop()
+        } else if (orphanedEnd === null) {
+          orphanedEnd = i
+        }
+      }
+    }
+
+    return {
+      unclosed: stack.length > 0 ? stack[stack.length - 1] : null,
+      lastIndex: stack.length > 0 ? steps.value.length - 1 : null,
+      orphanedEnd,
+    }
+  })
+
+  // --- Collapse state ---
+
+  const collapsedBlocks = ref<Set<number>>(new Set())
+
+  function toggleCollapse(index: number) {
+    const s = new Set(collapsedBlocks.value)
+    if (s.has(index)) {
+      s.delete(index)
+    } else {
+      s.add(index)
+    }
+    collapsedBlocks.value = s
+  }
+
+  const hiddenStepIndices = computed(() => {
+    const hidden = new Set<number>()
+    for (const startIdx of collapsedBlocks.value) {
+      const step = steps.value[startIdx]
+      if (!step || step.type !== 'helper' || !BLOCK_OPENERS.has(step.name)) {
+        continue
+      }
+      let depth = 0
+      for (let i = startIdx + 1; i < steps.value.length; i++) {
+        const s = steps.value[i]
+        if (s.type === 'helper' && BLOCK_OPENERS.has(s.name)) {
+          depth++
+        } else if (s.type === 'helper' && s.name === 'END') {
+          if (depth === 0) {
+            for (let j = startIdx + 1; j <= i; j++) {
+              hidden.add(j)
+            }
+            break
+          }
+          depth--
+        }
+      }
+    }
+    return hidden
+  })
+
   function addLog(msg: string) {
     logMessages.value.push(msg)
   }
@@ -264,6 +389,7 @@ export const useExperimentStore = defineStore('experiment', () => {
     logMessages.value = []
     editingStepIndex.value = null
     codeViewMode.value = 'json'
+    collapsedBlocks.value = new Set()
   }
 
   // --- Execute ---
@@ -317,7 +443,8 @@ export const useExperimentStore = defineStore('experiment', () => {
     experimentName, steps, codeViewMode, pythonCode, editingStepIndex,
     draggedStepIndex, codeAreaMinimized, codeAreaFullscreen,
     hardwareTools, algorithms, loading, running, error, logMessages,
-    plan, jsonCode,
+    plan, jsonCode, nestingInfo, blockErrors,
+    collapsedBlocks, toggleCollapse, hiddenStepIndices,
     addStep, removeStep, moveStepUp, moveStepDown, moveStep, updateStep, toggleEdit,
     addToolStep, addAlgorithmStep, addHelperFunction,
     loadHardwareTools, loadAlgorithms,

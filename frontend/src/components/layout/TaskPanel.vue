@@ -54,7 +54,7 @@ const isWide = computed(() => layout.activeTaskPanel === 'experiment')
 }
 
 .task-panel.wide {
-  width: 500px;
+  width: 700px;
 }
 
 .task-header {

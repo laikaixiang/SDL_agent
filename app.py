@@ -8,7 +8,7 @@ Flask应用入口 - 简洁的Web服务入口
 - 核心业务逻辑通过core模块调用
 """
 
-from flask import Flask, request, jsonify, render_template, Response, session
+from flask import Flask, request, jsonify, render_template, Response, session, send_from_directory
 import threading
 import os
 import json
@@ -221,7 +221,13 @@ def extraction_mode_page():
 @app.route('/v2/<path:path>')
 def serve_v2_frontend(path: str = None):
     """新版 Vue SPA 入口 — 所有 /v2/* 路由返回同一个 index.html"""
-    return app.send_static_file('dist/index.html')
+    return send_from_directory('frontend/dist', 'index.html')
+
+
+@app.route('/v2-static/<path:filename>')
+def serve_v2_static(filename: str):
+    """新版静态资源 — JS/CSS/图片等"""
+    return send_from_directory('frontend/dist', filename)
 
 
 @app.route('/api/upload', methods=['POST'])

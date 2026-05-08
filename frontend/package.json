@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
-    "build:flask": "vue-tsc -b && vite build --base=/static/dist/ && cp -r dist/* ../templates/static/dist/",
+    "build:flask": "vue-tsc -b && vite build --base=/v2-static/",
     "preview": "vite preview"
   },
   "dependencies": {

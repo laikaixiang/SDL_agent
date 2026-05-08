@@ -1,1 +1,0 @@
-import{d as s,a as o,n as t,r as n,o as r,_ as c}from"./index-Di4pJKGi.js";const d=s({__name:"Badge",props:{variant:{}},setup(a){return(e,l)=>(r(),o("span",{class:t(["badge",a.variant||"default"])},[n(e.$slots,"default",{},void 0)],2))}}),_=c(d,[["__scopeId","data-v-09654789"]]);export{_ as B};

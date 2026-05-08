@@ -42,7 +42,7 @@ def test_new_ui_v2_root():
         assert resp.status_code == 200, f"Expected 200, got {resp.status_code}"
         html = resp.data.decode('utf-8')
         assert '<div id="app">' in html, "Must contain Vue mount point"
-        assert '/static/dist/assets/' in html, "Must reference built assets"
+        assert '/v2-static/assets/' in html, "Must reference built assets"
     print("PASS")
 
 
@@ -84,9 +84,9 @@ def test_api_unaffected():
 def test_static_assets():
     """Vite 构建的静态资源可访问"""
     print("\n=== test_static_assets ===")
-    # Check dist/index.html exists
+    # Check dist/index.html exists (now in frontend/dist/)
     dist_index = os.path.join(os.path.dirname(__file__), '..', '..', '..',
-                              'templates', 'static', 'dist', 'index.html')
+                              'frontend', 'dist', 'index.html')
     assert os.path.exists(dist_index), f"dist/index.html not found at {dist_index}"
     assert os.path.getsize(dist_index) > 100, "dist/index.html is too small"
 
@@ -143,7 +143,7 @@ def test_build_integrity():
     """构建产物完整性"""
     print("\n=== test_build_integrity ===")
     dist_dir = os.path.join(os.path.dirname(__file__), '..', '..', '..',
-                            'templates', 'static', 'dist')
+                            'frontend', 'dist')
     assets_dir = os.path.join(dist_dir, 'assets')
 
     # Count all page JS chunks (lazy-loaded routes)

@@ -1,17 +1,20 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import { useExperimentStore } from '@/stores/experiment'
 import { useLayoutStore } from '@/stores/layout'
-import ResultCard from '@/components/cards/ResultCard.vue'
+import ElementPanel from '@/components/experiment/ElementPanel.vue'
+import StepCanvas from '@/components/experiment/StepCanvas.vue'
+import CodeArea from '@/components/experiment/CodeArea.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
-import Badge from '@/components/common/Badge.vue'
-import EmptyState from '@/components/common/EmptyState.vue'
-import InputBar from '@/components/chat/InputBar.vue'
-import { FlaskConical, Code, Play, Terminal } from 'lucide-vue-next'
+import ConfirmDialog from '@/components/modals/ConfirmDialog.vue'
+import { FlaskConical, Save, Play, Upload, Sparkles, Trash2 } from 'lucide-vue-next'
 
 const store = useExperimentStore()
 const layout = useLayoutStore()
-const inputText = ref('')
+
+const showClearConfirm = ref(false)
+const showAIPrompt = ref(false)
+const aiPrompt = ref('')
 
 watch(() => store.loading, (val) => {
   if (val) {
@@ -21,107 +24,266 @@ watch(() => store.loading, (val) => {
   }
 })
 
-async function onSend(text: string) {
-  inputText.value = ''
-  await store.sendDesignRequest(text)
+onMounted(() => {
+  store.loadHardwareTools()
+  store.loadAlgorithms()
+})
+
+function onImport() {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = '.json'
+  input.onchange = () => {
+    const file = input.files?.[0]
+    if (file) store.importFile(file)
+  }
+  input.click()
+}
+
+function onAIGenerate() {
+  if (!aiPrompt.value.trim()) return
+  showAIPrompt.value = false
+  store.generateFromAI(aiPrompt.value)
+  aiPrompt.value = ''
 }
 </script>
 
 <template>
   <div class="experiment-page">
-    <div class="page-header">
-      <h2><FlaskConical :size="20" /> 实验设计</h2>
+    <!-- Header -->
+    <div class="exp-header">
+      <div class="exp-title">
+        <FlaskConical :size="18" />
+        <span>{{ store.experimentName }}</span>
+      </div>
+      <div class="exp-status">
+        <span v-if="store.loading" class="status-loading">AI 设计中...</span>
+        <span v-if="store.running" class="status-running">执行中...</span>
+      </div>
     </div>
 
-    <div class="page-body">
-      <!-- Input -->
-      <div class="command-area">
-        <InputBar
-          v-model="inputText"
-          :disabled="store.loading"
-          placeholder='输入"实验设计：<描述>" ...'
-          @send="onSend"
-        />
-      </div>
+    <!-- Main: ElementPanel | Canvas -->
+    <div class="exp-main">
+      <ElementPanel />
+      <StepCanvas />
 
-      <!-- Loading -->
-      <div v-if="store.loading" class="loading-area">
+      <!-- Loading overlay -->
+      <div v-if="store.loading" class="exp-loading">
         <LoadingSpinner :size="24" label="AI 设计实验中..." />
       </div>
 
       <!-- Error -->
-      <div v-if="store.error" class="error-area">{{ store.error }}</div>
+      <div v-if="store.error && !store.loading" class="exp-error">{{ store.error }}</div>
+    </div>
 
-      <!-- Plan -->
-      <div v-if="store.plan" class="plan-area">
-        <div class="plan-header">
-          <h3>{{ store.plan.experiment_name }}</h3>
-          <div class="plan-actions">
-            <button class="tb-btn" :class="{ active: store.codeViewMode === 'json' }" @click="store.codeViewMode = 'json'">
-              <Code :size="14" /> JSON
-            </button>
-            <button class="tb-btn" @click="store.compile()">
-              <Terminal :size="14" /> 编译
-            </button>
-            <button class="tb-btn" :class="{ active: store.codeViewMode === 'python' }" @click="store.codeViewMode = 'python'">
-              <Play :size="14" /> Python
-            </button>
-          </div>
+    <!-- Code area -->
+    <CodeArea />
+
+    <!-- Toolbar -->
+    <div class="exp-toolbar">
+      <button class="tb-btn" @click="store.save()">
+        <Save :size="14" /> 保存
+      </button>
+      <button class="tb-btn" @click="store.execute()" :disabled="!store.steps.length || store.running">
+        <Play :size="14" /> 执行
+      </button>
+      <button class="tb-btn" @click="onImport">
+        <Upload :size="14" /> 导入
+      </button>
+      <button class="tb-btn" @click="showAIPrompt = true">
+        <Sparkles :size="14" /> AI 生成
+      </button>
+      <button class="tb-btn tb-btn-secondary" @click="showClearConfirm = true">
+        <Trash2 :size="14" /> 清空
+      </button>
+    </div>
+
+    <!-- Clear confirm -->
+    <ConfirmDialog
+      :open="showClearConfirm"
+      title="清空实验设计"
+      message="确认清空所有步骤？此操作不可撤销。"
+      confirmText="清空"
+      @confirm="store.clear(); showClearConfirm = false"
+      @cancel="showClearConfirm = false"
+    />
+
+    <!-- AI prompt modal -->
+    <div v-if="showAIPrompt" class="ai-prompt-overlay" @click.self="showAIPrompt = false">
+      <div class="ai-prompt-card">
+        <h3>AI 生成实验</h3>
+        <textarea
+          v-model="aiPrompt"
+          class="ai-prompt-input"
+          placeholder="描述你的实验，例如：设计一个旋涂实验，转速3000rpm，退火150度30分钟"
+          rows="4"
+          autofocus
+        />
+        <div class="ai-prompt-actions">
+          <button class="btn-cancel" @click="showAIPrompt = false">取消</button>
+          <button class="btn-save" @click="onAIGenerate">生成</button>
         </div>
-
-        <!-- Step list view -->
-        <div v-if="store.codeViewMode === 'json'" class="step-list">
-          <div v-for="(s, i) in store.plan.steps" :key="i" class="step-item">
-            <div class="step-num">{{ i + 1 }}</div>
-            <div class="step-body">
-              <div class="step-head">
-                <Badge :variant="s.type === 'tool' ? 'success' : s.type === 'helper' ? 'warning' : 'default'">{{ s.type }}</Badge>
-                <span class="step-name">{{ s.name }}</span>
-              </div>
-              <div class="step-desc" v-if="s.description">{{ s.description }}</div>
-              <pre class="step-params" v-if="s.params && Object.keys(s.params).length">{{ JSON.stringify(s.params, null, 2) }}</pre>
-            </div>
-          </div>
-        </div>
-
-        <!-- Code view -->
-        <div v-else class="code-view">
-          <pre><code>{{ store.pythonCode || '点击"编译"生成 Python 代码' }}</code></pre>
-        </div>
-      </div>
-
-      <!-- Empty -->
-      <div v-if="!store.plan && !store.loading && !store.error" class="body-center">
-        <EmptyState title="实验设计" description='输入"实验设计：<描述>" AI 将自动规划实验流程' />
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.experiment-page { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
-.page-header { padding: var(--space-lg) var(--space-xl) 0; }
-.page-header h2 { font-size: 18px; display: flex; align-items: center; gap: var(--space-sm); }
-.page-body { flex: 1; overflow-y: auto; padding: var(--space-lg) var(--space-xl); display: flex; flex-direction: column; gap: var(--space-lg); }
-.body-center { flex: 1; display: flex; align-items: center; justify-content: center; }
-.command-area { flex-shrink: 0; }
-.loading-area { display: flex; justify-content: center; }
-.error-area { font-size: 14px; color: var(--color-error); text-align: center; padding: var(--space-xl); }
-.plan-area { flex: 1; }
-.plan-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-lg); }
-.plan-header h3 { font-size: 16px; }
-.plan-actions { display: flex; gap: 4px; }
-.tb-btn { display: flex; align-items: center; gap: 4px; padding: 6px 12px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-secondary); font-size: 13px; cursor: pointer; }
-.tb-btn:hover { background: var(--color-bg-soft); }
-.tb-btn.active { background: var(--color-primary-soft); color: var(--color-primary); border-color: var(--color-primary); }
-.step-list { display: flex; flex-direction: column; gap: var(--space-sm); }
-.step-item { display: flex; gap: var(--space-md); padding: var(--space-md); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
-.step-num { width: 28px; height: 28px; border-radius: 50%; background: var(--color-primary-soft); color: var(--color-primary); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; flex-shrink: 0; }
-.step-body { flex: 1; min-width: 0; }
-.step-head { display: flex; align-items: center; gap: var(--space-sm); margin-bottom: 6px; }
-.step-name { font-weight: 600; font-size: 14px; }
-.step-desc { font-size: 13px; color: var(--color-text-secondary); margin-bottom: 6px; }
-.step-params { font-size: 12px; color: var(--color-text-tertiary); background: var(--color-bg-soft); padding: var(--space-sm); border-radius: var(--radius-sm); overflow-x: auto; }
-.code-view { background: var(--color-bg-soft); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-lg); overflow: auto; }
-.code-view pre { font-size: 13px; line-height: 1.6; white-space: pre-wrap; }
+.experiment-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Header */
+.exp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.exp-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.status-loading { font-size: 12px; color: var(--color-warning); }
+.status-running { font-size: 12px; color: var(--color-primary); }
+
+/* Main */
+.exp-main {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  position: relative;
+}
+
+.exp-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,0.7);
+  backdrop-filter: blur(4px);
+  z-index: 10;
+}
+
+.exp-error {
+  position: absolute;
+  bottom: var(--space-md);
+  left: 200px;
+  right: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: var(--radius-md);
+  color: var(--color-error);
+  font-size: 13px;
+  z-index: 10;
+}
+
+/* Toolbar */
+.exp-toolbar {
+  display: flex;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+  flex-shrink: 0;
+}
+
+.tb-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.tb-btn:hover:not(:disabled) {
+  background: var(--color-bg-soft);
+}
+
+.tb-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.tb-btn-secondary {
+  margin-left: auto;
+}
+
+/* AI prompt */
+.ai-prompt-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10001;
+}
+
+.ai-prompt-card {
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  padding: var(--space-xl);
+  width: 500px;
+  max-width: 90vw;
+  box-shadow: var(--shadow-lg);
+}
+
+.ai-prompt-card h3 {
+  font-size: 16px;
+  margin-bottom: var(--space-lg);
+}
+
+.ai-prompt-input {
+  width: 100%;
+  padding: var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.ai-prompt-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.ai-prompt-actions {
+  display: flex;
+  gap: var(--space-sm);
+  justify-content: flex-end;
+  margin-top: var(--space-lg);
+}
+
+.btn-cancel, .btn-save {
+  padding: 8px 20px;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.btn-cancel { background: var(--color-bg-mute); color: var(--color-text); }
+.btn-save { background: var(--color-primary); color: #fff; }
+.btn-save:hover { opacity: 0.9; }
 </style>

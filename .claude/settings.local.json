@@ -14,7 +14,8 @@
       "Bash(npm install *)",
       "Bash(npm run *)",
       "Bash(python platform_init/test/frontend/test_frontend.py)",
-      "Bash(python platform_init/test/dedup/test_dedup.py)"
+      "Bash(python platform_init/test/dedup/test_dedup.py)",
+      "Bash(python *)"
     ]
   },
   "enabledPlugins": {}

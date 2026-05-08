@@ -1,0 +1,11 @@
+import{j as p,d as y,v as g,c as k,a,E as I,G as V,g as c,f as u,x as r,h as f,o as B,_ as C}from"./index-C1kAAWE6.js";/**
+ * @license lucide-vue-next v1.0.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const E=p("paperclip",[["path",{d:"m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551",key:"1miecu"}]]);/**
+ * @license lucide-vue-next v1.0.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const M=p("send",[["path",{d:"M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z",key:"1ffxy3"}],["path",{d:"m21.854 2.147-10.94 10.939",key:"12cjpa"}]]),w={class:"input-bar"},z={class:"input-row"},S=["placeholder","disabled"],j=["disabled"],D={class:"input-toolbar"},F=y({__name:"InputBar",props:r({disabled:{type:Boolean},placeholder:{}},{modelValue:{default:""},modelModifiers:{}}),emits:r(["send","fileSelected"],["update:modelValue"]),setup(s,{emit:h}){const l=g(s,"modelValue"),n=h,i=f(),o=f();function m(e){e.key==="Enter"&&!e.shiftKey&&(e.preventDefault(),d())}function d(){const e=l.value.trim();e&&(n("send",e),l.value="")}function v(){const e=i.value;e&&(e.style.height="auto",e.style.height=e.scrollHeight+"px")}function b(){var e;(e=o.value)==null||e.click()}function x(e){const t=e.target;t.files&&t.files.length>0&&(n("fileSelected",t.files[0]),t.value="")}return(e,t)=>(B(),k("div",w,[a("div",z,[I(a("textarea",{ref_key:"textarea",ref:i,"onUpdate:modelValue":t[0]||(t[0]=_=>l.value=_),class:"input-textarea",placeholder:s.placeholder||"输入消息... (Enter 发送, Shift+Enter 换行)",disabled:s.disabled,rows:"1",onKeydown:m,onInput:v},null,40,S),[[V,l.value]]),a("button",{class:"send-btn",disabled:s.disabled||!l.value.trim(),onClick:d},[c(u(M),{size:18})],8,j)]),a("div",D,[a("input",{ref_key:"fileInput",ref:o,type:"file",accept:".pdf,.csv,.txt,.json,.xlsx,.xls",class:"file-input-hidden",onChange:x},null,544),a("button",{class:"toolbar-btn",title:"上传文件",onClick:b},[c(u(E),{size:15})])])]))}}),N=C(F,[["__scopeId","data-v-f89b0287"]]);export{N as I};

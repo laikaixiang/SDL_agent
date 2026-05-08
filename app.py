@@ -194,8 +194,8 @@ software_manager = SoftwareManager(
 
 
 def open_browser():
-    """打开浏览器"""
-    webbrowser.open("http://127.0.0.1:5000")
+    """打开浏览器 — 默认打开新版 Vue 前端"""
+    webbrowser.open("http://127.0.0.1:5000/v2")
 
 
 @app.route('/')
@@ -213,6 +213,15 @@ def extraction_mode_page():
     提取模式设置页面
     """
     return render_template('extraction_mode.html')
+
+
+# ── V2 新版前端 (Vue SPA) ──
+@app.route('/v2')
+@app.route('/v2/')
+@app.route('/v2/<path:path>')
+def serve_v2_frontend(path: str = None):
+    """新版 Vue SPA 入口 — 所有 /v2/* 路由返回同一个 index.html"""
+    return app.send_static_file('dist/index.html')
 
 
 @app.route('/api/upload', methods=['POST'])

@@ -6,7 +6,15 @@
       "Bash(python \"platform_init\\\\test\\\\phase1_page_filter\\\\test_phase1.py\")",
       "Bash(python platform_init/test/phase2_few_shot/test_phase2.py)",
       "Bash(python platform_init/test/phase3_semantic_search/test_phase3.py)",
-      "Bash(python -c \"from core.config import Config; c=Config\\(\\); print\\('DEDUP_ENABLED:', c.DEDUP_ENABLED\\); print\\('DEDUP_NORMALIZE:', c.DEDUP_NORMALIZE\\); print\\('DEDUP_MERGE_STRATEGY:', c.DEDUP_MERGE_STRATEGY\\)\")"
+      "Bash(python -c \"from core.config import Config; c=Config\\(\\); print\\('DEDUP_ENABLED:', c.DEDUP_ENABLED\\); print\\('DEDUP_NORMALIZE:', c.DEDUP_NORMALIZE\\); print\\('DEDUP_MERGE_STRATEGY:', c.DEDUP_MERGE_STRATEGY\\)\")",
+      "Bash(npm --version)",
+      "Bash(npx vite *)",
+      "Bash(curl -s http://localhost:5173)",
+      "Bash(npx vue-tsc *)",
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(python platform_init/test/frontend/test_frontend.py)",
+      "Bash(python platform_init/test/dedup/test_dedup.py)"
     ]
   },
   "enabledPlugins": {}

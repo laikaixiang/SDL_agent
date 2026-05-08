@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useHardwareStore } from '@/stores/hardware'
+import { useLayoutStore } from '@/stores/layout'
 import InputBar from '@/components/chat/InputBar.vue'
 import ResultCard from '@/components/cards/ResultCard.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
@@ -10,10 +11,25 @@ import ConfirmDialog from '@/components/modals/ConfirmDialog.vue'
 import { Cpu, Wrench } from 'lucide-vue-next'
 
 const store = useHardwareStore()
+const layout = useLayoutStore()
 const inputText = ref('')
 
 onMounted(() => {
   store.loadTools()
+})
+
+watch(() => store.isRunning, (val) => {
+  if (val) {
+    layout.updateTaskStatus('hardware', 'running', 10)
+  } else {
+    layout.updateTaskStatus('hardware', 'completed')
+  }
+})
+
+watch(() => store.logMessages.length, (len) => {
+  if (store.isRunning && len > 0) {
+    layout.updateTaskStatus('hardware', 'running', Math.min(90, 10 + len * 5))
+  }
 })
 
 async function onSend(text: string) {

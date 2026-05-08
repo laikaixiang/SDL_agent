@@ -1,16 +1,26 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, watch } from 'vue'
 import { useAnalysisStore } from '@/stores/analysis'
+import { useLayoutStore } from '@/stores/layout'
 import ResultCard from '@/components/cards/ResultCard.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import { BarChart3, FileText, Play } from 'lucide-vue-next'
 
 const store = useAnalysisStore()
+const layout = useLayoutStore()
 
 onMounted(() => {
   store.loadAlgorithms()
   store.loadFiles()
+})
+
+watch(() => store.loading, (val) => {
+  if (val) {
+    layout.updateTaskStatus('analysis', 'running', 10)
+  } else {
+    layout.updateTaskStatus('analysis', 'completed')
+  }
 })
 </script>
 

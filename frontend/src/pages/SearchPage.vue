@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { watch } from 'vue'
 import { useSearchStore } from '@/stores/search'
 import { useChatStore } from '@/stores/chat'
 import { useLayoutStore } from '@/stores/layout'
@@ -11,6 +12,14 @@ import EmptyState from '@/components/common/EmptyState.vue'
 const store = useSearchStore()
 const chat = useChatStore()
 const layout = useLayoutStore()
+
+watch(() => store.loading, (val) => {
+  if (val) {
+    layout.updateTaskStatus('search', 'running', 10)
+  } else {
+    layout.updateTaskStatus('search', 'completed')
+  }
+})
 
 function onPreview(pdfPath: string, pageNum: number) {
   store.viewPage(pdfPath, pageNum)

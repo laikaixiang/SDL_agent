@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { useExperimentStore } from '@/stores/experiment'
+import { useLayoutStore } from '@/stores/layout'
 import ResultCard from '@/components/cards/ResultCard.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import Badge from '@/components/common/Badge.vue'
@@ -9,7 +10,16 @@ import InputBar from '@/components/chat/InputBar.vue'
 import { FlaskConical, Code, Play, Terminal } from 'lucide-vue-next'
 
 const store = useExperimentStore()
+const layout = useLayoutStore()
 const inputText = ref('')
+
+watch(() => store.loading, (val) => {
+  if (val) {
+    layout.updateTaskStatus('experiment', 'running', 10)
+  } else {
+    layout.updateTaskStatus('experiment', 'completed')
+  }
+})
 
 async function onSend(text: string) {
   inputText.value = ''

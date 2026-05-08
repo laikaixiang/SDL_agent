@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { useExtractionStore } from '@/stores/extraction'
+import { useLayoutStore } from '@/stores/layout'
 import InputBar from '@/components/chat/InputBar.vue'
 import ResultCard from '@/components/cards/ResultCard.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
@@ -11,7 +12,22 @@ import SummaryModal from '@/components/modals/SummaryModal.vue'
 import { FileText, Check, X } from 'lucide-vue-next'
 
 const store = useExtractionStore()
+const layout = useLayoutStore()
 const inputText = ref('')
+
+watch(() => store.isRunning, (val) => {
+  if (val) {
+    layout.updateTaskStatus('extraction', 'running', 5)
+  } else {
+    layout.updateTaskStatus('extraction', 'completed')
+  }
+})
+
+watch(() => store.logMessages.length, (len) => {
+  if (store.isRunning && len > 0) {
+    layout.updateTaskStatus('extraction', 'running', Math.min(90, 5 + len * 3))
+  }
+})
 const showFieldConfirm = ref(false)
 const showSummary = ref(false)
 

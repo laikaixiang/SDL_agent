@@ -2,22 +2,63 @@ import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import type { Message } from '@/types/chat'
 import { sendChatMessage } from '@/api/chat'
+import { useSSE } from '@/composables/useSSE'
+import { useLayoutStore } from '@/stores/layout'
 
 export type ChatMode = 'normal' | 'extraction' | 'hardware' | 'experiment' | 'analysis'
+
+export const MODE_PREFIX: Record<ChatMode, string> = {
+  normal: '',
+  extraction: '帮我搜寻：',
+  hardware: '硬件控制：',
+  experiment: '实验设计：',
+  analysis: '数据分析',
+}
+
+export const MODE_LABEL: Record<ChatMode, string> = {
+  normal: '',
+  extraction: '📄 文献提取',
+  hardware: '⚙️ 硬件控制',
+  experiment: '🧪 实验设计',
+  analysis: '📈 数据分析',
+}
+
+export interface PageReading {
+  filename: string
+  page: number
+  image: string
+}
 
 export const useChatStore = defineStore('chat', () => {
   const messages = ref<Message[]>([])
   const isStreaming = ref(false)
   const abortController = ref<AbortController | null>(null)
   const currentMode = ref<ChatMode>('normal')
+  const extractionRunning = ref(false)
+  let extractionDisconnect: (() => void) | null = null
+
+  // Two-round extraction: field_confirm → start_extraction
+  const fieldConfirm = ref<{ task_desc: string; fields: string[] } | null>(null)
+
+  // PDF page preview during extraction
+  const currentPage = ref<PageReading | null>(null)
 
   const streamingMessage = computed(() =>
     isStreaming.value ? messages.value[messages.value.length - 1] : null
   )
 
+  const isModeActive = computed(() => currentMode.value !== 'normal')
+
   function setMode(mode: ChatMode) {
-    currentMode.value = mode
+    if (currentMode.value === mode) {
+      currentMode.value = 'normal'
+    } else {
+      currentMode.value = mode
+    }
   }
+
+  function enableExtraction() { currentMode.value = 'extraction' }
+  function disableExtraction() { currentMode.value = 'normal' }
 
   function addMessage(role: 'user' | 'ai', content: string) {
     messages.value.push({
@@ -27,11 +68,134 @@ export const useChatStore = defineStore('chat', () => {
     })
   }
 
+  function connectExtractionSSE() {
+    const layout = useLayoutStore()
+    extractionRunning.value = true
+    const { connect, disconnect } = useSSE('/api/task_stream', {
+      onMessage(msg) {
+        switch (msg.type) {
+          case 'info':
+          case 'progress':
+            layout.updateTaskStatus('extraction', 'running')
+            break
+          case 'reading_start':
+            currentPage.value = null
+            break
+          case 'reading_chunk':
+            // LLM streaming for current page — shown inline
+            break
+          case 'page_reading': {
+            const d = msg.data as { filename: string; page: number; image: string }
+            currentPage.value = { filename: d.filename, page: d.page, image: d.image }
+            break
+          }
+          case 'finding': {
+            const f = msg.data as { page: number; filename: string; details: Record<string, string> }
+            let text = `🎯 新发现 (第${f.page}页 · ${f.filename})\n`
+            for (const [k, v] of Object.entries(f.details)) {
+              if (k !== '_source_doc') text += `  ${k}: ${v}\n`
+            }
+            addMessage('ai', text.trim())
+            break
+          }
+          case 'complete': {
+            extractionRunning.value = false
+            extractionDisconnect = null
+            currentPage.value = null
+            layout.updateTaskStatus('extraction', 'completed')
+            const d = msg.data as Record<string, unknown> | undefined
+            if (d?.message) addMessage('ai', d.message as string)
+            if (d?.error) addMessage('ai', '❌ 任务失败：' + (d.error as string))
+            disconnect()
+            break
+          }
+          case 'error':
+            extractionRunning.value = false
+            extractionDisconnect = null
+            currentPage.value = null
+            addMessage('ai', '提取失败: ' + (msg.data as string))
+            disconnect()
+            break
+        }
+      },
+      onError(err) {
+        extractionDisconnect = null
+        currentPage.value = null
+        extractionRunning.value = false
+        addMessage('ai', '提取失败: ' + err.message)
+        layout.updateTaskStatus('extraction', 'completed')
+      },
+    })
+    extractionDisconnect = disconnect
+    connect()
+  }
+
+  async function confirmExtraction() {
+    const pending = fieldConfirm.value
+    if (!pending) return
+
+    fieldConfirm.value = null
+    addMessage('user', '✅ 确认使用上述字段提取')
+
+    const controller = new AbortController()
+    abortController.value = controller
+
+    try {
+      const result = await sendChatMessage(
+        {
+          message: '确认提取',
+          action: 'start_extraction',
+          task_desc: pending.task_desc,
+          fields: pending.fields,
+        },
+        () => {},
+        controller.signal,
+      )
+
+      addMessage('ai', result.text)
+
+      if (result.type === 'task_trigger') {
+        connectExtractionSSE()
+      }
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') {
+        addMessage('ai', `错误: ${(err as Error).message}`)
+      }
+    }
+  }
+
+  function cancelExtraction() {
+    fieldConfirm.value = null
+    currentMode.value = 'extraction'
+  }
+
+  function removeConfirmField(index: number) {
+    if (fieldConfirm.value && index >= 0 && index < fieldConfirm.value.fields.length) {
+      fieldConfirm.value.fields.splice(index, 1)
+    }
+  }
+
+  function addConfirmField(name: string) {
+    if (fieldConfirm.value && name.trim()) {
+      fieldConfirm.value.fields.push(name.trim())
+    }
+  }
+
+  function updateConfirmField(index: number, value: string) {
+    if (fieldConfirm.value && index >= 0 && index < fieldConfirm.value.fields.length) {
+      fieldConfirm.value.fields[index] = value
+    }
+  }
+
   async function send(text: string) {
     if (isStreaming.value) return
 
-    addMessage('user', text)
-    addMessage('ai', '') // placeholder that will be filled by streaming
+    const mode = currentMode.value
+    const prefix = MODE_PREFIX[mode] || ''
+    const finalText = prefix ? `${prefix}${text}` : text
+
+    addMessage('user', finalText)
+    addMessage('ai', '') // placeholder
 
     const aiMsg = messages.value[messages.value.length - 1]
 
@@ -48,21 +212,35 @@ export const useChatStore = defineStore('chat', () => {
         analysis: '',
       }
 
-      await sendChatMessage(
+      const history = messages.value.slice(0, -2).map(m => ({ role: m.role, content: m.content }))
+
+      const result = await sendChatMessage(
         {
-          message: text,
-          action: actionMap[currentMode.value] || 'chat',
-          history: messages.value.slice(0, -1).map(m => ({ role: m.role, content: m.content })),
+          message: finalText,
+          action: actionMap[mode] || 'chat',
+          history,
         },
         (chunk) => {
           aiMsg.content += chunk
         },
         controller.signal,
       )
+
+      if (mode === 'extraction') {
+        currentMode.value = 'normal'
+        if (result.type === 'field_confirm' && result.task_desc && result.fields) {
+          fieldConfirm.value = { task_desc: result.task_desc, fields: result.fields }
+        } else if (result.type === 'task_trigger') {
+          connectExtractionSSE()
+        }
+      } else if (mode !== 'normal') {
+        currentMode.value = 'normal'
+      }
     } catch (err) {
       if ((err as Error).name !== 'AbortError') {
         aiMsg.content = `错误: ${(err as Error).message}`
       }
+      if (mode !== 'normal') currentMode.value = 'normal'
     } finally {
       isStreaming.value = false
       abortController.value = null
@@ -73,18 +251,49 @@ export const useChatStore = defineStore('chat', () => {
     abortController.value?.abort()
   }
 
+  async function cancelExtractionTask() {
+    try {
+      await fetch('/api/cancel_task', { method: 'POST' })
+    } catch {
+      // silently fail
+    }
+    extractionDisconnect?.()
+    extractionDisconnect = null
+    extractionRunning.value = false
+    currentPage.value = null
+    addMessage('ai', '提取任务已取消。')
+  }
+
   function clear() {
     messages.value = []
+    currentMode.value = 'normal'
+    fieldConfirm.value = null
+    currentPage.value = null
+    extractionRunning.value = false
+    extractionDisconnect?.()
+    extractionDisconnect = null
   }
 
   return {
     messages,
     isStreaming,
     currentMode,
+    isModeActive,
+    extractionRunning,
+    fieldConfirm,
+    currentPage,
     streamingMessage,
     setMode,
+    enableExtraction,
+    disableExtraction,
     send,
     stop,
     clear,
+    cancelExtractionTask,
+    confirmExtraction,
+    cancelExtraction,
+    removeConfirmField,
+    addConfirmField,
+    updateConfirmField,
   }
 })

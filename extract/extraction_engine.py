@@ -121,17 +121,18 @@ class ExtractionEngine:
             self.page_indexer = None
             self.few_shot_retriever = None
 
-    def infer_fields(self, task_description: str) -> Tuple[bool, List[str] | str]:
+    def infer_fields(self, task_description: str, history: list = None) -> Tuple[bool, List[str] | str]:
         """
         推断提取字段
 
         Args:
             task_description: 任务描述
+            history: 对话历史
 
         Returns:
             (成功状态, 字段列表或错误信息)
         """
-        return self.field_inference.infer_fields(task_description)
+        return self.field_inference.infer_fields(task_description, history)
 
     def get_filename_prefix(self, task_description: str) -> str:
         """
@@ -400,8 +401,13 @@ class ExtractionEngine:
             "1. 复合材料（含+、and等）不可拆分，需提取比例，若无比例标注（未说明比例）。若已提取过则不重复。\n"
             "2. 溶剂量/浓度/转速/温度必须包含单位。\n"
             "3. 忽略参考文献条目中的数据。\n\n"
-            "🚨 你必须直接输出一个 JSON 对象，绝不要包含 Markdown 标记（如 ```json）或任何其他解释性文字！\n"
-            f"🚨 必须严格遵循以下 JSON 格式：\n{example_json}"
+            "🚨 JSON输出规则（严格遵守，否则解析失败）：\n"
+            "- 直接输出纯JSON对象，不包含任何markdown标记或解释文字\n"
+            "- JSON字符串值中的双引号必须转义为 \\\"，换行必须转义为 \\n\n"
+            "- 不要使用中文引号（\"\"），使用标准ASCII双引号\n"
+            "- 不要在最后一个元素后加逗号\n"
+            "- 确保所有花括号和方括号正确闭合\n"
+            f"必须严格遵循此格式：\n{example_json}"
         )
 
         # Phase 2: 检索历史 Few-Shot 示例并注入 prompt
@@ -469,8 +475,13 @@ class ExtractionEngine:
             "1. 复合材料（含+、and等）不可拆分，需提取比例，若无比例标注（未说明比例）。若已提取过则不重复。\n"
             "2. 溶剂量/浓度/转速/温度必须包含单位。\n"
             "3. 忽略参考文献条目中的数据。\n\n"
-            "🚨 你必须直接输出一个 JSON 对象，绝不要包含 Markdown 标记（如 ```json）或任何其他解释性文字！\n"
-            f"🚨 必须严格遵循以下 JSON 格式：\n{example_json}"
+            "🚨 JSON输出规则（严格遵守，否则解析失败）：\n"
+            "- 直接输出纯JSON对象，不包含任何markdown标记或解释文字\n"
+            "- JSON字符串值中的双引号必须转义为 \\\"，换行必须转义为 \\n\n"
+            "- 不要使用中文引号（\"\"），使用标准ASCII双引号\n"
+            "- 不要在最后一个元素后加逗号\n"
+            "- 确保所有花括号和方括号正确闭合\n"
+            f"必须严格遵循此格式：\n{example_json}"
         )
 
         # Phase 2: 检索历史 Few-Shot 示例并注入 prompt
@@ -735,7 +746,7 @@ class ExtractionEngine:
 
     def _parse_llm_response(self, result_text: str, schema_str: str) -> Optional[Dict[str, Any]]:
         """
-        解析LLM响应
+        解析LLM响应（带多重回退策略）
 
         Args:
             result_text: 结果文本
@@ -744,28 +755,127 @@ class ExtractionEngine:
         Returns:
             解析后的数据或None
         """
-        try:
-            # 清理文本
-            print(f"\n--- 模型原始输出 ---\n{result_text}\n-----------------------")
-
-            # 提取JSON
-            json_match = re.search(r'(\{.*\}|\[.*\])', result_text, re.DOTALL)
-            if json_match:
-                clean_text = json_match.group(1).strip()
-            else:
-                clean_text = result_text.strip()
-
-            # 处理数组格式
-            if clean_text.startswith('['):
-                clean_text = f'{{"data": {clean_text}}}'
-
-            # 验证JSON
-            parsed_res = json.loads(clean_text)
-            return parsed_res
-
-        except Exception as e:
-            print(f"解析LLM响应失败: {e}")
+        if not result_text or not result_text.strip():
             return None
+
+        print(f"\n--- 模型原始输出 ---\n{result_text[:500]}{'...(truncated)' if len(result_text) > 500 else ''}\n-----------------------")
+
+        # 策略1: 标准提取
+        clean_text = self._extract_json_text(result_text)
+        if clean_text:
+            try:
+                return json.loads(clean_text)
+            except json.JSONDecodeError:
+                pass
+
+        # 策略2: 修复常见JSON错误后重试
+        if clean_text:
+            fixed = self._fix_common_json_errors(clean_text)
+            if fixed:
+                try:
+                    return json.loads(fixed)
+                except json.JSONDecodeError:
+                    pass
+
+        # 策略3: 尝试找到最外层 { } 并手动修复
+        try:
+            return self._extract_json_heuristic(result_text)
+        except Exception:
+            pass
+
+        print(f"解析LLM响应失败: 所有策略均无法解析")
+        return None
+
+    @staticmethod
+    def _extract_json_text(text: str) -> Optional[str]:
+        """从LLM输出中提取JSON文本"""
+        # 移除 markdown 代码块
+        cleaned = re.sub(r'```(?:json)?\s*', '', text)
+        cleaned = re.sub(r'```\s*$', '', cleaned)
+
+        # 尝试匹配最外层 { }
+        match = re.search(r'\{.*\}', cleaned, re.DOTALL)
+        if match:
+            json_str = match.group(0)
+            # 处理数组格式
+            if json_str.strip().startswith('['):
+                json_str = f'{{"data": {json_str.strip()}}}'
+            return json_str.strip()
+        return None
+
+    @staticmethod
+    def _fix_common_json_errors(text: str) -> Optional[str]:
+        """修复LLM输出中常见的JSON格式错误"""
+        try:
+            fixed = text
+
+            # 1. 移除尾部多余逗号
+            fixed = re.sub(r',\s*}', '}', fixed)
+            fixed = re.sub(r',\s*]', ']', fixed)
+
+            # 2. 修复字符串值中的未转义换行符
+            # 在JSON字符串值内，\n 才合法，实际换行不合法
+            in_string = False
+            escape_next = False
+            chars = list(fixed)
+            result = []
+            for c in chars:
+                if escape_next:
+                    result.append(c)
+                    escape_next = False
+                    continue
+                if c == '\\':
+                    result.append(c)
+                    escape_next = True
+                    continue
+                if c == '"':
+                    in_string = not in_string
+                    result.append(c)
+                    continue
+                if in_string and c == '\n':
+                    result.append('\\n')
+                    continue
+                if in_string and c == '\r':
+                    continue  # skip \r
+                if in_string and c == '\t':
+                    result.append('\\t')
+                    continue
+                result.append(c)
+
+            fixed = ''.join(result)
+
+            # 3. 修复字符串值中的未转义双引号（常见于中文引号混合）
+            # 中文双引号 "" 替换为单引号避免JSON冲突
+            fixed = fixed.replace('“', "'").replace('”', "'")
+
+            return fixed
+        except Exception:
+            return None
+
+    @staticmethod
+    def _extract_json_heuristic(text: str) -> Optional[Dict[str, Any]]:
+        """启发式提取：在大文本中找到 {'data': [...]} 结构"""
+        # 查找 "data": 关键词附近的结构
+        data_match = re.search(r'"data"\s*:\s*\[', text)
+        if not data_match:
+            return None
+
+        # 从 data 开始处找完整的 [ ... ] 块
+        start = data_match.start()
+        bracket_start = text.index('[', data_match.end() - 1)
+        depth = 0
+        for i in range(bracket_start, len(text)):
+            if text[i] == '[':
+                depth += 1
+            elif text[i] == ']':
+                depth -= 1
+                if depth == 0:
+                    array_str = text[bracket_start:i + 1]
+                    # 对整个数组做基础修复
+                    array_str = re.sub(r',\s*]', ']', array_str)
+                    full_json = f'{{"data": {array_str}}}'
+                    return json.loads(full_json)
+        return None
 
     def _save_extraction_results(
         self,

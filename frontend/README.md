@@ -25,196 +25,175 @@ frontend/
 │   ├── env.d.ts                 # TypeScript 声明
 │   ├── api/                     # HTTP API 封装
 │   │   ├── client.ts            # fetch 封装 + 错误处理
-│   │   ├── chat.ts              # /api/chat
+│   │   ├── chat.ts              # /api/chat + uploadPDF
 │   │   ├── experiment.ts        # /api/experiment_*, /api/compile_*
-│   │   ├── extraction.ts        # /api/upload, /api/extraction_*
 │   │   ├── hardware.ts          # /api/hardware_*
 │   │   ├── search.ts            # /api/semantic_search, /api/page_image
 │   │   ├── analysis.ts          # /api/list_algorithms, /api/run_analysis
 │   │   └── history.ts           # /api/history/*
 │   ├── stores/                  # Pinia 状态管理
-│   │   ├── chat.ts              # 对话消息 + SSE streaming
+│   │   ├── chat.ts              # 对话消息 + 提取模式 + SSE + 字段确认
 │   │   ├── experiment.ts        # 实验设计（步骤 CRUD、嵌套计算、折叠）
-│   │   ├── extraction.ts        # 文献提取流程
 │   │   ├── hardware.ts          # 硬件工具列表 + 单步执行
-│   │   ├── search.ts            # Phase 3 语义搜索
+│   │   ├── search.ts            # 语义搜索
 │   │   ├── analysis.ts          # 数据分析
-│   │   ├── layout.ts            # 全局 UI 状态（侧栏、任务进度）
+│   │   ├── layout.ts            # 全局 UI 状态（侧栏、任务进度、绿点确认）
 │   │   └── theme.ts             # 主题切换
 │   ├── composables/
 │   │   └── useSSE.ts            # SSE (Server-Sent Events) composable
 │   ├── components/
-│   │   ├── common/              # 通用组件（Badge, LoadingSpinner, StatusDot, …）
-│   │   ├── layout/              # 布局组件（Sidebar, TopBar, NavPanel, TaskPanel）
-│   │   ├── chat/                # 对话组件（MessageBubble, ChatContainer, InputBar）
+│   │   ├── common/              # 通用组件（Badge, LoadingSpinner, EmptyState, …）
+│   │   ├── layout/              # 布局组件（Sidebar, TopBar, HistoryPanel, NavPanel, TaskPanel）
+│   │   ├── chat/                # 对话组件
+│   │   │   ├── ChatContainer.vue # 对话容器（消息列表 + 确认卡片 + InputBar）
+│   │   │   ├── MessageBubble.vue # 消息气泡
+│   │   │   └── InputBar.vue      # 输入栏（模式切换 + 气泡 + 发送/中断）
 │   │   ├── experiment/          # 实验设计组件
 │   │   │   ├── ElementPanel.vue # 左侧元素面板（工具/算法/辅助）
 │   │   │   ├── StepCanvas.vue   # 步骤画布（gutter + 嵌套 + 折叠）
 │   │   │   ├── StepCard.vue     # 步骤卡片
 │   │   │   ├── StepEditor.vue   # 步骤参数编辑器
 │   │   │   └── CodeArea.vue     # 底部代码区（JSON/Python 切换）
-│   │   ├── search/              # 语义搜索组件
-│   │   ├── modals/              # 弹窗组件
+│   │   ├── search/              # 语义搜索组件（SearchBar, SearchResultList, SearchResultCard, PagePreview）
+│   │   ├── modals/              # 弹窗组件（ModalContainer, ConfirmDialog, …）
 │   │   └── cards/               # 卡片组件
-│   ├── pages/                   # 页面级组件（路由目标）
-│   │   ├── ChatPage.vue
-│   │   ├── ExperimentPage.vue
-│   │   ├── ExtractionPage.vue
-│   │   ├── HardwarePage.vue
-│   │   ├── AnalysisPage.vue
-│   │   └── SearchPage.vue
+│   ├── pages/                   # 页面级组件
+│   │   ├── ChatPage.vue         # 对话页（主区域）
+│   │   ├── ExperimentPage.vue   # 实验设计
+│   │   ├── ExtractionPage.vue   # 文献提取（搜索 UI + PDF 预览面板）
+│   │   ├── HardwarePage.vue     # 硬件控制
+│   │   └── AnalysisPage.vue     # 数据分析
 │   └── types/                   # TypeScript 类型定义
-│       ├── experiment.ts
-│       ├── chat.ts
-│       ├── hardware.ts
-│       ├── extraction.ts
-│       ├── search.ts
-│       └── api.ts
 ├── index.html                   # Vite 入口 HTML
 ├── package.json
 ├── vite.config.ts
-├── tsconfig.json
-└── tsconfig.app.json
+└── tsconfig.json
 ```
 
 ## 路由
 
-| 路径 | 页面 | 说明 |
+所有页面通过 RouterView（ChatPage 常驻） + TaskPanel（右侧动态加载）组合渲染：
+
+| 区域 | 路径 | 组件 |
 |------|------|------|
-| `/v2` / `/v2/chat` | ChatPage | AI 对话 |
-| `/v2/experiment` | ExperimentPage | 实验设计 |
-| `/v2/extraction` | ExtractionPage | 文献提取 |
-| `/v2/hardware` | HardwarePage | 硬件控制 |
-| `/v2/analysis` | AnalysisPage | 数据分析 |
-| `/v2/search` | SearchPage | 语义搜索 |
+| 主区域（RouterView） | `/v2` | ChatPage |
+| 右侧面板（TaskPanel） | 动态加载 | ExtractionPage / HardwarePage / ExperimentPage / AnalysisPage |
 
-所有 `/v2/*` SPA 路由由 Flask 返回同一个 `dist/index.html`（前端路由接管）。
-
-## 开发
+## 开发与测试
 
 ```bash
 cd frontend
-
-# 安装依赖
 npm install
-
-# 启动开发服务器（热更新，API 代理到 Flask :5000）
-npm run dev          # http://localhost:5173/v2
-
-# 类型检查
-npx vue-tsc -b
-
-# 生产构建（base=/v2-static/，产物输出到 dist/）
-npm run build:flask
+npm run dev              # http://localhost:5173/v2（API 代理到 :5000）
+npx vue-tsc -b           # 类型检查
+npm run build:flask      # 生产构建（base=/v2-static/）
+cd .. && python platform_init/test/frontend/test_frontend.py  # 10 项集成测试
 ```
-
-## 构建产物
-
-构建后 `dist/` 目录通过 Flask `static_folder` 挂载到 `/v2-static/` URL 路径：
-
-```
-dist/
-├── index.html          # Vue SPA 入口（含 <div id="app"> + /v2-static/assets/ 引用）
-└── assets/
-    ├── index-*.js      # 主 bundle
-    ├── *.js            # 按路由拆分（≥6 个 page chunk）
-    └── *.css           # CSS（≥2 个文件）
-```
-
-## 测试
-
-```bash
-# 构建 + 集成测试
-cd frontend && npm run build:flask
-cd .. && python platform_init/test/frontend/test_frontend.py
-```
-
-验证项：
-1. 旧版 UI `/` 可访问
-2. 新版 `/v2` 返回 Vue SPA
-3. 所有 `/v2/*` SPA 路由返回 index.html
-4. API 路由不受影响
-5. 静态资源可访问
-6. Phase 4 语义搜索 API 正常
-7. 构建产物完整性（main bundle + page chunks + CSS）
 
 ---
 
-## 实验设计面板：步骤画布优化
+## 更新日志（2026-05-10）
 
-### 背景
+### 1. 文献提取与语义搜索合并
 
-原先步骤画布是一个扁平列表，所有步骤（工具/算法/辅助）以相同卡片样式排列，没有块级结构可视化。
+**删除**：`pages/SearchPage.vue`、`stores/extraction.ts`、`api/extraction.ts`
 
-### 当前设计（v2-changeUI 分支）
+**Sidebar/HistoryPanel/NavPanel/TaskPanel**：移除 "语义搜索" 入口，只保留 "文献提取"
 
-#### 整体布局
+**ExtractionPage 重写**为搜索界面：
+- SearchBar（顶部搜索框） + SearchResultList（结果列表） + PagePreview（页面预览）
+- "提取此页" 按钮 → 切换到对话页的提取模式
 
+### 2. 对话页模式气泡系统
+
+输入框左侧可显示模式气泡，支持四种模式自动添加前缀：
+
+| 模式 | 气泡 | 自动添加前缀 | 后端路由 |
+|------|------|------------|---------|
+| 文献提取 | 📄 文献提取 | `帮我搜寻：` | `handle_extraction_request` |
+| 硬件控制 | ⚙️ 硬件控制 | `硬件控制：` | `handle_hardware_request` |
+| 实验设计 | 🧪 实验设计 | `实验设计：` | `handle_hardware_request` |
+| 数据分析 | 📈 数据分析 | `数据分析` | `handle_data_analysis` |
+
+- 点击工具栏模式按钮 → 气泡出现 + 按钮高亮；再次点击 → 回到普通模式
+- 发送消息后自动回到普通模式（提取模式除外，需等待两轮确认）
+- 气泡可 × 关闭；空输入在提取模式下按 Enter 触发默认 FAPbI3 提取
+
+**实现**（`stores/chat.ts`）：
+```ts
+export const MODE_PREFIX: Record<ChatMode, string> = {
+  normal: '', extraction: '帮我搜寻：', hardware: '硬件控制：',
+  experiment: '实验设计：', analysis: '数据分析',
+}
+export const MODE_LABEL: Record<ChatMode, string> = {
+  normal: '', extraction: '📄 文献提取', hardware: '⚙️ 硬件控制',
+  experiment: '🧪 实验设计', analysis: '📈 数据分析',
+}
 ```
-┌──────────┬──┬──────────────────────────────────────────┐
-│ Element  │# │  Step Content (with indentation)          │
-│ Panel    │  │                                          │
-│ (180px)  │1 │  spin_coating          [↑][↓][✏][🗑]    │
-│          │2 │▼ LOOP (3次)            [↑][↓][✏][🗑]    │
-│          │3 ││ set_temperature       [↑][↓][✏][🗑]    │
-│          │4 ││ collect_spectrum      [↑][↓][✏][🗑]    │
-│          │5 │▲ END                   [↑][↓][✏][🗑]    │
-│          │7 │▼ CONDITION (temp>100)  [↑][↓][✏][🗑]    │
-│          │⚠ │  ⚠ CONDITION 缺少对应的 END               │
-└──────────┴──┴──────────────────────────────────────────┘
-```
 
-#### Gutter（序号列）
+### 3. 两轮提取确认流程
 
-- **宽度**：42px，右侧 border 分隔
-- **序号**：右对齐、等宽字体（Consolas/Monaco）、11px 灰色
-- **块标记**：▼（可点击展开/折叠）、▲（END 结束标记）
-- **错误态**：最后一步序号变红（`#ef4444`）加粗体
+匹配旧版 `templates/` 的提取交互：
 
-#### 嵌套缩进与引导线
+1. **Round 1**：发送 `"帮我搜寻：<描述>"` → 后端 LLM 推断字段 → 返回 `field_confirm`
+2. **内联确认卡片**：在 AI 消息下方显示字段标签 + 两个操作按钮
+3. **Round 2**：点击 "✅ 确认提取" → 发送 `action: 'start_extraction'` → 后端启动提取线程 → 返回 `task_trigger` → 连接 SSE
+4. 点击 "❌ 修改要求" → 重新进入提取模式，可输入补充说明
 
-- **缩进单位**：`INDENT = 20px`，通过 `paddingLeft` 逐级叠加
-- **引导线**：绝对定位的竖线（`border-left`），标识块的作用域范围
-- **块类型卡片**：
-  - 块起始（LOOP/GROUP/CONDITION）：左侧 3px 橙色边框 + 淡黄背景
-  - 块结束（END）：左侧 3px 灰色边框 + 降低透明度
+**交互式字段编辑**：确认卡片中字段可双击编辑、× 删除、底部输入框添加新字段，确认时使用编辑后的字段列表。
 
-#### 折叠展开
+**后端历史记忆**：修改要求时对话历史传递给 LLM（`handle_extraction_request` → `infer_fields` → prompt 前追加 history），让 LLM 根据上文调整字段。
 
-- **点击 ▼** → 收起块内所有步骤，▼ 变为 ▶
-- **点击 ▶** → 展开恢复，▶ 变回 ▼
-- **实现**：`hiddenStepIndices` computed 计算被折叠隐藏的 index 集合，通过深度追踪匹配 END
+### 4. PDF 预览面板
 
-#### 错误检测
+PDF 页面预览从对话气泡移到 ExtractionPage 右侧面板：
 
-- **缺少 END**：遍历结束后栈非空 → 最后一步序号变红 → 底部黄色警告条
-- **孤立 END**：END 前面对应不上任何块起始 → 对应行高亮 → 底部警告
+- **提取开始时立即弹出**，显示 "等待连接…" → 首帧到达后显示 PDF 页面
+- 深色头部：`AI 正在阅读...` + 文件名 + 页码
+- 绿色扫描线动画（当 `extractionRunning` 时）
+- × 可关闭；关闭后出现 "显示 PDF 预览" 虚线按钮可重新打开
+- 参考旧版 `templates/index.html` 的 `#pdf-panel` 设计
 
-### 实现文件
+### 5. 提取中断模式
 
-| 文件 | 变更 |
-|------|------|
-| `src/stores/experiment.ts` | 新增 `nestingInfo`、`blockErrors` computed；`collapsedBlocks`、`toggleCollapse`、`hiddenStepIndices` |
-| `src/components/experiment/StepCanvas.vue` | 重写：gutter 列 + 缩进 + 引导线 + 折叠按钮 + 警告条 |
-| `src/components/experiment/StepCard.vue` | 简化：移除序号圆标/拖拽手柄，新增 block 类型样式 |
+提取运行时输入框行为：
 
-### 核心算法
+- 发送按钮 → 红色转圈按钮（`.cancel-mode` + `.btn-spinner`），点击调用 `/api/cancel_task`
+- 输入框禁用，placeholder："提取任务运行中..."
+- SSE 连接断开 → 状态复位
 
-**嵌套层级计算**（`nestingInfo` computed）：
+**实现**（`stores/chat.ts`）：`cancelExtractionTask()` 调用 cancel API + `extractionDisconnect?.()` 断开 SSE。
 
-遍历 `steps[]` 扁平数组，用栈追踪未闭合的块：
-- LOOP/GROUP/CONDITION → 记录当前层级 → 压栈（level++）
-- END → 弹栈（level--）→ 记录新层级
-- 普通步骤 → 记录当前层级
+### 6. SSE 事件路由
 
-**折叠范围计算**（`hiddenStepIndices` computed）：
+`connectExtractionSSE()` 处理所有 SSE 事件类型：
 
-对每个折叠的块起始索引，向前扫描，用深度计数器找到匹配的 END（depth 回到 0），将 startIdx+1 到 END 之间所有 index 加入隐藏集合。支持嵌套块内的 END 匹配。
+| SSE type | 处理 |
+|----------|------|
+| `info` / `progress` | `layout.updateTaskStatus('extraction', 'running')` |
+| `page_reading` | 设置 `currentPage`（触发 PDF 预览） |
+| `reading_start` | 清空 `currentPage` |
+| `finding` | 格式化 `details` 键值对 → `addMessage('ai', …)` |
+| `complete` | 停用 `extractionRunning`，显示摘要 |
+| `error` | 停用状态，显示错误消息 |
 
-### 关键常量
+### 7. 绿点确认
 
-| 常量 | 值 | 位置 |
-|------|----|------|
-| `INDENT` | 20px | StepCanvas.vue |
-| `gutter width` | 42px | StepCanvas.vue CSS |
-| `BLOCK_OPENERS` | `['LOOP', 'GROUP', 'CONDITION']` | experiment.ts store |
+任务完成后 NavPanel 图标显示绿点，点击任务图标后绿点消失（`updateTaskStatus` → `acknowledgeTask`）。
+
+### 8. 后端改进
+
+**JSON 解析增强**（`extract/extraction_engine.py`）：
+- Prompt 强化：明确 JSON 输出规则（转义双引号、禁用中文引号、禁止尾随逗号）
+- 三重回退解析策略：
+  - 策略 1：标准正则提取 + `json.loads`
+  - 策略 2：`_fix_common_json_errors()` 修复常见错误后重试
+  - 策略 3：`_extract_json_heuristic()` 启发式提取 `"data": [...]` 块
+
+**历史记忆**（`core/field_inference.py` + `app.py`）：
+- `infer_fields(task_description, history)` 接受对话历史
+- 修改字段时 LLM 可参考之前的建议进行调整
+
+### 9. 实验设计面板优化
+
+参见上文 "实验设计面板：步骤画布优化" 章节。

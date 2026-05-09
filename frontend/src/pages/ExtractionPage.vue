@@ -1,150 +1,222 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { useExtractionStore } from '@/stores/extraction'
+import { useSearchStore } from '@/stores/search'
+import { useChatStore } from '@/stores/chat'
 import { useLayoutStore } from '@/stores/layout'
-import InputBar from '@/components/chat/InputBar.vue'
-import ResultCard from '@/components/cards/ResultCard.vue'
+import SearchBar from '@/components/search/SearchBar.vue'
+import SearchResultList from '@/components/search/SearchResultList.vue'
+import PagePreview from '@/components/search/PagePreview.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
-import Badge from '@/components/common/Badge.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
-import ConfirmDialog from '@/components/modals/ConfirmDialog.vue'
-import SummaryModal from '@/components/modals/SummaryModal.vue'
-import { FileText, Check, X } from 'lucide-vue-next'
+import { FileText, X } from 'lucide-vue-next'
 
-const store = useExtractionStore()
+const store = useSearchStore()
+const chat = useChatStore()
 const layout = useLayoutStore()
-const inputText = ref('')
 
-watch(() => store.isRunning, (val) => {
+const showPdfPreview = ref(false)
+
+watch(() => store.loading, (val) => {
   if (val) {
-    layout.updateTaskStatus('extraction', 'running', 5)
+    layout.updateTaskStatus('extraction', 'running', 10)
   } else {
     layout.updateTaskStatus('extraction', 'completed')
   }
 })
 
-watch(() => store.logMessages.length, (len) => {
-  if (store.isRunning && len > 0) {
-    layout.updateTaskStatus('extraction', 'running', Math.min(90, 5 + len * 3))
-  }
+// Auto-show PDF preview when extraction starts
+watch(() => chat.extractionRunning, (val) => {
+  if (val) showPdfPreview.value = true
 })
-const showFieldConfirm = ref(false)
-const showSummary = ref(false)
 
-async function onSend(text: string) {
-  inputText.value = ''
-
-  if (text.startsWith('帮我搜寻：')) {
-    const desc = text.replace('帮我搜寻：', '').trim()
-    if (desc) {
-      await store.requestFields(desc)
-      showFieldConfirm.value = true
-    }
-  }
+function onPreview(pdfPath: string, pageNum: number) {
+  store.viewPage(pdfPath, pageNum)
 }
 
-function confirmAndStart() {
-  showFieldConfirm.value = false
-  store.start(store.taskDesc, store.fields)
-  store.connectSSE()
-}
-
-function onComplete() {
-  showSummary.value = true
+function onExtract(_pdfPath: string, _pageNum: number) {
+  chat.enableExtraction()
 }
 </script>
 
 <template>
   <div class="extraction-page">
-    <!-- Header -->
-    <div class="page-header">
-      <h2>文献提取</h2>
-      <Badge v-if="store.isRunning" variant="warning">提取中</Badge>
-    </div>
-
-    <!-- Input via chat -->
-    <div class="extraction-input">
-      <InputBar
-        v-model="inputText"
-        :disabled="store.isRunning"
-        placeholder="输入 帮我搜寻：FAPbI3钝化剂参数"
-        @send="onSend"
-      />
-    </div>
-
-    <!-- Progress / Logs -->
-    <div class="extraction-body">
-      <div v-if="!store.logMessages.length && !store.isRunning" class="body-center">
-        <EmptyState title="文献提取" description='输入"帮我搜寻：<关键词>" 开始提取实验参数' />
-      </div>
-
-      <div v-else class="log-panel">
-        <div v-for="(log, i) in store.logMessages" :key="i" class="log-line" :class="{ error: log.startsWith('⚠️') }">
-          {{ log }}
-        </div>
-
-        <div v-if="store.currentPage" class="page-reading">
-          <FileText :size="14" />
-          <span>{{ store.currentPage.pdf_name }} — 第 {{ store.currentPage.page_num }} 页</span>
-        </div>
-
-        <div v-if="store.readingActive && store.llmStream" class="llm-stream">
-          {{ store.llmStream }}
-        </div>
-
-        <div v-if="store.isRunning" class="loading-line">
-          <LoadingSpinner :size="16" label="提取中..." />
+    <!-- PDF reading panel (during extraction) -->
+    <div v-if="showPdfPreview && chat.extractionRunning" class="pdf-reader">
+      <div class="pdf-reader-header">
+        <span>AI 正在阅读...</span>
+        <div class="pdf-reader-info">
+          <FileText :size="13" />
+          <span v-if="chat.currentPage">{{ chat.currentPage.filename }} — 第 {{ chat.currentPage.page }} 页</span>
+          <span v-else>等待连接...</span>
+          <button class="pdf-reader-close" title="关闭预览" @click="showPdfPreview = false"><X :size="16" /></button>
         </div>
       </div>
-
-      <!-- Findings list -->
-      <div v-if="store.findings.length" class="findings-panel">
-        <h3>提取结果 ({{ store.findings.length }} 条)</h3>
-        <div class="findings-list">
-          <ResultCard
-            v-for="(f, i) in store.findings"
-            :key="i"
-            :title="f.value"
-            :subtitle="f.tag"
-          />
-        </div>
+      <div class="pdf-reader-body" :class="{ scanning: !chat.currentPage }">
+        <div class="scan-line" />
+        <img
+          v-if="chat.currentPage"
+          :src="'data:image/jpeg;base64,' + chat.currentPage.image"
+          alt="PDF page"
+          class="pdf-reader-img"
+        />
+        <span v-else class="pdf-waiting">正在读取第一页...</span>
       </div>
     </div>
 
-    <!-- Field confirm dialog -->
-    <ConfirmDialog
-      :open="showFieldConfirm"
-      title="确认提取字段"
-      :message="'LLM 推断的提取字段: ' + store.fields.join(', ')"
-      confirmText="开始提取"
-      @confirm="confirmAndStart"
-      @cancel="showFieldConfirm = false"
-      @update:open="showFieldConfirm = $event"
-    />
+    <!-- Re-open preview button when closed but extraction is running -->
+    <button
+      v-if="!showPdfPreview && chat.extractionRunning"
+      class="pdf-reopen-btn"
+      @click="showPdfPreview = true"
+    >
+      <FileText :size="13" />
+      <span>显示 PDF 预览</span>
+    </button>
 
-    <!-- Summary modal -->
-    <SummaryModal
-      :open="showSummary"
-      :summary="store.summary"
-      @update:open="showSummary = $event"
+    <SearchBar v-model="store.query" :loading="store.loading" @search="store.search(store.query)" />
+
+    <div class="search-results">
+      <!-- Loading -->
+      <div v-if="store.loading" class="state-center">
+        <LoadingSpinner :size="28" label="搜索中..." />
+      </div>
+
+      <!-- Error -->
+      <div v-else-if="store.error" class="state-center">
+        <EmptyState title="搜索失败" :description="store.error" />
+      </div>
+
+      <!-- Empty state before search -->
+      <div v-else-if="!store.hasSearched" class="state-center">
+        <EmptyState title="文献检索" description="输入自然语言查询，在所有已索引的文献页面中搜索相关内容" />
+      </div>
+
+      <!-- No results -->
+      <div v-else-if="!store.results.length" class="state-center">
+        <EmptyState title="无结果" :description="'未找到与「' + store.query + '」相关的页面'" />
+      </div>
+
+      <!-- Results -->
+      <div v-else class="results-area">
+        <div class="results-header">
+          共 {{ store.totalPages }} 页已索引，找到 {{ store.results.length }} 条结果
+        </div>
+        <SearchResultList
+          :results="store.results"
+          @preview="onPreview"
+          @extract="onExtract"
+        />
+      </div>
+    </div>
+
+    <!-- Page preview panel -->
+    <PagePreview
+      :image-base64="store.preview?.imageBase64 || null"
+      :page-num="store.preview?.pageNum || 0"
+      :loading="store.previewLoading"
+      @close="store.closePreview()"
     />
   </div>
 </template>
 
 <style scoped>
 .extraction-page { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
-.page-header { display: flex; align-items: center; gap: var(--space-md); padding: var(--space-lg) var(--space-xl) 0; }
-.page-header h2 { font-size: 18px; }
-.extraction-input { padding: var(--space-md) var(--space-xl); flex-shrink: 0; }
-.extraction-body { flex: 1; overflow-y: auto; padding: var(--space-md) var(--space-xl); display: flex; flex-direction: column; gap: var(--space-lg); }
-.body-center { flex: 1; display: flex; align-items: center; justify-content: center; }
-.log-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-lg); font-size: 13px; max-height: 200px; overflow-y: auto; }
-.log-line { padding: 3px 0; color: var(--color-text-secondary); }
-.log-line.error { color: var(--color-error); }
-.page-reading { display: flex; align-items: center; gap: var(--space-sm); padding: 8px 0; color: var(--color-primary); font-weight: 500; }
-.llm-stream { max-height: 120px; overflow-y: auto; padding: var(--space-sm); margin-top: var(--space-sm); background: var(--color-bg-soft); border-radius: var(--radius-sm); font-size: 13px; color: var(--color-text-secondary); white-space: pre-wrap; line-height: 1.6; }
-.loading-line { padding: 8px 0; }
-.findings-panel { flex: 1; }
-.findings-panel h3 { font-size: 14px; margin-bottom: var(--space-md); color: var(--color-text-secondary); }
-.findings-list { display: flex; flex-direction: column; gap: var(--space-sm); }
+.search-results { flex: 1; overflow-y: auto; }
+.state-center { display: flex; align-items: center; justify-content: center; height: 100%; }
+.results-area { padding-top: var(--space-sm); }
+.results-header { font-size: 13px; color: var(--color-text-tertiary); padding: 0 var(--space-xl); margin-bottom: var(--space-md); }
+
+/* PDF reader panel */
+.pdf-reader {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--color-border);
+  overflow: hidden;
+}
+.pdf-reader-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 14px;
+  background: #1f2937;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+}
+.pdf-reader-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #9ca3af;
+  font-weight: 400;
+}
+.pdf-reader-close {
+  background: none;
+  border: none;
+  color: #9ca3af;
+  cursor: pointer;
+  padding: 2px;
+  margin-left: 4px;
+}
+.pdf-reader-close:hover { color: #fff; }
+.pdf-reader-body {
+  position: relative;
+  background: #f3f4f6;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  max-height: 300px;
+  overflow: hidden;
+}
+.pdf-reader-img {
+  max-width: 100%;
+  max-height: 300px;
+  object-fit: contain;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+
+.pdf-waiting {
+  color: var(--color-text-tertiary);
+  font-size: 13px;
+}
+
+/* Scan line animation */
+.scan-line {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 4px;
+  background: rgba(16, 185, 129, 0.7);
+  box-shadow: 0 0 20px rgba(16, 185, 129, 1);
+  display: none;
+  z-index: 10;
+  animation: scan 2.5s ease-in-out infinite alternate;
+}
+.scanning .scan-line { display: block; }
+@keyframes scan {
+  0% { top: 0; }
+  100% { top: calc(100% - 4px); }
+}
+
+/* Re-open button */
+.pdf-reopen-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  margin: 8px var(--space-xl);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-soft);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.pdf-reopen-btn:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-primary-mute);
+}
 </style>

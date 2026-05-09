@@ -33,7 +33,6 @@ interface ModeItem {
 
 const modes: ModeItem[] = [
   { icon: '💬', label: '对话',                               chatMode: 'normal' },
-  { icon: '🔍', label: '语义搜索',  panelType: 'search',     chatMode: 'normal' },
   { icon: '📄', label: '文献提取',  panelType: 'extraction', chatMode: 'extraction' },
   { icon: '⚙️', label: '硬件控制',  panelType: 'hardware',   chatMode: 'hardware' },
   { icon: '🧪', label: '实验设计',  panelType: 'experiment', chatMode: 'experiment' },

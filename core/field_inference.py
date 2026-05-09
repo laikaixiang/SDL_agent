@@ -34,12 +34,13 @@ class FieldInference:
         self.config = Config()
         self.llm_client = LLMClient()
 
-    def infer_fields(self, task_description: str) -> Tuple[bool, List[str] | str]:
+    def infer_fields(self, task_description: str, history: list = None) -> Tuple[bool, List[str] | str]:
         """
         从任务描述推断字段
 
         Args:
             task_description: 任务描述
+            history: 对话历史 [{role: str, content: str}, ...]，用于修改/补充场景的记忆
 
         Returns:
             (成功状态, 字段列表或错误信息)
@@ -52,9 +53,10 @@ class FieldInference:
             "🚨 你必须直接输出一个 JSON 对象，不要输出任何 Markdown 标记（如 ```json）、不要输出代码块，也不要输出任何解释性文字。\n"
             "🚨 你的输出必须严格符合以下格式：\n"
             '{"fields": ["列名1", "列名2", "列名3"]}\n'
+            "🚨 如果对话历史显示这是对之前提取要求的修改/补充，请根据历史上下文和新的要求调整字段列表。\n"
         )
 
-        messages = [
+        messages = (history or []) + [
             {"role": "user", "content": prompt}
         ]
 

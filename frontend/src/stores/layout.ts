@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
 
-export type TaskPanelType = 'search' | 'extraction' | 'hardware' | 'analysis' | 'experiment' | null
+export type TaskPanelType = 'extraction' | 'hardware' | 'analysis' | 'experiment' | null
 export type TaskStatus = 'idle' | 'running' | 'completed'
 
 export interface TaskEntry {

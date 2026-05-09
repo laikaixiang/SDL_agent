@@ -313,7 +313,7 @@ def chat():
 
     # 拦截提取指令：Agentic 判断与 Schema 生成
     if user_message.startswith("帮我搜寻："):
-        return handle_extraction_request(user_message)
+        return handle_extraction_request(user_message, history)
 
     # 硬件控制（根据前端选择的模式直接分发）
     if user_message.startswith("硬件控制：") or user_message.startswith("实验设计："):
@@ -363,12 +363,13 @@ def handle_extraction_start(data: dict) -> Response:
     })
 
 
-def handle_extraction_request(user_message: str) -> Response:
+def handle_extraction_request(user_message: str, history: list = None) -> Response:
     """
     处理提取请求
 
     Args:
         user_message: 用户消息
+        history: 对话历史 [{role: str, content: str}, ...]
 
     Returns:
         JSON响应
@@ -408,7 +409,7 @@ def handle_extraction_request(user_message: str) -> Response:
 
     # 场景2：自定义输入，去LLM询问字段
     else:
-        success, fields = extraction_engine.infer_fields(task_desc)
+        success, fields = extraction_engine.infer_fields(task_desc, history)
 
         if not success:
             # 若失败，返回错误

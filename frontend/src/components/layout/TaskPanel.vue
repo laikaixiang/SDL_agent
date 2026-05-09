@@ -6,7 +6,6 @@ import { X } from 'lucide-vue-next'
 const layout = useLayoutStore()
 
 const panelComponents: Record<string, ReturnType<typeof defineAsyncComponent>> = {
-  search: defineAsyncComponent(() => import('@/pages/SearchPage.vue')),
   extraction: defineAsyncComponent(() => import('@/pages/ExtractionPage.vue')),
   hardware: defineAsyncComponent(() => import('@/pages/HardwarePage.vue')),
   analysis: defineAsyncComponent(() => import('@/pages/AnalysisPage.vue')),
@@ -14,7 +13,6 @@ const panelComponents: Record<string, ReturnType<typeof defineAsyncComponent>> =
 }
 
 const panelLabels: Record<string, string> = {
-  search: '语义搜索',
   extraction: '文献提取',
   hardware: '硬件控制',
   analysis: '数据分析',

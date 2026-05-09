@@ -9,7 +9,6 @@ const hoveredTask = ref<string | null>(null)
 const hoverTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 
 const panelIcons: Record<string, string> = {
-  search: '🔍',
   extraction: '📄',
   hardware: '⚙️',
   experiment: '🧪',
@@ -17,7 +16,6 @@ const panelIcons: Record<string, string> = {
 }
 
 const panelLabels: Record<string, string> = {
-  search: '语义搜索',
   extraction: '文献提取',
   hardware: '硬件控制',
   experiment: '实验设计',

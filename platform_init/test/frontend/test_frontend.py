@@ -139,6 +139,44 @@ def test_page_image_api():
     print("  400 (bad params), 400 (invalid page), 404 (not found) — PASS")
 
 
+def test_extraction_empty_input_defaults():
+    """文献提取无输入时使用默认配置"""
+    print("\n=== test_extraction_empty_input_defaults ===")
+    with flask_app.test_client() as client:
+        # Empty description should trigger default extraction
+        resp = client.post('/api/chat',
+                           data=json.dumps({'message': '帮我搜寻：', 'action': ''}),
+                           content_type='application/json')
+        assert resp.status_code == 200
+        data = resp.get_json()
+        # Empty input → direct task_trigger with default FAPbI3 config
+        assert data['type'] == 'task_trigger', \
+            f"Expected task_trigger for empty input, got {data['type']}"
+        assert 'FAPbI3' in data['reply'] or '已启动' in data['reply'], \
+            f"Reply should mention defaults, got: {data['reply']}"
+    print("  Empty input → default FAPbI3 extraction triggered — PASS")
+
+
+def test_extraction_with_description_endpoint():
+    """文献提取带描述时后端正确响应"""
+    print("\n=== test_extraction_with_description_endpoint ===")
+    with flask_app.test_client() as client:
+        resp = client.post('/api/chat',
+                           data=json.dumps({'message': '帮我搜寻：提取钙钛矿钝化剂参数'}),
+                           content_type='application/json')
+        assert resp.status_code == 200
+        data = resp.get_json()
+        # Either field_confirm (LLM success) or system (LLM fallback)
+        assert data['type'] in ('field_confirm', 'system'), \
+            f"Expected field_confirm or system, got {data['type']}"
+        if data['type'] == 'field_confirm':
+            assert 'fields' in data, "field_confirm must contain fields"
+            assert len(data['fields']) > 0, "Fields list must not be empty"
+            print(f"  Description → field_confirm with {len(data['fields'])} fields — PASS")
+        else:
+            print(f"  Description → system (LLM fallback, expected in offline env) — PASS")
+
+
 def test_build_integrity():
     """构建产物完整性"""
     print("\n=== test_build_integrity ===")
@@ -168,6 +206,8 @@ if __name__ == "__main__":
         test_static_assets,
         test_semantic_search_api,
         test_page_image_api,
+        test_extraction_empty_input_defaults,
+        test_extraction_with_description_endpoint,
         test_build_integrity,
     ]
 

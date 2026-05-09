@@ -7,7 +7,6 @@ const layout = useLayoutStore()
 
 const navItems = [
   { path: '/',           name: 'chat',        label: '对话',       icon: '💬' },
-  { path: '/search',     name: 'search',      label: '语义搜索',   icon: '🔍' },
   { path: '/extraction', name: 'extraction',  label: '文献提取',   icon: '📄' },
   { path: '/hardware',   name: 'hardware',    label: '硬件控制',   icon: '⚙️' },
   { path: '/experiment', name: 'experiment',  label: '实验设计',   icon: '🧪' },

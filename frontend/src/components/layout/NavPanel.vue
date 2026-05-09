@@ -25,6 +25,7 @@ const panelLabels: Record<string, string> = {
 }
 
 function onTaskClick(task: TaskEntry) {
+  layout.acknowledgeTask(task.type)
   layout.openTaskPanel(task.type)
 }
 

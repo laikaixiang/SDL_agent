@@ -59,12 +59,20 @@ export const useLayoutStore = defineStore('layout', () => {
     }
   }
 
+  function acknowledgeTask(type: Exclude<TaskPanelType, null>) {
+    const task = taskList.value.find(t => t.type === type)
+    if (task && task.status === 'completed') {
+      task.status = 'idle'
+    }
+  }
+
   function closeTaskPanel() {
     activeTaskPanel.value = null
   }
 
   return {
     sidebarCollapsed, rightPanelCollapsed, activeTaskPanel, taskList,
-    toggleSidebar, toggleRightPanel, openTaskPanel, closeTask, updateTaskStatus, closeTaskPanel,
+    toggleSidebar, toggleRightPanel, openTaskPanel, closeTask, updateTaskStatus,
+    acknowledgeTask, closeTaskPanel,
   }
 })

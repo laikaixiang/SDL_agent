@@ -132,6 +132,13 @@ class Config:
     DEDUP_MERGE_STRATEGY: str = _external.get("DEDUP_MERGE_STRATEGY", "longest")
     DEDUP_ADD_METADATA: bool = _external.get("DEDUP_ADD_METADATA", True)
 
+    # ======================== 提取质量检查 ========================
+    QUALITY_CHECK_ENABLED: bool = _external.get("QUALITY_CHECK_ENABLED", True)
+    QUALITY_SPARSE_THRESHOLD: float = _external.get("QUALITY_SPARSE_THRESHOLD", 0.3)
+
+    # ======================== PDF预览 ========================
+    PDF_PREVIEW_ENABLED: bool = _external.get("PDF_PREVIEW_ENABLED", True)
+
     # ======================== 文件路径配置 ========================
     DIALOGUE_DATA_DIR: str = _external.get("DIALOGUE_DATA_DIR", "dialogue data/history")
     PDF_FOLDER: str = _external.get("PDF_FOLDER", r"dialogue data/PDF_TARGET")

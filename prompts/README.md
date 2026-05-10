@@ -1,6 +1,6 @@
 # Prompts — 集中管理与优化
 
-本项目所有 LLM prompt 的统一管理中心。16 个 prompt 覆盖文献提取、实验设计、硬件控制、数据分析、算法生成 5 个业务模块。
+本项目所有 LLM prompt 的统一管理中心。16 个 prompt 覆盖文献提取、实验设计、硬件控制、数据分析、算法生成 5 个业务模块。配套的提取质量检查器 `extract/quality_checker.py` 提供确定性规则检测（稀疏记录 + 重复记录），无需额外 LLM 调用。
 
 ## 目录结构
 
@@ -47,9 +47,15 @@ prompts/
 │
 ├── overrides/                      ← 运行时修改（gitignore，不提交）
 │
-└── platform_init/test/prompt/      ← 测试脚本
+└── reviewer_design.md              ← 提取审查功能设计文档
+
+extract/
+└── quality_checker.py              ← 确定性质量检测器（稀疏 + 重复检测）
+
+platform_init/test/prompt/          ← 测试脚本
     ├── test_migration.py           ← 迁移验证（9 tests）
     └── test_evaluation.py          ← 量化评测（30 tests + 4 业务评测套件）
+    └── test_quality_checker.py     ← 质量检测器测试（65 tests）
 ```
 
 ---
@@ -188,6 +194,30 @@ pm.reload()
 | `/api/prompts/reload` | POST | 清空所有 overrides，重新加载 |
 | `/api/prompts/optimize` | POST | LLM 优化建议。body: `{"name": "...", "requirements": "...", "test_inputs": [...]}` |
 | `/api/prompts/test` | POST | 用测试输入跑一次 prompt。body: `{"name": "...", "variables": {...}, "user_content": "..."}` |
+| `/api/page_preview` | GET | PDF 页面预览 + 关键词高亮。`?doc=...&page=...&query=...` |
+| `/api/page_context` | POST | Agent 批量阅读 PDF 原文。body: `{"results": [{"doc":..., "page":..., "query":...}]}` |
+
+### 提取结果来源追踪
+
+每条提取结果自动携带来源信息，无需 LLM 输出：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `_source_doc` | str | PDF 文件名（已有） |
+| `_source_page` | int | PDF 页码，从 1 开始（新增） |
+
+配合 `/api/page_preview` 和 `/api/page_context`，用户/agent 可点击结果查看原始 PDF 页面并高亮匹配行，以此判断提取准确性。
+
+### 提取质量检查
+
+`extract/quality_checker.py` 提供确定性规则检测（不调用 LLM）：
+
+| 检查项 | 规则 | 默认阈值 |
+|--------|------|---------|
+| 稀疏检测 | 字段填充率 < 阈值 → 删除 | 30%（10 个字段中少于 3 个有值） |
+| 重复检测 | 两条记录完全一致或 A 包含 B → 保留信息量大的 | — |
+
+在 extraction_engine 的提取循环结束、保存 CSV 之前自动执行。配置项：`QUALITY_CHECK_ENABLED`、`QUALITY_SPARSE_THRESHOLD`。
 
 ---
 
@@ -205,6 +235,9 @@ python platform_init/test/prompt/test_evaluation.py --live --all
 
 # 只评测某个 prompt
 python platform_init/test/prompt/test_evaluation.py --live --prompt hardware_command_parse
+
+# 质量检测器测试
+python platform_init/test/prompt/test_quality_checker.py
 ```
 
 ---
@@ -238,6 +271,15 @@ python platform_init/test/prompt/test_evaluation.py --live --prompt hardware_com
 | **P4** | `algorithm_gen_code_gen_template` | 94行/嵌套代码块混乱 | 精简到约70行 + 步骤化(a/b/c/d/e) + 减少嵌套 |
 | **P4** | `algorithm_gen_spec_extraction` | 描述不够具体 | 参数描述的因果解释 + type/default 一致性检查 |
 | **—** | `data_analysis_system` | 选择原则无优先级 | 标注优先级 + 增加多算法适用性指导 |
+| **—** | `field_inference_infer_fields` | LLM 需输出来源字段 | 移除来源字段要求，系统自动附加 `_source_doc` + `_source_page` |
+
+### 提取质量检查（2026-05-10，确定性规则）
+
+| 文件 | 说明 |
+|------|------|
+| `extract/quality_checker.py` | QualityChecker 类：稀疏检测（字段填充率）+ 重复检测（相等/包含关系） |
+| `app.py` | PDF 预览 API：`/api/page_preview` + `/api/page_context` |
+| `extract/extraction_engine.py` | `_source_page` 追踪 + QualityChecker 集成 |
 
 ### 量化指标
 
@@ -257,7 +299,7 @@ python platform_init/test/prompt/test_evaluation.py --live --prompt hardware_com
 | 1 | `extraction_system_vision` | extraction | task_description, fields, example_json | PDF 图片页面的提取系统提示词 |
 | 2 | `extraction_system_text` | extraction | task_description, fields, example_json | PDF 文本页面的提取系统提示词 |
 | 3 | `extraction_few_shot_block` | extraction | examples_text | 历史提取示例注入到 system prompt 前 |
-| 4 | `field_inference_infer_fields` | field_inference | task_description, schema_str | 从任务描述推断需要的提取字段列表 |
+| 4 | `field_inference_infer_fields` | field_inference | task_description, schema_str | 从任务描述推断需要的提取字段列表。**不再需要 LLM 输出来源字段**，系统自动附加 `_source_doc` + `_source_page` |
 | 5 | `field_inference_filename_prefix` | field_inference | task_description | 任务描述→英文文件名前缀 |
 | 6 | `experiment_design_system` | experiment_design | hardware_tools_desc, software_tools_desc, helper_tools_desc | 实验设计 Agent 系统提示词（工具列表动态注入） |
 | 7 | `experiment_design_user` | experiment_design | system_prompt, user_description | 实验设计用户需求包装 |

@@ -219,6 +219,40 @@ class ExtractionEngine:
                     task_description=task_description
                 )
 
+            # ── 内置质量检查：稀疏记录 + 重复记录 ──
+            try:
+                from extract.quality_checker import QualityChecker
+                qc_result = QualityChecker.run_all_checks(
+                    all_extracted_data, fields,
+                    sparse_threshold=getattr(self.config, 'QUALITY_SPARSE_THRESHOLD', 0.3)
+                )
+
+                deleted = set(qc_result.get("sparse_deleted", []) + qc_result.get("duplicate_deleted", []))
+                if deleted:
+                    # 记录被删除的条目摘要（用于日志）
+                    sparse_info = qc_result.get("sparse_rate", {})
+                    for idx in sorted(deleted):
+                        reason = "稀疏" if idx in qc_result.get("sparse_deleted", []) else "重复"
+                        record = all_extracted_data[idx]
+                        name_val = str(record.get(fields[0], "?")) if fields else "?"
+                        fill_rate = sparse_info.get(idx, 0)
+                        print(f"[质量检查] 删除{reason}记录 #{idx}: {name_val} (填充率={fill_rate:.0%})" if reason == "稀疏" else f"[质量检查] 删除{reason}记录 #{idx}: {name_val}")
+
+                    all_extracted_data = [
+                        r for i, r in enumerate(all_extracted_data) if i not in deleted
+                    ]
+
+                    self.task_manager.put_task_message("info",
+                        f"质量检查完成: 删除 {len(qc_result.get('sparse_deleted', []))} 条稀疏记录, "
+                        f"{len(qc_result.get('duplicate_deleted', []))} 条重复记录"
+                    )
+            except ImportError:
+                pass  # quality_checker 模块不存在时跳过
+            except Exception as e:
+                print(f"[质量检查] 执行失败: {e}")
+                import traceback
+                traceback.print_exc()
+
             # 保存结果
             self._save_extraction_results(
                 task_id=task_id,
@@ -427,6 +461,7 @@ class ExtractionEngine:
             for item in result["data"]:
                 item_dict = item if isinstance(item, dict) else item.model_dump()
                 item_dict['_source_doc'] = doc_id
+                item_dict['_source_page'] = page_num + 1
                 all_extracted_data.append(item_dict)
 
                 self.task_manager.put_task_message("finding", {
@@ -494,6 +529,7 @@ class ExtractionEngine:
             for item in result["data"]:
                 item_dict = item if isinstance(item, dict) else item.model_dump()
                 item_dict['_source_doc'] = doc_id
+                item_dict['_source_page'] = page_num + 1
                 all_extracted_data.append(item_dict)
 
                 self.task_manager.put_task_message("finding", {

@@ -44,6 +44,13 @@
     "DEDUP_MERGE_STRATEGY": "longest",
     "DEDUP_ADD_METADATA": true,
 
+    "_提取质量检查": "=== 提取结果质量检查，sparse_threshold 表示空值占比超过此值则触发告警 ===",
+    "QUALITY_CHECK_ENABLED": true,
+    "QUALITY_SPARSE_THRESHOLD": 0.3,
+
+    "_PDF预览": "=== PDF 页面预览功能 ===",
+    "PDF_PREVIEW_ENABLED": true,
+
     "_文件路径": "=== 数据存储和模板目录 ===",
     "DIALOGUE_DATA_DIR": "dialogue data/history",
     "PDF_FOLDER": "dialogue data/PDF_TARGET",

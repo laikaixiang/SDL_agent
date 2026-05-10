@@ -192,6 +192,29 @@ def get_session_path(subdir=""):
         return os.path.join(SESSION_BASE_PATH, subdir)
     return SESSION_BASE_PATH
 
+def _resolve_pdf_path(doc_name: str) -> str:
+    """Resolve a PDF filename to its full path.
+
+    Searches in: dialogue data/PDF_TARGET/, then project root.
+    """
+    import glob
+    # Try PDF_FOLDER directory
+    pdf_dir = config.PDF_FOLDER if hasattr(config, 'PDF_FOLDER') else os.path.join(config.DIALOGUE_DATA_DIR, '..', 'PDF_TARGET')
+    pdf_dir = os.path.normpath(pdf_dir)
+    if os.path.isdir(pdf_dir):
+        for ext in ['.pdf', '.PDF']:
+            candidate = os.path.join(pdf_dir, doc_name if doc_name.endswith('.pdf') else doc_name + ext)
+            if os.path.isfile(candidate):
+                return candidate
+    # Try direct path
+    if os.path.isfile(doc_name):
+        return doc_name
+    # Try with .pdf extension
+    if not doc_name.endswith('.pdf') and os.path.isfile(doc_name + '.pdf'):
+        return doc_name + '.pdf'
+    return ""
+
+
 # 重新初始化需要会话路径的组件
 extraction_engine = ExtractionEngine(task_manager, session_path=SESSION_BASE_PATH)
 csv_writer = CSVWriter(session_path=SESSION_BASE_PATH)
@@ -1790,6 +1813,132 @@ def page_image():
         })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+# =============================================================================
+# PDF 预览路由
+# =============================================================================
+
+@app.route('/api/page_preview', methods=['GET'])
+def page_preview():
+    """PDF page preview with optional keyword highlighting.
+
+    Query params:
+        doc:   PDF filename
+        page:  page number (1-based)
+        query: optional, comma-separated keywords to highlight
+        mode:  "image" (default) or "text"
+
+    Returns JSON:
+        {doc, page, total_pages, image_base64, text, highlights: [{keyword, line, context}]}
+    """
+    if not config.PDF_PREVIEW_ENABLED:
+        return jsonify({"error": "PDF preview not enabled"}), 404
+
+    doc = request.args.get("doc", "")
+    page = int(request.args.get("page", 1))
+    query = request.args.get("query", "")
+
+    pdf_path = _resolve_pdf_path(doc)
+    if not pdf_path:
+        return jsonify({"error": f"Document not found: {doc}"}), 404
+
+    try:
+        markdown_text, img_base64, _use_vision = pdf_processor.extract_page_content(pdf_path, page - 1)
+    except Exception as e:
+        return jsonify({"error": f"Failed to extract page: {e}"}), 500
+
+    # Fallback: extract_page_content may not return an image in text mode
+    if not img_base64:
+        try:
+            img_base64 = pdf_processor.pdf_page_to_image(pdf_path, page - 1)
+        except Exception:
+            pass
+
+    text = markdown_text or ""
+
+    total_pages = 0
+    try:
+        info = pdf_processor.get_pdf_info(pdf_path)
+        if info:
+            total_pages = info.get('total_pages', 0)
+    except Exception:
+        pass
+
+    highlights = []
+    if query:
+        keywords = [k.strip() for k in query.split(",") if k.strip()]
+        text_lines = text.split("\n")
+        for kw in keywords:
+            for line_idx, line in enumerate(text_lines):
+                if kw in line:
+                    highlights.append({
+                        "keyword": kw,
+                        "line": line_idx + 1,
+                        "context": line.strip()[:300],
+                    })
+
+    return jsonify({
+        "success": True,
+        "data": {
+            "doc": doc,
+            "page": page,
+            "total_pages": total_pages,
+            "image_base64": f"data:image/jpeg;base64,{img_base64}" if img_base64 else "",
+            "text": text,
+            "highlights": highlights[:20],
+        }
+    })
+
+
+@app.route('/api/page_context', methods=['POST'])
+def page_context():
+    """Batch read page context for agent verification.
+
+    Request body:
+        {results: [{doc, page, query}, ...]}
+
+    Returns:
+        {contexts: [{doc, page, text, matches: [{line, text}]}]}
+    """
+    if not config.PDF_PREVIEW_ENABLED:
+        return jsonify({"error": "PDF preview not enabled"}), 404
+
+    data = request.get_json(silent=True) or {}
+    contexts = []
+
+    for item in data.get("results", [])[:20]:  # max 20 per request
+        doc = item.get("doc", "")
+        page = item.get("page", 1)
+        query = item.get("query", "")
+
+        pdf_path = _resolve_pdf_path(doc)
+        if not pdf_path:
+            contexts.append({"doc": doc, "page": page, "error": "not found"})
+            continue
+
+        try:
+            markdown_text, _img_base64, _use_vision = pdf_processor.extract_page_content(pdf_path, page - 1)
+            text = markdown_text or ""
+        except Exception as e:
+            contexts.append({"doc": doc, "page": page, "error": str(e)})
+            continue
+
+        matches = []
+        if query and text:
+            lines = text.split("\n")
+            for i, line in enumerate(lines):
+                if query in line:
+                    matches.append({"line": i + 1, "text": line.strip()[:300]})
+
+        contexts.append({
+            "doc": doc,
+            "page": page,
+            "text": text[:3000],
+            "matches": matches[:10],
+        })
+
+    return jsonify({"success": True, "data": {"contexts": contexts}})
 
 
 if __name__ == '__main__':

@@ -24,6 +24,7 @@ from .page_indexer import PageIndexer, make_page_id
 from .page_filter import PageFilter
 from .few_shot_retriever import FewShotRetriever
 from .dedup import deduplicate_extraction_results
+from prompts import create_prompt_manager
 
 
 class PageExtractionResponse(BaseModel):
@@ -394,20 +395,13 @@ class ExtractionEngine:
         example_item = {f: "提取的内容" for f in fields}
         example_json = json.dumps({"data": [example_item]}, ensure_ascii=False)
 
-        # 构建系统提示词
-        sys_prompt = (
-            f"你是一个专业的学术文献分析专家。你的任务是从提供的文献页面图像中提取：\n【目标】：{fields}\n\n"
-            "提取规则：\n"
-            "1. 复合材料（含+、and等）不可拆分，需提取比例，若无比例标注（未说明比例）。若已提取过则不重复。\n"
-            "2. 溶剂量/浓度/转速/温度必须包含单位。\n"
-            "3. 忽略参考文献条目中的数据。\n\n"
-            "🚨 JSON输出规则（严格遵守，否则解析失败）：\n"
-            "- 直接输出纯JSON对象，不包含任何markdown标记或解释文字\n"
-            "- JSON字符串值中的双引号必须转义为 \\\"，换行必须转义为 \\n\n"
-            "- 不要使用中文引号（\"\"），使用标准ASCII双引号\n"
-            "- 不要在最后一个元素后加逗号\n"
-            "- 确保所有花括号和方括号正确闭合\n"
-            f"必须严格遵循此格式：\n{example_json}"
+        # 构建系统提示词 (migrated from inline f-string, source: lines 397-411)
+        prompt_manager = create_prompt_manager()
+        sys_prompt = prompt_manager.get(
+            "extraction_system_vision",
+            task_description=task_description,
+            fields=str(fields),
+            example_json=example_json,
         )
 
         # Phase 2: 检索历史 Few-Shot 示例并注入 prompt
@@ -468,20 +462,13 @@ class ExtractionEngine:
         example_item = {f: "提取的内容" for f in fields}
         example_json = json.dumps({"data": [example_item]}, ensure_ascii=False)
 
-        # 构建系统提示词
-        sys_prompt = (
-            f"你是一个专业的学术文献分析专家。你的任务是从提供的文献页面文本中提取：\n【目标】：{fields}\n\n"
-            "提取规则：\n"
-            "1. 复合材料（含+、and等）不可拆分，需提取比例，若无比例标注（未说明比例）。若已提取过则不重复。\n"
-            "2. 溶剂量/浓度/转速/温度必须包含单位。\n"
-            "3. 忽略参考文献条目中的数据。\n\n"
-            "🚨 JSON输出规则（严格遵守，否则解析失败）：\n"
-            "- 直接输出纯JSON对象，不包含任何markdown标记或解释文字\n"
-            "- JSON字符串值中的双引号必须转义为 \\\"，换行必须转义为 \\n\n"
-            "- 不要使用中文引号（\"\"），使用标准ASCII双引号\n"
-            "- 不要在最后一个元素后加逗号\n"
-            "- 确保所有花括号和方括号正确闭合\n"
-            f"必须严格遵循此格式：\n{example_json}"
+        # 构建系统提示词 (migrated from inline f-string, source: lines 471-485)
+        prompt_manager = create_prompt_manager()
+        sys_prompt = prompt_manager.get(
+            "extraction_system_text",
+            task_description=task_description,
+            fields=str(fields),
+            example_json=example_json,
         )
 
         # Phase 2: 检索历史 Few-Shot 示例并注入 prompt
@@ -550,10 +537,11 @@ class ExtractionEngine:
             f"示例 {i + 1}: {json.dumps(ex, ensure_ascii=False)}"
             for i, ex in enumerate(examples)
         )
-        few_shot_block = (
-            "\n\n📋 参考历史提取示例（从相似页面中提取的数据，供你参考格式和内容）：\n"
-            f"{examples_text}\n"
-            "请参考以上示例的提取风格和详细程度来处理当前页面。"
+        # 构建 few-shot 块 (migrated from inline concatenation, source: lines 553-557)
+        prompt_manager = create_prompt_manager()
+        few_shot_block = prompt_manager.get(
+            "extraction_few_shot_block",
+            examples_text=examples_text,
         )
 
         return few_shot_block + "\n\n" + sys_prompt

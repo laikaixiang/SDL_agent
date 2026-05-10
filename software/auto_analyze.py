@@ -70,39 +70,8 @@ _RESULTS_DIR = os.path.join(
 
 
 # ==============================================================================
-# LLM 提示词
+# LLM 提示词（已迁移至 prompts/data_analysis/）
 # ==============================================================================
-
-ANALYSIS_SYSTEM_PROMPT = """\
-你是数据分析专家。给定一份 CSV 文件的列名列表、可用算法描述以及可用的数据读取函数，
-你的任务是判断最适合的算法并决定如何读取数据。
-
-只输出 JSON，不要有任何解释文字、代码块包裹或其他内容：
-{
-  "algorithm"    : "算法英文标识（必须是可用算法列表中的名称之一）",
-  "read_function": "读取函数名（必须是可用函数列表中的名称之一）",
-  "read_params"  : {"参数名": "参数值"},
-  "reasoning"    : "一句话说明选择依据（中文）"
-}
-
-选择原则：
-- 列名含 wavelength / intensity / nm / 光谱 相关词 → 优先 spectrum_analysis + read_spectrum_format
-- 列名全为数值型业务字段（如 PCE、thickness、Voc 等）→ data_statistics + read_numeric_columns
-- 需要归一化处理 → data_normalization + read_numeric_columns
-- 不确定时选 data_statistics + read_numeric_columns
-"""
-
-ANALYSIS_USER_TEMPLATE = """\
-CSV 文件: {csv_path}
-列名: {columns}
-
-可用算法:
-{algorithms_desc}
-
-{functions_desc}
-
-请分析以上列名，判断最适合的算法和读取方式。
-"""
 
 
 # ==============================================================================
@@ -348,15 +317,20 @@ def run_pipeline(
     send_msg("progress", "大模型正在分析数据结构，请稍候...")
 
     algos_desc = _build_algorithms_desc(algorithms)
-    user_msg   = ANALYSIS_USER_TEMPLATE.format(
-        csv_path        = csv_path,
-        columns         = json.dumps(columns, ensure_ascii=False),
-        algorithms_desc = algos_desc,
-        functions_desc  = FUNCTIONS_DESCRIPTION,
+
+    from prompts import create_prompt_manager
+    pm = create_prompt_manager()
+
+    user_msg = pm.get(
+        "data_analysis_user",
+        csv_path=csv_path,
+        columns=json.dumps(columns, ensure_ascii=False),
+        algorithms_desc=algos_desc,
+        functions_desc=FUNCTIONS_DESCRIPTION,
     )
 
     try:
-        raw_response = _call_llm(ANALYSIS_SYSTEM_PROMPT, user_msg)
+        raw_response = _call_llm(pm.get("data_analysis_system"), user_msg)
         spec = json.loads(_strip_json(raw_response))
     except json.JSONDecodeError as e:
         send_msg("complete", {"error": f"LLM 返回格式无效，JSON 解析失败: {e}"})

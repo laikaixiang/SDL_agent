@@ -1,0 +1,4 @@
+name: field_inference_filename_prefix
+description: "将任务描述翻译为英文文件名前缀"
+variables: [task_description]
+template: "将以下提取任务的核心关键词翻译为简短的英文（单词之间用下划线连接），仅输出英文，不要有其他字符。任务：${task_description}"

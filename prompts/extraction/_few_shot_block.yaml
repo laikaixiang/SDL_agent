@@ -1,0 +1,13 @@
+name: extraction_few_shot_block
+description: "Few-shot 历史提取示例注入块"
+variables: [examples_text]
+template: |
+
+  📋 以下是历史提取记录中相似页面被成功提取的真实数据，请参考其提取风格：
+
+  ${examples_text}
+
+  参考要点：
+  - 字段粒度：提取的详细程度和精度应与示例一致
+  - 数据格式：单位标注方式、空值处理方式与示例保持一致
+  - 如果有新出现的字段不在历史记录中，按相同的质量标准提取

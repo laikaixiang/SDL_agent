@@ -1,0 +1,13 @@
+name: data_analysis_user
+description: "数据分析用户消息模板"
+variables: [csv_path, columns, algorithms_desc, functions_desc]
+template: |
+  CSV 文件: ${csv_path}
+  列名: ${columns}
+
+  可用算法:
+  ${algorithms_desc}
+
+  ${functions_desc}
+
+  请分析以上列名，判断最适合的算法和读取方式。

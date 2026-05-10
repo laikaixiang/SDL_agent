@@ -1,0 +1,4 @@
+name: misc_session_title
+description: "生成对话会话标题（≤20汉字）"
+variables: [lines]
+template: "请用一句话（不超过20个汉字）总结以下对话的主题，只返回总结文本，不要引号或额外解释：\n${lines}"

@@ -1,0 +1,14 @@
+name: experiment_design_user
+description: "实验设计用户消息模板"
+variables: [system_prompt, user_description]
+template: |
+  ${system_prompt}
+
+  用户需求：${user_description}
+
+  请在输出JSON之前，先在心里确认：
+  1. 你理解了用户需求的核心目标是什么？
+  2. 需要哪些硬件工具和软件算法来满足这个需求？
+  3. 步骤的先后顺序是否合理？是否遗漏了安全等待步骤？
+
+  然后直接输出JSON格式的实验设计方案。

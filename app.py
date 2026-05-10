@@ -40,13 +40,19 @@ from extract.embedding_service import create_embedding_service
 from extract.vector_store import ChromaVectorStore
 from extract.semantic_search import SemanticSearch
 from utils import CSVWriter
+from prompts.api import prompts_bp
 
 # 初始化Flask应用，static 文件夹已移入 templates/static
 app = Flask(__name__, static_folder='templates/static', static_url_path='/static')
 app.secret_key = os.urandom(24)  # 用于session管理
+app.register_blueprint(prompts_bp)
 
 # 初始化核心组件
 config = Config()
+
+# 初始化 PromptManager（全局单例，各模块通过 create_prompt_manager() 获取）
+from prompts import create_prompt_manager as _init_prompt_manager
+_init_prompt_manager()
 llm_client = LLMClient()
 pdf_processor = PDFProcessor()
 field_inference = FieldInference()
@@ -119,7 +125,9 @@ def _generate_title(messages):
     if len(user_msgs) < 2:
         return None
     lines = "\n".join(f"{i+1}. {user_msgs[i]}" for i in range(min(3, len(user_msgs))))
-    prompt = f"请用一句话（不超过20个汉字）总结以下对话的主题，只返回总结文本，不要引号或额外解释：\n{lines}"
+    from prompts import create_prompt_manager
+    pm = create_prompt_manager()
+    prompt = pm.get("misc_session_title", lines=lines)
     try:
         result = adaptive_handler.generate_non_streaming_response(
             prompt, model=config.MODEL_NAME_TALK

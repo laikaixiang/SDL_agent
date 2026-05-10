@@ -7,21 +7,35 @@ marked.setOptions({
 })
 
 /**
- * Render LaTeX formulas ($...$ and $$...$$) to HTML via KaTeX,
- * then render the rest as markdown via marked.
+ * Render LaTeX formulas to HTML via KaTeX, then render markdown via marked.
+ * Supports: $$...$$, \[...\] for display math; $...$, \(...\) for inline math.
  */
 export function markdownToHtml(text: string): string {
   const displayMath: string[] = []
   const inlineMath: string[] = []
 
+  let processed = text
+
   // 1. Extract display math $$...$$
-  let processed = text.replace(/\$\$([\s\S]*?)\$\$/g, (_match, formula: string) => {
+  processed = processed.replace(/\$\$([\s\S]*?)\$\$/g, (_match, formula: string) => {
+    displayMath.push(formula.trim())
+    return `\x00DM${displayMath.length - 1}\x00`
+  })
+
+  // 1b. Extract display math \[...\]
+  processed = processed.replace(/\\\[([\s\S]*?)\\\]/g, (_match, formula: string) => {
     displayMath.push(formula.trim())
     return `\x00DM${displayMath.length - 1}\x00`
   })
 
   // 2. Extract inline math $...$ (single $, content must not contain $ or newline)
   processed = processed.replace(/\$([^$\n]+?)\$/g, (_match, formula: string) => {
+    inlineMath.push(formula.trim())
+    return `\x00IM${inlineMath.length - 1}\x00`
+  })
+
+  // 2b. Extract inline math \(...\)
+  processed = processed.replace(/\\\(([\s\S]*?)\\\)/g, (_match, formula: string) => {
     inlineMath.push(formula.trim())
     return `\x00IM${inlineMath.length - 1}\x00`
   })

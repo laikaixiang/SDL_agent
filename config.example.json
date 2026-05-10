@@ -79,5 +79,12 @@
     "SPECTROMETER_PASSWORD": "your-password",
 
     "_试剂配置": "=== 试剂布局文件路径 ===",
-    "REAGENT_LAYOUT_PATH": "reagent_layout.json"
+    "REAGENT_LAYOUT_PATH": "reagent_layout.json",
+
+    "_文献元数据提取配置": "----- 文献元数据提取 -----",
+    "LITERATURE_REGISTRY_DB_PATH": "dialogue data/PDF_TARGET/literature_registry.db",
+    "METADATA_EXTRACTION_MODEL": "Qwen/Qwen3-VL-30B-A3B-Instruct",
+    "BATCH_MAX_WORKERS": 3,
+    "METADATA_EXTRACTION_TIMEOUT": 120,
+    "METADATA_RETRY_ATTEMPTS": 2
 }

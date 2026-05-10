@@ -169,6 +169,13 @@ class Config:
     # ======================== 试剂配置 ========================
     REAGENT_LAYOUT_PATH: str = _external.get("REAGENT_LAYOUT_PATH", "reagent_layout.json")
 
+    # ======================== 文献元数据提取配置 ========================
+    LITERATURE_REGISTRY_DB_PATH: str = _external.get("LITERATURE_REGISTRY_DB_PATH", "dialogue data/PDF_TARGET/literature_registry.db")
+    METADATA_EXTRACTION_MODEL: str = _external.get("METADATA_EXTRACTION_MODEL", "Qwen/Qwen3-VL-30B-A3B-Instruct")
+    BATCH_MAX_WORKERS: int = _external.get("BATCH_MAX_WORKERS", 3)
+    METADATA_EXTRACTION_TIMEOUT: int = _external.get("METADATA_EXTRACTION_TIMEOUT", 120)
+    METADATA_RETRY_ATTEMPTS: int = _external.get("METADATA_RETRY_ATTEMPTS", 2)
+
     @classmethod
     def get_config(cls, key: str) -> Optional[str]:
         """

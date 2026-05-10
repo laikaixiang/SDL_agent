@@ -9,10 +9,11 @@ interface ChatRequest {
 }
 
 interface JsonResponse {
-  type: 'text' | 'system' | 'task_trigger' | 'field_confirm' | 'error'
+  type: 'text' | 'system' | 'task_trigger' | 'field_confirm' | 'experiment_design_mode' | 'error'
   reply: string
   task_desc?: string
   fields?: string[]
+  command?: string
 }
 
 interface ChatResult {
@@ -20,6 +21,7 @@ interface ChatResult {
   type?: string
   task_desc?: string
   fields?: string[]
+  command?: string
 }
 
 /**
@@ -43,7 +45,7 @@ export async function sendChatMessage(
   if (contentType.includes('application/json')) {
     const data: JsonResponse = await resp.json()
     onChunk(data.reply)
-    return { text: data.reply, type: data.type, task_desc: data.task_desc, fields: data.fields }
+    return { text: data.reply, type: data.type, task_desc: data.task_desc, fields: data.fields, command: data.command }
   }
 
   // Streaming text response

@@ -90,6 +90,21 @@ npm run build:flask      # 生产构建（base=/v2-static/）
 cd .. && python platform_init/test/frontend/test_frontend.py  # 10 项集成测试
 ```
 
+### 坑：git checkout 后 /v2 白屏或 404
+
+**原因**：`frontend/dist/` 虽在 `.gitignore`，但早期有部分文件（`index.html`、`Badge-*.css` 等）被误提交到 git。checkout 时这些旧文件会覆盖本地构建产物，导致 `index.html` 引用的 JS/CSS 文件名与实际构建产物不匹配。
+
+**症状**：
+- 访问 `/v2` 页面白屏（浏览器加载 JS 404）
+- 或 Flask 返回 404（`index.html` 被删掉）
+
+**修复**：
+```bash
+cd frontend && npm run build:flask
+```
+
+每次 `git checkout` 切换分支/修订后，如果 dist 被污染，重新构建即可。
+
 ---
 
 ## 更新日志（2026-05-10）

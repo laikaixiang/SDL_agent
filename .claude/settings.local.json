@@ -15,7 +15,10 @@
       "Bash(npm run *)",
       "Bash(python platform_init/test/frontend/test_frontend.py)",
       "Bash(python platform_init/test/dedup/test_dedup.py)",
-      "Bash(python *)"
+      "Bash(python *)",
+      "Bash(git checkout *)",
+      "Bash(taskkill //F //IM python.exe)",
+      "Bash(taskkill //F //IM python3.exe)"
     ]
   },
   "enabledPlugins": {}

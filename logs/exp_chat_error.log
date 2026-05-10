@@ -1,0 +1,216 @@
+
+============================================================
+Error at 2026-05-11 02:14:25.234497
+Traceback (most recent call last):
+  File "D:\PycharmProjects\SDL_agent\core\field_inference.py", line 217, in _load_software_registry
+    controller = SoftwareController()
+                 ^^^^^^^^^^^^^^^^^^^^
+  File "D:\PycharmProjects\SDL_agent\software\software_controller.py", line 63, in __init__
+    self._discover_algorithms()
+  File "D:\PycharmProjects\SDL_agent\software\software_controller.py", line 180, in _discover_algorithms
+    self._try_load_module(full_module_path)
+  File "D:\PycharmProjects\SDL_agent\software\software_controller.py", line 212, in _try_load_module
+    print(f"[SoftwareController] [OK] Registered algorithm: {instance.name} ({module_path})")
+OSError: [Errno 22] Invalid argument
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\PycharmProjects\SDL_agent\app.py", line 984, in experiment_chat
+    agent = ExperimentDesignAgent()
+            ^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\PycharmProjects\SDL_agent\core\field_inference.py", line 190, in __init__
+    self.software_registry = self._load_software_registry()
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\PycharmProjects\SDL_agent\core\field_inference.py", line 220, in _load_software_registry
+    print(f"[警告] 软件算法注册表加载失败: {e}")
+OSError: [Errno 22] Invalid argument
+
+============================================================
+Error at 2026-05-11 02:14:25.237497
+Traceback (most recent call last):
+  File "D:\PycharmProjects\SDL_agent\core\field_inference.py", line 217, in _load_software_registry
+    controller = SoftwareController()
+                 ^^^^^^^^^^^^^^^^^^^^
+  File "D:\PycharmProjects\SDL_agent\software\software_controller.py", line 63, in __init__
+    self._discover_algorithms()
+  File "D:\PycharmProjects\SDL_agent\software\software_controller.py", line 180, in _discover_algorithms
+    self._try_load_module(full_module_path)
+  File "D:\PycharmProjects\SDL_agent\software\software_controller.py", line 212, in _try_load_module
+    print(f"[SoftwareController] [OK] Registered algorithm: {instance.name} ({module_path})")
+OSError: [Errno 22] Invalid argument
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\PycharmProjects\SDL_agent\app.py", line 984, in experiment_chat
+    agent = ExperimentDesignAgent()
+            ^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\PycharmProjects\SDL_agent\core\field_inference.py", line 190, in __init__
+    self.software_registry = self._load_software_registry()
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\PycharmProjects\SDL_agent\core\field_inference.py", line 220, in _load_software_registry
+    print(f"[警告] 软件算法注册表加载失败: {e}")
+OSError: [Errno 22] Invalid argument
+
+============================================================
+Error at 2026-05-11 02:14:25.240497
+Traceback (most recent call last):
+  File "D:\PycharmProjects\SDL_agent\core\field_inference.py", line 217, in _load_software_registry
+    controller = SoftwareController()
+                 ^^^^^^^^^^^^^^^^^^^^
+  File "D:\PycharmProjects\SDL_agent\software\software_controller.py", line 63, in __init__
+    self._discover_algorithms()
+  File "D:\PycharmProjects\SDL_agent\software\software_controller.py", line 180, in _discover_algorithms
+    self._try_load_module(full_module_path)
+  File "D:\PycharmProjects\SDL_agent\software\software_controller.py", line 212, in _try_load_module
+    print(f"[SoftwareController] [OK] Registered algorithm: {instance.name} ({module_path})")
+OSError: [Errno 22] Invalid argument
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\PycharmProjects\SDL_agent\app.py", line 984, in experiment_chat
+    agent = ExperimentDesignAgent()
+            ^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\PycharmProjects\SDL_agent\core\field_inference.py", line 190, in __init__
+    self.software_registry = self._load_software_registry()
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\PycharmProjects\SDL_agent\core\field_inference.py", line 220, in _load_software_registry
+    print(f"[警告] 软件算法注册表加载失败: {e}")
+OSError: [Errno 22] Invalid argument
+
+============================================================
+Error at 2026-05-11 02:14:33.148432
+Traceback (most recent call last):
+  File "D:\PycharmProjects\SDL_agent\core\field_inference.py", line 217, in _load_software_registry
+    controller = SoftwareController()
+                 ^^^^^^^^^^^^^^^^^^^^
+  File "D:\PycharmProjects\SDL_agent\software\software_controller.py", line 63, in __init__
+    self._discover_algorithms()
+  File "D:\PycharmProjects\SDL_agent\software\software_controller.py", line 180, in _discover_algorithms
+    self._try_load_module(full_module_path)
+  File "D:\PycharmProjects\SDL_agent\software\software_controller.py", line 212, in _try_load_module
+    print(f"[SoftwareController] [OK] Registered algorithm: {instance.name} ({module_path})")
+OSError: [Errno 22] Invalid argument
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\PycharmProjects\SDL_agent\app.py", line 984, in experiment_chat
+    agent = ExperimentDesignAgent()
+            ^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\PycharmProjects\SDL_agent\core\field_inference.py", line 190, in __init__
+    self.software_registry = self._load_software_registry()
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\PycharmProjects\SDL_agent\core\field_inference.py", line 220, in _load_software_registry
+    print(f"[警告] 软件算法注册表加载失败: {e}")
+OSError: [Errno 22] Invalid argument
+
+============================================================
+Error at 2026-05-11 02:16:17.696146
+Traceback (most recent call last):
+  File "D:\PycharmProjects\SDL_agent\core\field_inference.py", line 217, in _load_software_registry
+    controller = SoftwareController()
+                 ^^^^^^^^^^^^^^^^^^^^
+  File "D:\PycharmProjects\SDL_agent\software\software_controller.py", line 63, in __init__
+    self._discover_algorithms()
+  File "D:\PycharmProjects\SDL_agent\software\software_controller.py", line 180, in _discover_algorithms
+    self._try_load_module(full_module_path)
+  File "D:\PycharmProjects\SDL_agent\software\software_controller.py", line 212, in _try_load_module
+    print(f"[SoftwareController] [OK] Registered algorithm: {instance.name} ({module_path})")
+OSError: [Errno 22] Invalid argument
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\PycharmProjects\SDL_agent\app.py", line 984, in experiment_chat
+    _step = 'init_agent'
+            ^^^^^^^^^^^^^
+  File "D:\PycharmProjects\SDL_agent\core\field_inference.py", line 190, in __init__
+    self.software_registry = self._load_software_registry()
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\PycharmProjects\SDL_agent\core\field_inference.py", line 220, in _load_software_registry
+    print(f"[警告] 软件算法注册表加载失败: {e}")
+OSError: [Errno 22] Invalid argument
+
+============================================================
+Error at 2026-05-11 02:16:21.246431
+Traceback (most recent call last):
+  File "D:\PycharmProjects\SDL_agent\core\field_inference.py", line 217, in _load_software_registry
+    controller = SoftwareController()
+                 ^^^^^^^^^^^^^^^^^^^^
+  File "D:\PycharmProjects\SDL_agent\software\software_controller.py", line 63, in __init__
+    self._discover_algorithms()
+  File "D:\PycharmProjects\SDL_agent\software\software_controller.py", line 180, in _discover_algorithms
+    self._try_load_module(full_module_path)
+  File "D:\PycharmProjects\SDL_agent\software\software_controller.py", line 212, in _try_load_module
+    print(f"[SoftwareController] [OK] Registered algorithm: {instance.name} ({module_path})")
+OSError: [Errno 22] Invalid argument
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\PycharmProjects\SDL_agent\app.py", line 984, in experiment_chat
+    _step = 'init_agent'
+            ^^^^^^^^^^^^^
+  File "D:\PycharmProjects\SDL_agent\core\field_inference.py", line 190, in __init__
+    self.software_registry = self._load_software_registry()
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\PycharmProjects\SDL_agent\core\field_inference.py", line 220, in _load_software_registry
+    print(f"[警告] 软件算法注册表加载失败: {e}")
+OSError: [Errno 22] Invalid argument
+
+============================================================
+Error at 2026-05-11 02:17:15.168501
+Traceback (most recent call last):
+  File "D:\PycharmProjects\SDL_agent\core\field_inference.py", line 217, in _load_software_registry
+    controller = SoftwareController()
+                 ^^^^^^^^^^^^^^^^^^^^
+  File "D:\PycharmProjects\SDL_agent\software\software_controller.py", line 63, in __init__
+    self._discover_algorithms()
+  File "D:\PycharmProjects\SDL_agent\software\software_controller.py", line 180, in _discover_algorithms
+    self._try_load_module(full_module_path)
+  File "D:\PycharmProjects\SDL_agent\software\software_controller.py", line 212, in _try_load_module
+    print(f"[SoftwareController] [OK] Registered algorithm: {instance.name} ({module_path})")
+OSError: [Errno 22] Invalid argument
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\PycharmProjects\SDL_agent\app.py", line 984, in experiment_chat
+    _step = 'init_agent'
+            ^^^^^^^^^^^^^
+  File "D:\PycharmProjects\SDL_agent\core\field_inference.py", line 190, in __init__
+    self.software_registry = self._load_software_registry()
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\PycharmProjects\SDL_agent\core\field_inference.py", line 220, in _load_software_registry
+    print(f"[警告] 软件算法注册表加载失败: {e}")
+OSError: [Errno 22] Invalid argument
+
+============================================================
+Error at 2026-05-11 02:17:16.494996
+Traceback (most recent call last):
+  File "D:\PycharmProjects\SDL_agent\core\field_inference.py", line 217, in _load_software_registry
+    controller = SoftwareController()
+                 ^^^^^^^^^^^^^^^^^^^^
+  File "D:\PycharmProjects\SDL_agent\software\software_controller.py", line 63, in __init__
+    self._discover_algorithms()
+  File "D:\PycharmProjects\SDL_agent\software\software_controller.py", line 180, in _discover_algorithms
+    self._try_load_module(full_module_path)
+  File "D:\PycharmProjects\SDL_agent\software\software_controller.py", line 212, in _try_load_module
+    print(f"[SoftwareController] [OK] Registered algorithm: {instance.name} ({module_path})")
+OSError: [Errno 22] Invalid argument
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\PycharmProjects\SDL_agent\app.py", line 984, in experiment_chat
+    _step = 'init_agent'
+            ^^^^^^^^^^^^^
+  File "D:\PycharmProjects\SDL_agent\core\field_inference.py", line 190, in __init__
+    self.software_registry = self._load_software_registry()
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\PycharmProjects\SDL_agent\core\field_inference.py", line 220, in _load_software_registry
+    print(f"[警告] 软件算法注册表加载失败: {e}")
+OSError: [Errno 22] Invalid argument

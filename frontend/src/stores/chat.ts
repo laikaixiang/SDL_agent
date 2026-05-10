@@ -2,8 +2,10 @@ import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import type { Message } from '@/types/chat'
 import { sendChatMessage } from '@/api/chat'
+import { generateExperiment } from '@/api/experiment'
 import { useSSE } from '@/composables/useSSE'
 import { useLayoutStore } from '@/stores/layout'
+import { useExperimentStore } from '@/stores/experiment'
 
 export type ChatMode = 'normal' | 'extraction' | 'hardware' | 'experiment' | 'analysis'
 
@@ -232,6 +234,22 @@ export const useChatStore = defineStore('chat', () => {
           fieldConfirm.value = { task_desc: result.task_desc, fields: result.fields }
         } else if (result.type === 'task_trigger') {
           connectExtractionSSE()
+        }
+      } else if (mode === 'experiment') {
+        currentMode.value = 'normal'
+        if (result.type === 'experiment_design_mode') {
+          const cmd = result.command || text
+          try {
+            const expData = await generateExperiment(cmd)
+            if (expData.type === 'experiment_design') {
+              const expStore = useExperimentStore()
+              expStore.loadFromJSON(expData.experiment_json)
+              useLayoutStore().updateTaskStatus('experiment', 'completed')
+            }
+            addMessage('ai', expData.reply || '实验设计完成')
+          } catch (err: unknown) {
+            addMessage('ai', `❌ 实验设计失败：${(err as Error).message || err}`)
+          }
         }
       } else if (mode !== 'normal') {
         currentMode.value = 'normal'

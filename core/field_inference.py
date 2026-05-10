@@ -370,21 +370,46 @@ class ExperimentDesignAgent:
         if result:
             try:
                 content = result['choices'][0]['message']['content'].strip()
-                # 清理可能的markdown标记
-                content = content.replace("```json", "").replace("```", "").strip()
-                experiment_json = json.loads(content)
+                print(f"[实验设计] LLM原始输出({len(content)}字符): {content[:300]}...")
 
-                # 验证JSON格式
+                experiment_json = self._parse_experiment_json(content)
+
+                if experiment_json is None:
+                    return False, f"JSON解析失败: 无法从LLM响应提取JSON。原始输出: {content[:200]}"
+
                 if self.validate_experiment_json(experiment_json):
                     return True, experiment_json
                 else:
                     return False, "生成的JSON格式不符合要求"
-            except json.JSONDecodeError as e:
-                return False, f"JSON解析失败: {str(e)}"
             except Exception as e:
+                import traceback
+                traceback.print_exc()
                 return False, f"处理失败: {str(e)}"
 
         return False, "API调用失败"
+
+    def _parse_experiment_json(self, content: str):
+        """多策略解析实验设计JSON"""
+        # 策略1: 标准markdown清理
+        cleaned = content.replace("```json", "").replace("```", "").strip()
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            pass
+
+        # 策略2: 提取最外层{...}块
+        start = content.find('{')
+        end = content.rfind('}')
+        if start != -1 and end != -1 and end > start:
+            block = content[start:end + 1]
+            # Clean markdown from the block
+            block = block.replace("```json", "").replace("```", "").strip()
+            try:
+                return json.loads(block)
+            except json.JSONDecodeError:
+                pass
+
+        return None
 
     def validate_experiment_json(self, experiment_json: Dict) -> bool:
         """

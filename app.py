@@ -8,6 +8,15 @@ Flask应用入口 - 简洁的Web服务入口
 - 核心业务逻辑通过core模块调用
 """
 
+import sys
+# Windows: prevent UnicodeEncodeError when print() outputs Chinese characters
+if sys.platform == 'win32':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+
 from flask import Flask, request, jsonify, render_template, Response, session, send_from_directory
 import threading
 import os
@@ -17,7 +26,6 @@ import uuid
 import asyncio
 import atexit
 import signal
-import sys
 import webbrowser
 import requests
 from threading import Timer
@@ -940,6 +948,8 @@ def internal_error(error):
     """
     500错误处理
     """
+    import traceback
+    traceback.print_exc()
     return jsonify({'error': '服务器内部错误'}), 500
 
 
@@ -952,74 +962,57 @@ def experiment_chat():
     """
     实验设计对话 - 使用自然语言生成实验设计JSON
 
-    直接生成统一格式的实验设计JSON，打印到控制台并推送到前端
-
     返回格式：
     {
         "type": "experiment_design",
-        "experiment_json": {...},  # 统一格式的实验设计JSON
-        "visual_data": {...},      # 前端可视化格式
-        "reply": "AI的解释说明"
+        "experiment_json": {...},
+        "visual_data": {...},
+        "reply": "..."
     }
     """
     data = request.json
-    session_id = data.get('session_id', 'default')
-    user_message = data.get('message', '').strip()
+    if data is None:
+        return jsonify({'type': 'error', 'reply': '请求体为空或JSON格式错误'}), 400
 
+    user_message = data.get('message', '').strip()
     if not user_message:
         return jsonify({'type': 'error', 'reply': '消息不能为空'})
 
-    # 使用ExperimentDesignAgent生成JSON
-    from core.field_inference import ExperimentDesignAgent
-    from experiment.format import ExperimentFormatConverter
+    try:
+        from core.field_inference import ExperimentDesignAgent
+        from experiment.format import ExperimentFormatConverter
 
-    agent = ExperimentDesignAgent()
-    converter = ExperimentFormatConverter()
+        agent = ExperimentDesignAgent()
+        converter = ExperimentFormatConverter()
 
-    print(f"\n{'='*60}")
-    print(f"[实验设计] 开始生成实验方案")
-    print(f"[实验设计] 用户需求: {user_message}")
-    print(f"{'='*60}\n")
+        success, result = agent.parse_experiment_design(user_message)
 
-    success, result = agent.parse_experiment_design(user_message)
-
-    if success:
-        # 添加时间戳
-        import datetime
-        result['created_at'] = datetime.datetime.now().isoformat()
-
-        # 打印生成的JSON到控制台
-        print(f"\n{'='*60}")
-        print(f"[实验设计] ✅ 生成成功")
-        print(f"[实验设计] 实验名称: {result.get('experiment_name', '未命名实验')}")
-        print(f"[实验设计] 步骤数量: {len(result.get('steps', []))}")
-        print(f"\n[实验设计] 完整JSON:")
-        print(json.dumps(result, ensure_ascii=False, indent=2))
-        print(f"{'='*60}\n")
-
-        # 转换为前端可视化格式
-        visual_data = converter.json_to_visual(result)
-
-        print(f"[实验设计] 已转换为前端可视化格式")
-        print(f"[实验设计] 节点数量: {len(visual_data.get('nodes', []))}")
-        print(f"[实验设计] 边数量: {len(visual_data.get('edges', []))}\n")
-
-        return jsonify({
-            'type': 'experiment_design',
-            'experiment_json': result,
-            'visual_data': visual_data,
-            'reply': f"✅ 已生成实验设计方案：{result.get('experiment_name', '未命名实验')}\n\n{result.get('description', '')}\n\n共 {len(result.get('steps', []))} 个步骤，已推送到实验流程画布。"
-        })
-    else:
-        print(f"\n{'='*60}")
-        print(f"[实验设计] ❌ 生成失败")
-        print(f"[实验设计] 错误信息: {result}")
-        print(f"{'='*60}\n")
-
+        if success:
+            import datetime
+            result['created_at'] = datetime.datetime.now().isoformat()
+            visual_data = converter.json_to_visual(result)
+            return jsonify({
+                'type': 'experiment_design',
+                'experiment_json': result,
+                'visual_data': visual_data,
+                'reply': (
+                    f"✅ 已生成实验设计方案：{result.get('experiment_name', '未命名实验')}\n\n"
+                    f"{result.get('description', '')}\n\n"
+                    f"共 {len(result.get('steps', []))} 个步骤，已推送到实验流程画布。"
+                )
+            })
+        else:
+            return jsonify({
+                'type': 'error',
+                'reply': f"❌ 实验设计生成失败：{result}"
+            })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({
             'type': 'error',
-            'reply': f"❌ 实验设计生成失败：{result}"
-        })
+            'reply': f"服务器内部错误: {str(e)}"
+        }), 500
 
 
 @app.route('/api/experiment_upload', methods=['POST'])

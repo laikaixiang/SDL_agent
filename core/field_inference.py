@@ -47,9 +47,14 @@ class FieldInference:
         """
         schema_str = json.dumps(DynamicFieldsResponse.model_json_schema(), ensure_ascii=False)
 
-        from prompts import create_prompt_manager
-        pm = create_prompt_manager()
-        prompt = pm.get("field_inference_infer_fields", task_description=task_description, schema_str=schema_str)
+        prompt = (
+            f"你是一个文献数据抽取专家。用户希望进行以下信息提取任务：【{task_description}】。\n"
+            "请推断为了完成这个任务，最终的数据表格需要包含哪些列名（字段）？\n"
+            "🚨 你必须直接输出一个 JSON 对象，不要输出任何 Markdown 标记（如 ```json）、不要输出代码块，也不要输出任何解释性文字。\n"
+            "🚨 你的输出必须严格符合以下格式：\n"
+            '{"fields": ["列名1", "列名2", "列名3"]}\n'
+            "🚨 如果对话历史显示这是对之前提取要求的修改/补充，请根据历史上下文和新的要求调整字段列表。\n"
+        )
 
         messages = (history or []) + [
             {"role": "user", "content": prompt}
@@ -78,9 +83,7 @@ class FieldInference:
         Returns:
             英文文件名前缀
         """
-        from prompts import create_prompt_manager
-        pm = create_prompt_manager()
-        prompt = pm.get("field_inference_filename_prefix", task_description=task_description)
+        prompt = f"将以下提取任务的核心关键词翻译为简短的英文（单词之间用下划线连接），仅输出英文，不要有其他字符。任务：{task_description}"
 
         messages = [
             {"role": "user", "content": prompt}
@@ -326,14 +329,38 @@ class ExperimentDesignAgent:
                 f"   参数: {params_str}"
             )
 
-        # 组装完整提示词（外层模板从 PromptManager 获取）
-        from prompts import create_prompt_manager
-        pm = create_prompt_manager()
-        prompt = pm.get(
-            "experiment_design_system",
-            hardware_tools_desc="\n".join(hardware_tools_desc),
-            software_tools_desc="\n".join(software_tools_desc) if software_tools_desc else "暂无可用算法",
-            helper_tools_desc="\n".join(helper_tools_desc),
+        # 组装完整提示词
+        prompt = (
+            "你是一位经验丰富的材料科学家，专门设计钙钛矿太阳能电池实验。\n"
+            "你的任务是根据用户需求，设计详细的实验方案并输出JSON格式。\n\n"
+            "可用的硬件工具（type: \"tool\"）：\n"
+            f"{chr(10).join(hardware_tools_desc)}\n\n"
+            "可用的数据分析算法（type: \"software\"）：\n"
+            f"{chr(10).join(software_tools_desc) if software_tools_desc else '暂无可用算法'}\n\n"
+            "可用的辅助操作（type: \"helper\"）：\n"
+            f"{chr(10).join(helper_tools_desc)}\n\n"
+            "输出格式要求：\n"
+            "🚨 必须输出纯JSON，不要有Markdown标记（如```json）、代码块或解释文字。\n"
+            "🚨 JSON格式：\n"
+            "{\n"
+            '  "experiment_name": "实验名称",\n'
+            '  "description": "实验描述",\n'
+            '  "steps": [\n'
+            '    {"type": "tool", "name": "spin_coating", "params": {...}, "description": "步骤描述"},\n'
+            '    {"type": "helper", "name": "WAIT", "params": {"duration": 5000}, "description": "等待5秒"},\n'
+            '    {"type": "software", "name": "data_statistics", "params": {...}, "input_file": "path/to/data.csv", "output_file": "path/to/result.json", "description": "数据统计分析"},\n'
+            '    ...\n'
+            '  ],\n'
+            '  "notes": "注意事项"\n'
+            "}\n\n"
+            "设计原则：\n"
+            "- 硬件工具步骤使用 type: \"tool\"\n"
+            "- 数据分析步骤使用 type: \"software\"，必须指定input_file和output_file\n"
+            "- 辅助操作步骤使用 type: \"helper\"\n"
+            "- 旋涂步骤必须包含试剂名称和体积\n"
+            "- 多步旋涂需要在步骤间添加WAIT\n"
+            "- 温度设置应在旋涂前完成\n"
+            "- 每个步骤必须有清晰的description说明\n"
         )
 
         return prompt
@@ -348,12 +375,10 @@ class ExperimentDesignAgent:
         Returns:
             (成功状态, JSON字典或错误信息)
         """
-        from prompts import create_prompt_manager
-        pm = create_prompt_manager()
-        prompt = pm.get(
-            "experiment_design_user",
-            system_prompt=self.system_prompt,
-            user_description=user_description,
+        prompt = (
+            f"{self.system_prompt}\n\n"
+            f"用户需求：{user_description}\n\n"
+            "请根据上述需求设计实验方案，直接输出JSON格式。"
         )
 
         messages = [

@@ -145,14 +145,21 @@ class HardwareAgent:
             (是否成功, 工具调用列表 [{"name": "xxx", "params": {...}}, ...])
         """
         tools_schema = self.get_tools_schema()
-        # 已迁移至 prompts/hardware/_command_parse.yaml
-        from prompts import create_prompt_manager
-        pm = create_prompt_manager()
-        prompt = pm.get(
-            "hardware_command_parse",
-            tools_schema=tools_schema,
-            user_command=command_text,
-        )
+        prompt = f"""
+你是一个智能实验室助手，需要根据用户指令调用相应的硬件工具。
+
+可用工具：
+{tools_schema}
+
+用户指令：{command_text}
+
+请分析用户指令，确定需要调用哪些工具以及它们的参数。
+输出格式：JSON数组，每个元素是一个工具调用，包含name和params。
+
+示例：
+- 简单调用: [{{"name": "set_temperature", "params": {{"target": 25.0}}}}]
+- 多工具调用: [{{"name": "set_temperature", "params": {{"target": 25.0}}}}, {{"name": "move_robot_arm", "params": {{"x": 10.0, "y": 20.0, "z": 30.0}}}}]
+"""
         messages = [{"role": "user", "content": prompt}]
         result = self.llm_client.call_api(
             model=self.config.MODEL_NAME_TALK,

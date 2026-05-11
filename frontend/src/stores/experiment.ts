@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { defineStore } from 'pinia'
 import type { ExperimentStep, ExperimentPlan, HelperType } from '@/types/experiment'
 import type { HardwareTool } from '@/types/hardware'
@@ -43,6 +43,9 @@ export const useExperimentStore = defineStore('experiment', () => {
   const steps = ref<ExperimentStep[]>([])
   const codeViewMode = ref<'json' | 'python'>('json')
   const pythonCode = ref('')
+  const editableJsonCode = ref('')
+  const editablePythonCode = ref('')
+  const compileStatus = ref<'idle' | 'compiling' | 'error'>('idle')
   const editingStepIndex = ref<number | null>(null)
   const draggedStepIndex = ref<number | null>(null)
   const codeAreaMinimized = ref(false)
@@ -61,6 +64,46 @@ export const useExperimentStore = defineStore('experiment', () => {
   }))
 
   const jsonCode = computed(() => JSON.stringify(plan.value, null, 2))
+
+  // Keep editableJsonCode in sync with computed jsonCode (only when not focused)
+  let jsonFocusCount = 0
+  watch(jsonCode, (val) => {
+    if (jsonFocusCount === 0) {
+      editableJsonCode.value = val
+    }
+  }, { immediate: true })
+
+  // Keep editablePythonCode in sync with pythonCode
+  let pyFocusCount = 0
+  watch(pythonCode, (val) => {
+    if (pyFocusCount === 0) {
+      editablePythonCode.value = val || '# 自动生成的实验执行代码'
+    }
+  }, { immediate: true })
+
+  // Debounced auto-compile: watch jsonCode and compile after 600ms of no changes
+  let compileTimer: ReturnType<typeof setTimeout> | null = null
+  watch(jsonCode, () => {
+    if (!steps.value.length) return
+    if (compileTimer) clearTimeout(compileTimer)
+    compileTimer = setTimeout(async () => {
+      compileStatus.value = 'compiling'
+      try {
+        const data = await compileExperiment(plan.value)
+        pythonCode.value = data.code || ''
+        compileStatus.value = 'idle'
+      } catch {
+        pythonCode.value = '# 编译失败'
+        compileStatus.value = 'error'
+      }
+    }, 600)
+  })
+
+  // Focus tracking helpers for editability
+  function onJsonFocus() { jsonFocusCount++ }
+  function onJsonBlur() { jsonFocusCount = Math.max(0, jsonFocusCount - 1) }
+  function onPyFocus() { pyFocusCount++ }
+  function onPyBlur() { pyFocusCount = Math.max(0, pyFocusCount - 1) }
 
   // --- Nesting & block structure ---
 
@@ -332,7 +375,13 @@ export const useExperimentStore = defineStore('experiment', () => {
   }
 
   function syncFromCode() {
-    // Implemented in CodeArea component via direct JSON editing
+    try {
+      const json = JSON.parse(editableJsonCode.value) as ExperimentPlan
+      loadFromJSON(json)
+      addLog('已从 JSON 同步实验步骤')
+    } catch (err) {
+      addLog(`JSON 解析失败: ${(err as Error).message}`)
+    }
   }
 
   // --- Save / Load / Import / Clear ---
@@ -434,7 +483,8 @@ export const useExperimentStore = defineStore('experiment', () => {
   }
 
   return {
-    experimentName, steps, codeViewMode, pythonCode, editingStepIndex,
+    experimentName, steps, codeViewMode, pythonCode, editableJsonCode, editablePythonCode,
+    compileStatus, editingStepIndex,
     draggedStepIndex, codeAreaMinimized, codeAreaFullscreen,
     hardwareTools, algorithms, loading, running, error, logMessages,
     plan, jsonCode, nestingInfo, blockErrors,
@@ -443,6 +493,7 @@ export const useExperimentStore = defineStore('experiment', () => {
     addToolStep, addAlgorithmStep, addHelperFunction,
     loadHardwareTools, loadAlgorithms,
     generateFromAI, compile, compileAndRunExperiment, syncFromCode,
+    onJsonFocus, onJsonBlur, onPyFocus, onPyBlur,
     save, loadFromJSON, importFile, clear, execute, addLog,
   }
 })

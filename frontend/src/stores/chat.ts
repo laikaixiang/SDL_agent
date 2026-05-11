@@ -107,7 +107,7 @@ export const useChatStore = defineStore('chat', () => {
             layout.updateTaskStatus('extraction', 'completed')
             const d = msg.data as Record<string, unknown> | undefined
             if (d?.message) addMessage('ai', d.message as string)
-            if (d?.error) addMessage('ai', '❌ 任务失败：' + (d.error as string))
+            if (d?.error) addMessage('ai', d.error as string)
             disconnect()
             break
           }
@@ -115,7 +115,7 @@ export const useChatStore = defineStore('chat', () => {
             extractionRunning.value = false
             extractionDisconnect = null
             currentPage.value = null
-            addMessage('ai', '提取失败: ' + (msg.data as string))
+            addMessage('ai', msg.data as string)
             disconnect()
             break
         }
@@ -124,7 +124,7 @@ export const useChatStore = defineStore('chat', () => {
         extractionDisconnect = null
         currentPage.value = null
         extractionRunning.value = false
-        addMessage('ai', '提取失败: ' + err.message)
+        addMessage('ai', err.message)
         layout.updateTaskStatus('extraction', 'completed')
       },
     })
@@ -161,7 +161,7 @@ export const useChatStore = defineStore('chat', () => {
       }
     } catch (err) {
       if ((err as Error).name !== 'AbortError') {
-        addMessage('ai', `错误: ${(err as Error).message}`)
+        addMessage('ai', (err as Error).message)
       }
     }
   }
@@ -246,9 +246,9 @@ export const useChatStore = defineStore('chat', () => {
               expStore.loadFromJSON(expData.experiment_json)
               useLayoutStore().updateTaskStatus('experiment', 'completed')
             }
-            addMessage('ai', expData.reply || '实验设计完成')
+            addMessage('ai', expData.reply || '')
           } catch (err: unknown) {
-            addMessage('ai', `❌ 实验设计失败：${(err as Error).message || err}`)
+            addMessage('ai', (err as Error).message || '网络请求失败')
           }
         }
       } else if (mode !== 'normal') {
@@ -256,7 +256,7 @@ export const useChatStore = defineStore('chat', () => {
       }
     } catch (err) {
       if ((err as Error).name !== 'AbortError') {
-        aiMsg.content = `错误: ${(err as Error).message}`
+        aiMsg.content = (err as Error).message
       }
       if (mode !== 'normal') currentMode.value = 'normal'
     } finally {

@@ -293,7 +293,7 @@ export const useExperimentStore = defineStore('experiment', () => {
         loadFromJSON(json)
         useLayoutStore().updateTaskStatus('experiment', 'completed')
       } else if ((data as unknown as { type: string }).type === 'error') {
-        error.value = data.reply || 'AI 设计失败'
+        error.value = data.reply || ''
       }
     } catch (err) {
       error.value = (err as Error).message
@@ -322,16 +322,10 @@ export const useExperimentStore = defineStore('experiment', () => {
       const data = await compileAndRun(plan.value)
       pythonCode.value = data.code || ''
       codeViewMode.value = 'python'
-      if (data.output) {
-        addLog('--- 执行输出 ---')
-        addLog(data.output)
-      }
-      if (data.error) {
-        addLog('--- 错误 ---')
-        addLog(data.error)
-      }
+      if (data.output) addLog(data.output)
+      if (data.error) addLog(data.error)
     } catch (err) {
-      addLog('执行失败: ' + (err as Error).message)
+      addLog((err as Error).message)
     } finally {
       loading.value = false
     }
@@ -357,7 +351,7 @@ export const useExperimentStore = defineStore('experiment', () => {
       a.click()
       URL.revokeObjectURL(url)
     } catch (err) {
-      addLog('保存失败: ' + (err as Error).message)
+      addLog((err as Error).message)
     }
   }
 
@@ -378,7 +372,7 @@ export const useExperimentStore = defineStore('experiment', () => {
       const json = JSON.parse(text) as ExperimentPlan
       loadFromJSON(json)
     } catch (err) {
-      addLog('导入失败: ' + (err as Error).message)
+      addLog((err as Error).message)
     }
   }
 
@@ -397,7 +391,7 @@ export const useExperimentStore = defineStore('experiment', () => {
   async function execute() {
     if (!steps.value.length) return
     running.value = true
-    logMessages.value = ['开始执行实验...']
+    logMessages.value = []
 
     try {
       const resp = await executeExperiment(plan.value)
@@ -434,7 +428,7 @@ export const useExperimentStore = defineStore('experiment', () => {
         connect()
       }
     } catch (err) {
-      addLog('执行失败: ' + (err as Error).message)
+      addLog((err as Error).message)
       running.value = false
     }
   }

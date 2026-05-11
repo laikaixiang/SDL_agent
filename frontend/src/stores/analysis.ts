@@ -70,7 +70,7 @@ export const useAnalysisStore = defineStore('analysis', () => {
       if (data.success) {
         await loadAlgorithms()
       } else {
-        error.value = data.message || '生成失败'
+        error.value = data.message || ''
       }
     } catch (err) {
       error.value = (err as Error).message

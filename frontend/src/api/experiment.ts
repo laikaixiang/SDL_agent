@@ -16,6 +16,7 @@ export async function generateExperiment(desc: string): Promise<{
 export async function compileExperiment(json: ExperimentPlan): Promise<{
   success: boolean
   code: string
+  message?: string
 }> {
   return request('/api/compile_experiment', {
     method: 'POST',

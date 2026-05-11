@@ -105,6 +105,40 @@ cd frontend && npm run build:flask
 
 每次 `git checkout` 切换分支/修订后，如果 dist 被污染，重新构建即可。
 
+### 坑：前端-后端集成 500 错误（`{"error":"服务器内部错误"}`）
+
+**原因 1 — Windows 中文打印崩溃**：`python app.py` 运行时 `sys.stdout.encoding` 默认为 `cp936`/`gbk`，`print()` 输出含特殊 Unicode 字符的 LLM 响应时抛出 `UnicodeEncodeError`，被 Flask 500 handler 捕获。
+
+**修复**：`app.py` 最顶部（所有 import 之前）已加入：
+```python
+import sys
+if sys.platform == 'win32':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+```
+
+**原因 2 — 端口残留**：多次启动 Flask 后可能有旧进程残留端口 5000，新代码不生效。
+
+**排查**：
+```bash
+netstat -ano | findstr ":5000.*LISTENING"   # 检查端口占用
+taskkill //F //PID <pid>                     # 杀掉旧进程
+```
+不要用 `taskkill //F //IM python.exe`（会杀掉自己的测试脚本）。
+
+**原因 3 — LLM 返回空 JSON**：`LongCat-Flash-Thinking` 模型在 JSON 前输出推理文本，简单 `json.loads(content)` 失败。`core/field_inference.py:389` 的 `_parse_experiment_json()` 已实现多策略解析（清理 markdown → 提取 `{...}` 块）。
+
+> 完整记录见 `DEBUG_INTEGRATION_GUIDE.md`
+
+### 坑：前端不要构造对用户的回应文本
+
+- **AI 回复、实验结果、错误说明**等文本由 Python 后端 `reply` 字段统一返回，前端直接使用
+- **按钮标签、placeholder、loading 提示**等纯 UI 文案前端自行管理，但不要与 `app.py` 中已定义的文案重复
+- 具体的前端-后端数据流和接口规范见 `DEBUG_INTEGRATION_GUIDE.md`
+
 ---
 
 ## 更新日志（2026-05-10）

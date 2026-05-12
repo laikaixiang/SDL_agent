@@ -79,6 +79,101 @@ export const useAnalysisStore = defineStore('analysis', () => {
     }
   }
 
+  // 引导式算法生成状态
+  const showGuide = ref(false)
+  const guideReply = ref('')
+  const guideProgress = ref('')
+  const guideSessionId = ref('')
+  const guideDone = ref(false)
+
+  async function startGuide() {
+    showGuide.value = true
+    guideDone.value = false
+    generating.value = true
+    error.value = ''
+    try {
+      const resp = await fetch('/api/algorithm_gen/guide', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const data = await resp.json()
+      if (data.stage === 'question') {
+        guideReply.value = data.reply
+        guideProgress.value = data.progress
+        guideSessionId.value = data.session_id
+      } else {
+        guideReply.value = data.reply || '启动失败'
+        guideDone.value = true
+      }
+    } catch (err) {
+      error.value = (err as Error).message
+      showGuide.value = false
+    } finally {
+      generating.value = false
+    }
+  }
+
+  async function submitGuideAnswer(answer: string) {
+    if (guideDone.value || !guideSessionId.value) return
+    generating.value = true
+    error.value = ''
+    try {
+      const resp = await fetch('/api/algorithm_gen/guide', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: guideSessionId.value, answer, action: 'answer' }),
+      })
+      const data = await resp.json()
+      if (data.stage === 'question') {
+        guideReply.value = data.reply
+        guideProgress.value = data.progress
+      } else {
+        guideReply.value = data.reply
+        guideProgress.value = 'complete'
+        guideDone.value = true
+        if (data.success) {
+          await loadAlgorithms()
+        }
+      }
+    } catch (err) {
+      error.value = (err as Error).message
+    } finally {
+      generating.value = false
+    }
+  }
+
+  async function guideGoBack() {
+    if (!guideSessionId.value) return
+    try {
+      const resp = await fetch('/api/algorithm_gen/guide', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: guideSessionId.value, action: 'back' }),
+      })
+      const data = await resp.json()
+      if (data.stage === 'question') {
+        guideReply.value = data.reply
+        guideProgress.value = data.progress
+        return data.previous_answer || ''
+      }
+    } catch { /* ignore */ }
+    return ''
+  }
+
+  function cancelGuide() {
+    if (guideSessionId.value && !guideDone.value) {
+      fetch('/api/algorithm_gen/guide', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: guideSessionId.value, action: 'cancel' }),
+      }).catch(() => {})
+    }
+    showGuide.value = false
+    guideSessionId.value = ''
+    guideReply.value = ''
+  }
+
   async function run() {
     if (!selectedAlgo.value || !selectedFile.value) return
     loading.value = true
@@ -96,7 +191,9 @@ export const useAnalysisStore = defineStore('analysis', () => {
   return {
     algorithms, csvFiles, selectedAlgo, selectedFile, loading, result, error,
     expandedAlgo, algoInputFiles, algoOutputDirs, generating,
+    showGuide, guideReply, guideProgress, guideSessionId, guideDone,
     loadAlgorithms, loadFiles, toggleDetail, setInputFile, setOutputDir,
-    addToExperiment, generateAlgorithm, run,
+    addToExperiment, generateAlgorithm, startGuide, submitGuideAnswer,
+    guideGoBack, cancelGuide, run,
   }
 })

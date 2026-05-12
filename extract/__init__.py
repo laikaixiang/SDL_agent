@@ -37,4 +37,5 @@ __all__ = [
     'compute_content_hash',
     'PageFilter',
     'FewShotRetriever',
+    'AlgorithmGuide',
 ]

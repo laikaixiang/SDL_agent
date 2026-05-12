@@ -16,8 +16,6 @@ const showFileSelector = ref(false)
 const showDirSelector = ref(false)
 const pendingFileAlgo = ref('')
 const pendingDirAlgo = ref('')
-const showGenerator = ref(false)
-const genDesc = ref('')
 
 onMounted(() => {
   store.loadAlgorithms()
@@ -52,20 +50,14 @@ function openDirPicker(algoName: string) {
   showDirSelector.value = true
 }
 
-async function onGenerate() {
-  if (!genDesc.value.trim()) return
-  await store.generateAlgorithm(genDesc.value.trim())
-  showGenerator.value = false
-  genDesc.value = ''
-}
 </script>
 
 <template>
   <div class="analysis-page">
     <div class="page-header">
       <h2><BarChart3 :size="18" /> 数据分析</h2>
-      <button class="gen-btn" @click="showGenerator = true">
-        <Sparkles :size="14" /> 生成新算法
+      <button class="gen-btn" @click="store.startGuide()" :disabled="store.generating">
+        <Sparkles :size="14" /> {{ store.generating && store.showGuide ? '引导中...' : '生成新算法' }}
       </button>
     </div>
 
@@ -203,25 +195,6 @@ async function onGenerate() {
       @selected="onDirSelected"
     />
 
-    <!-- Algorithm generator -->
-    <div v-if="showGenerator" class="gen-overlay" @click.self="showGenerator = false">
-      <div class="gen-card">
-        <h3>生成新算法</h3>
-        <textarea
-          v-model="genDesc"
-          class="gen-input"
-          placeholder="描述你需要的算法，例如：对数据进行正态分布拟合并计算置信区间"
-          rows="4"
-          autofocus
-        />
-        <div class="gen-actions">
-          <button class="btn-cancel" @click="showGenerator = false">取消</button>
-          <button class="btn-save" :disabled="store.generating" @click="onGenerate">
-            {{ store.generating ? '生成中...' : '生成' }}
-          </button>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -312,29 +285,4 @@ section h3 { font-size: 13px; color: var(--color-text-secondary); margin-bottom:
 .loading-area { display: flex; justify-content: center; }
 .error-msg { font-size: 13px; color: var(--color-error); text-align: center; }
 .result-msg { font-size: 13px; color: var(--color-text-secondary); white-space: pre-wrap; max-height: 200px; overflow-y: auto; margin-top: var(--space-sm); }
-
-/* Generator modal */
-.gen-overlay {
-  position: fixed; inset: 0; z-index: 10001;
-  background: rgba(0,0,0,0.4);
-  display: flex; align-items: center; justify-content: center;
-}
-.gen-card {
-  background: var(--color-surface); border-radius: var(--radius-lg);
-  padding: var(--space-xl); width: 500px; max-width: 90vw;
-  box-shadow: var(--shadow-lg);
-}
-.gen-card h3 { font-size: 16px; margin-bottom: var(--space-lg); }
-.gen-input {
-  width: 100%; padding: var(--space-md);
-  border: 1px solid var(--color-border); border-radius: var(--radius-md);
-  font-size: 14px; font-family: inherit; resize: vertical;
-}
-.gen-input:focus { outline: none; border-color: var(--color-primary); }
-.gen-actions { display: flex; gap: var(--space-sm); justify-content: flex-end; margin-top: var(--space-lg); }
-.btn-cancel, .btn-save { padding: 8px 20px; border: none; border-radius: var(--radius-sm); font-size: 14px; cursor: pointer; }
-.btn-cancel { background: var(--color-bg-mute); color: var(--color-text); }
-.btn-save { background: var(--color-primary); color: #fff; }
-.btn-save:disabled { opacity: 0.5; cursor: default; }
-.btn-save:not(:disabled):hover { opacity: 0.9; }
 </style>

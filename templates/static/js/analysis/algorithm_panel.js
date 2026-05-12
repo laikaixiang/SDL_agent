@@ -168,56 +168,158 @@ function addAlgoToExperiment(algoName, description, icon) {
     showNotification(`已添加 ${description} 至实验设计`, 'success');
 }
 
-/** 打开算法生成器（在聊天区显示描述输入框）。 */
-function openAlgorithmGenerator() {
+/** 当前引导会话 ID。 */
+let _guideSessionId = null;
+
+/** 打开算法生成器 — 调后端取第一个引导问题，激活引导模式。 */
+async function openAlgorithmGenerator() {
     closeAlgorithmPanel();
-    appendMessageHtml(`
-    <div class="algorithm-confirm-card">
-        <div class="card-header">✨ 生成新算法</div>
-        <div style="margin-bottom:16px;color:#6b7280;font-size:0.9rem;">请描述您想要的算法功能，系统将自动生成代码。</div>
-        <div style="margin-bottom:16px;">
-            <textarea id="algo-gen-input"
-                style="width:100%;min-height:120px;padding:10px;border:1px solid #d1d5db;border-radius:8px;font-size:0.9rem;resize:vertical;"
-                placeholder="例如：我需要一个对数值列表做移动平均的算法，窗口大小可配置，默认5，输出平滑后的序列和残差"></textarea>
-        </div>
-        <div class="agent-actions">
-            <button class="btn-yes" onclick="generateNewAlgorithm()">✨ 生成算法</button>
-            <button class="btn-no" onclick="cancelAlgorithmGeneration()">✗ 取消</button>
-        </div>
-    </div>`, 'ai');
-}
-
-/** 调用 /api/generate_algorithm 生成算法代码，成功后刷新面板列表。 */
-async function generateNewAlgorithm() {
-    const input = document.getElementById('algo-gen-input');
-    if (!input) return;
-    const description = input.value.trim();
-    if (!description) { appendMessage('请输入算法描述', 'ai'); return; }
-
-    appendMessage(`正在生成算法：${description}`, 'user');
-    appendMessage('⏳ 正在调用 LLM 生成算法代码，请稍候...', 'ai');
+    _guideSessionId = null;
 
     try {
-        const res = await fetch('/api/generate_algorithm', {
+        var res = await fetch('/api/algorithm_gen/guide', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ description })
+            body: JSON.stringify({}),
         });
-        const data = await res.json();
-        if (data.success) {
-            appendMessage(`✅ 算法生成成功！\n算法名称: ${data.name}\n文件路径: ${data.filepath}\n\n${data.message}`, 'ai');
-            if (document.getElementById('app-wrapper').classList.contains('algorithm-mode')) {
-                await loadAlgorithmList();
-            }
+        var data = await res.json();
+        if (data.stage === 'question') {
+            _guideSessionId = data.session_id;
+            _renderGuideCard(data.reply, data.progress);
+            // 激活引导模式：主输入框用于填写答案
+            window._guideMode = true;
+            userInput.placeholder = '在此输入你的回答（可跳过）';
+            userInput.value = '';
+            userInput.focus();
         } else {
-            appendMessage(`❌ 算法生成失败: ${data.message}`, 'ai');
+            appendMessage(data.reply || '启动算法生成失败', 'ai');
         }
     } catch (e) {
-        appendMessage(`❌ 网络异常: ${e.message}`, 'ai');
+        appendMessage('网络异常，请重试', 'ai');
     }
 }
 
-/** 取消算法生成。 */
+/** 渲染引导问题卡片（无 textarea，用户在主输入框打字）。 */
+function _renderGuideCard(reply, progress) {
+    var pct = progress === 'complete' ? 100 : parseInt(progress) / 4 * 100;
+    var progressText = progress === 'complete' ? '完成' : progress;
+
+    appendMessageHtml(
+        '<div class="guide-card" id="guide-card">' +
+        '<div class="guide-progress-bar"><div class="guide-progress-fill" style="width:' + pct + '%"></div></div>' +
+        '<div class="guide-progress-label">' + progressText + '</div>' +
+        '<div class="guide-reply">' + _escapeHtml(reply).replace(/\n/g, '<br>') + '</div>' +
+        '<div class="agent-actions" style="margin-top:12px;">' +
+        '<button class="btn-no" onclick="cancelAlgorithmGeneration()">取消</button>' +
+        '<button class="btn-back" onclick="_guideGoBack()">返回</button>' +
+        '<button class="btn-yes" onclick="_guideSubmitCurrent()">提交</button>' +
+        '</div>' +
+        '</div>', 'ai');
+}
+
+/** 提交当前主输入框中的答案（由提交按钮触发）。 */
+function _guideSubmitCurrent() {
+    if (!_guideSessionId) return;
+    var text = userInput.value.trim();
+    _guideSend(text);
+}
+
+/** 由 chat.js 调用：接收主输入框文本，交给引导流程处理。 */
+async function handleGuideSend(text) {
+    await _guideSend(text);
+}
+
+/** 发送答案到引导 API，更新卡片或显示最终结果。 */
+async function _guideSend(text) {
+    if (!_guideSessionId) return;
+    var answer = text;
+
+    // 显示用户回答
+    appendMessage(answer || '（跳过）', 'user');
+    userInput.value = '';
+    _removeGuideCard();
+
+    try {
+        var res = await fetch('/api/algorithm_gen/guide', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: _guideSessionId, answer: answer, action: 'answer' }),
+        });
+        var data = await res.json();
+
+        if (data.stage === 'question') {
+            _renderGuideCard(data.reply, data.progress);
+            userInput.focus();
+        } else if (data.stage === 'done') {
+            // 后端返回的完整结果，前端不构造任何 AI 回应文本
+            _exitGuideMode();
+            appendMessage(data.reply, 'ai');
+            if (document.getElementById('app-wrapper').classList.contains('algorithm-mode')) {
+                await loadAlgorithmList();
+            }
+        }
+    } catch (e) {
+        _exitGuideMode();
+        appendMessage('网络异常，请重试', 'ai');
+    }
+}
+
+/** 返回到上一个问题。 */
+async function _guideGoBack() {
+    if (!_guideSessionId) return;
+
+    try {
+        var res = await fetch('/api/algorithm_gen/guide', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: _guideSessionId, action: 'back' }),
+        });
+        var data = await res.json();
+
+        if (data.stage === 'question') {
+            _removeGuideCard();
+            _renderGuideCard(data.reply, data.progress);
+            // 恢复之前的答案到输入框，方便用户修改
+            if (data.previous_answer) {
+                userInput.value = data.previous_answer;
+            }
+            userInput.focus();
+        }
+    } catch (e) {
+        // 忽略网络错误，不影响当前引导流程
+    }
+}
+
+/** 从 DOM 中移除引导卡片。 */
+function _removeGuideCard() {
+    var card = document.getElementById('guide-card');
+    if (card) card.remove();
+}
+
+/** 退出引导模式，恢复输入框默认状态。 */
+function _exitGuideMode() {
+    window._guideMode = false;
+    _guideSessionId = null;
+    userInput.placeholder = '输入问题或指令...';
+}
+
+/** 简单 HTML 转义。 */
+function _escapeHtml(text) {
+    var div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+/** 取消算法生成 — 通知后端清理，退出引导模式。 */
 function cancelAlgorithmGeneration() {
+    _removeGuideCard();
+    if (_guideSessionId) {
+        fetch('/api/algorithm_gen/guide', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: _guideSessionId, action: 'cancel' }),
+        }).catch(function () { });
+    }
+    _exitGuideMode();
     appendMessage('已取消算法生成', 'user');
 }

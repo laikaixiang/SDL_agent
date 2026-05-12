@@ -29,6 +29,13 @@ function stopChatStream() {
 /** 读取输入框内容，拼接模式前缀后发送到 /api/chat，根据响应类型走 JSON 分发或流式读取。 */
 async function sendMessage() {
     const text = userInput.value.trim();
+
+    // 引导式算法生成模式：由 algorithm_panel.js 处理，允许空提交（跳过）
+    if (window._guideMode) {
+        await handleGuideSend(text);
+        return;
+    }
+
     if (!text && currentMode.id === 'normal') return;
 
     const finalPayload = currentMode.prefix + text;

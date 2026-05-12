@@ -304,6 +304,7 @@ export const useChatStore = defineStore('chat', () => {
     setMode,
     enableExtraction,
     disableExtraction,
+    addMessage,
     send,
     stop,
     clear,

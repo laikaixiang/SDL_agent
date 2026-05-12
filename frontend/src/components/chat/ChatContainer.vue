@@ -2,13 +2,16 @@
 import { ref, watch, nextTick } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useChatStore } from '@/stores/chat'
+import { useAnalysisStore } from '@/stores/analysis'
 import { uploadPDF } from '@/api/chat'
 import MessageBubble from './MessageBubble.vue'
 import InputBar from './InputBar.vue'
 import { Plus, X } from 'lucide-vue-next'
 
 const store = useChatStore()
+const analysisStore = useAnalysisStore()
 const { messages, isStreaming, fieldConfirm } = storeToRefs(store)
+const { showGuide, guideReply, guideProgress, guideDone, generating } = storeToRefs(analysisStore)
 const inputText = ref('')
 const chatEl = ref<HTMLDivElement>()
 const newFieldName = ref('')
@@ -45,6 +48,13 @@ watch(() => store.messages.length, scrollToBottom)
 
 async function onSend(text: string) {
   inputText.value = ''
+  // 引导模式：路由到算法引导流程
+  if (showGuide.value && !guideDone.value) {
+    store.addMessage('user', text || '（跳过）')
+    await analysisStore.submitGuideAnswer(text)
+    scrollToBottom()
+    return
+  }
   await store.send(text)
   scrollToBottom()
 }
@@ -75,6 +85,22 @@ async function onCancelExtraction() {
         :content="msg.content"
         :timestamp="msg.timestamp"
       />
+
+      <!-- Algorithm guide card -->
+      <div v-if="showGuide" class="guide-card">
+        <div class="guide-progress-bar">
+          <div class="guide-progress-fill"
+            :style="{ width: guideProgress === 'complete' ? '100%' : (parseInt(guideProgress) / 4 * 100) + '%' }">
+          </div>
+        </div>
+        <div class="guide-progress-label">{{ guideProgress === 'complete' ? '完成' : guideProgress }}</div>
+        <div class="guide-reply">{{ guideReply }}</div>
+        <div v-if="!guideDone" class="guide-actions">
+          <button class="btn-guide-cancel" @click="analysisStore.cancelGuide()">取消</button>
+          <button class="btn-guide-back" @click="analysisStore.guideGoBack()">返回</button>
+          <button class="btn-guide-submit" :disabled="generating" @click="onSend(inputText)">提交</button>
+        </div>
+      </div>
 
       <!-- Inline field confirm card -->
       <div v-if="fieldConfirm" class="confirm-card">
@@ -229,5 +255,62 @@ async function onCancelExtraction() {
   color: var(--color-text-secondary);
 }
 .confirm-btn-no:hover { background: var(--color-bg-soft); color: var(--color-text); }
+
+/* Algorithm guide card */
+.guide-card {
+  margin: var(--space-sm) 0;
+  padding: var(--space-lg);
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: var(--radius-lg);
+}
+.guide-progress-bar {
+  width: 100%;
+  height: 6px;
+  background: #e5e7eb;
+  border-radius: 3px;
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+.guide-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981, #34d399);
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+.guide-progress-label {
+  font-size: 12px;
+  color: #059669;
+  font-weight: 600;
+  margin-bottom: 12px;
+  text-align: right;
+}
+.guide-reply {
+  font-size: 14px;
+  color: var(--color-text);
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+.guide-actions {
+  display: flex;
+  gap: var(--space-sm);
+  justify-content: flex-end;
+  margin-top: var(--space-md);
+}
+.btn-guide-cancel, .btn-guide-back, .btn-guide-submit {
+  padding: 6px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.btn-guide-cancel { background: var(--color-bg-mute); color: var(--color-text-secondary); }
+.btn-guide-cancel:hover { background: #e5e7eb; color: var(--color-text); }
+.btn-guide-back { background: #fef3c7; color: #92400e; border-color: #fcd34d; }
+.btn-guide-back:hover { background: #fde68a; }
+.btn-guide-submit { background: #10b981; color: #fff; border-color: #10b981; font-weight: 600; }
+.btn-guide-submit:hover { background: #059669; }
+.btn-guide-submit:disabled { opacity: 0.5; cursor: default; }
 
 </style>

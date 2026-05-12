@@ -43,10 +43,11 @@ from core import (
     SoftwareManager,
     AdaptiveStreamHandler,
 )
-from core.extract_manager import PDFProcessor, ExtractionEngine
+from core.extract_manager import PDFProcessor, ExtractionEngine, AlgorithmGuide
 from extract.embedding_service import create_embedding_service
 from extract.vector_store import ChromaVectorStore
 from extract.semantic_search import SemanticSearch
+from extract.literature_indexer import LiteratureIndexer
 from utils import CSVWriter
 from prompts.api import prompts_bp
 
@@ -89,6 +90,7 @@ csv_writer = CSVWriter()
 # experiment_agent = ExperimentDesignAgent()  # Deprecated PydanticAI version, now using Approach 2 in field_inference.py
 software_manager = SoftwareManager()        # 软件算法管理器
 adaptive_handler = AdaptiveStreamHandler(config, llm_client)  # 自适应流式响应处理器
+literature_indexer = LiteratureIndexer()     # 文献库索引器（注册表查询）
 
 # =============================================================================
 # 会话管理系统
@@ -106,6 +108,9 @@ os.makedirs(os.path.join(SESSION_BASE_PATH, "experiment_designs"), exist_ok=True
 
 print(f"[会话管理] 应用启动，会话时间戳: {SESSION_TIMESTAMP}")
 print(f"[会话管理] 数据保存路径: {SESSION_BASE_PATH}")
+
+# 初始化引导式算法生成（依赖 SESSION_BASE_PATH 做持久化）
+algorithm_guide = AlgorithmGuide(session_path=SESSION_BASE_PATH)
 
 def _update_session_index(session_info):
     """更新 sessions_index.json，upsert 当前会话条目。"""
@@ -817,7 +822,7 @@ def handle_generate_algorithm(user_message: str) -> Response:
             reply += f"算法名称: {result['name']}\n"
             reply += f"文件路径: {result['filepath']}\n\n"
             reply += result.get('message', '')
-            reply += f"\n\n你现在可以在数据分析模式中使用这个算法了。"
+            reply += "\n\n你现在可以在数据分析模式中使用这个算法了。"
         else:
             reply = f"❌ 算法生成失败\n\n{result.get('message', '未知错误')}"
 
@@ -1313,6 +1318,31 @@ def generate_algorithm_alias():
         software_manager.reload_algorithms()
 
     return jsonify(result)
+
+
+@app.route('/api/algorithm_gen/guide', methods=['POST'])
+def algorithm_gen_guide():
+    """逐步引导式算法生成。"""
+    data = request.json or {}
+    action = data.get('action', 'answer')
+
+    resp = algorithm_guide.handle(
+        session_id=data.get('session_id'),
+        answer=data.get('answer'),
+        action=action,
+    )
+
+    if resp.get('stage') == 'cancelled':
+        return jsonify(resp)
+
+    if resp.get('stage') == 'ready':
+        combined = resp['combined_prompt']
+        result = software_manager.generate_algorithm(combined)
+        if result.get('success'):
+            software_manager.reload_algorithms()
+        resp = algorithm_guide.finish(resp['session_id'], result)
+
+    return jsonify(resp)
 
 
 @app.route('/api/run_algorithm', methods=['POST'])
@@ -1932,6 +1962,35 @@ def page_context():
         })
 
     return jsonify({"success": True, "data": {"contexts": contexts}})
+
+
+@app.route('/api/literature/list', methods=['GET'])
+def api_literature_list():
+    """
+    分页查询文献注册表，返回所有已索引PDF的标题、作者、摘要
+    参数: page(默认1), limit(默认50)
+    """
+    try:
+        page = int(request.args.get('page', 1))
+        limit = int(request.args.get('limit', 50))
+        result = literature_indexer.query_registry(page=page, limit=limit)
+        return jsonify({"success": True, **result})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/literature/detail/<unique_id>', methods=['GET'])
+def api_literature_detail(unique_id):
+    """
+    查询单篇文献完整详情（含摘要、创新点）
+    """
+    try:
+        detail = literature_indexer.get_detail(unique_id)
+        if detail is None:
+            return jsonify({"success": False, "error": "记录不存在"}), 404
+        return jsonify({"success": True, "entry": detail})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 if __name__ == '__main__':

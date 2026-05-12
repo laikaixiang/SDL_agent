@@ -33,6 +33,7 @@ from extract.page_indexer import (
 
 from extract.page_filter import PageFilter
 from extract.few_shot_retriever import FewShotRetriever
+from extract.algorithm_guide import AlgorithmGuide
 
 __all__ = [
     'PDFProcessor',
@@ -50,4 +51,5 @@ __all__ = [
     'compute_content_hash',
     'PageFilter',
     'FewShotRetriever',
+    'AlgorithmGuide',
 ]

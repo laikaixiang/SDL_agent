@@ -388,6 +388,82 @@ class ExperimentDesignAgent:
 
         return False, "API调用失败"
 
+    @staticmethod
+    def _sse_event(event_type: str, data) -> str:
+        """将事件格式化为 SSE data 行"""
+        payload = json.dumps({"type": event_type, "data": data}, ensure_ascii=False)
+        return f"data: {payload}\n\n"
+
+    def parse_experiment_design_stream(self, user_description: str):
+        """
+        流式生成实验设计JSON，yield SSE 事件字符串（已格式化为 data: ...\\n\\n）
+
+        Yields:
+            SSE 事件字符串:
+            - chunk: LLM输出的文本片段 {"type": "chunk", "data": "..."}
+            - complete: 最终结果 {"type": "complete", "data": {...}}
+            - error: 错误信息 {"type": "error", "data": "..."}
+        """
+        from prompts import create_prompt_manager
+        pm = create_prompt_manager()
+        prompt = pm.get(
+            "experiment_design_user",
+            system_prompt=self.system_prompt,
+            user_description=user_description,
+        )
+
+        messages = [{"role": "user", "content": prompt}]
+
+        generator = self.llm_client.call_api(
+            model=self.config.EXPERIMENT_MODEL_NAME,
+            messages=messages,
+            temperature=0.3,
+            max_tokens=2048,
+            stream=True
+        )
+
+        if generator is None:
+            yield self._sse_event("error", "API调用失败")
+            return
+
+        full_content = ""
+        for chunk in generator:
+            full_content += chunk
+            yield self._sse_event("chunk", chunk)
+
+        content = full_content.strip()
+        print(f"[实验设计-流式] LLM原始输出({len(content)}字符): {content[:300]}...")
+
+        experiment_json = self._parse_experiment_json(content)
+
+        if experiment_json is None:
+            yield self._sse_event(
+                "error",
+                f"JSON解析失败: 无法从LLM响应提取JSON。原始输出: {content[:200]}"
+            )
+            return
+
+        if not self.validate_experiment_json(experiment_json):
+            yield self._sse_event("error", "生成的JSON格式不符合要求")
+            return
+
+        import datetime
+        experiment_json['created_at'] = datetime.datetime.now().isoformat()
+
+        from experiment.format import ExperimentFormatConverter
+        converter = ExperimentFormatConverter()
+        visual_data = converter.json_to_visual(experiment_json)
+
+        yield self._sse_event("complete", {
+            "experiment_json": experiment_json,
+            "visual_data": visual_data,
+            "reply": (
+                f"✅ 已生成实验设计方案：{experiment_json.get('experiment_name', '未命名实验')}\n\n"
+                f"{experiment_json.get('description', '')}\n\n"
+                f"共 {len(experiment_json.get('steps', []))} 个步骤，已推送到实验流程画布。"
+            )
+        })
+
     def _parse_experiment_json(self, content: str):
         """多策略解析实验设计JSON"""
         # 策略1: 标准markdown清理

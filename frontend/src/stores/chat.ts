@@ -2,7 +2,7 @@ import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import type { Message } from '@/types/chat'
 import { sendChatMessage } from '@/api/chat'
-import { generateExperiment } from '@/api/experiment'
+import { generateExperiment, generateExperimentStream } from '@/api/experiment'
 import { isTimeoutError } from '@/api/client'
 import { useSSE } from '@/composables/useSSE'
 import { useLayoutStore } from '@/stores/layout'
@@ -249,18 +249,30 @@ export const useChatStore = defineStore('chat', () => {
         if (result.type === 'experiment_design_mode') {
           const cmd = result.command || text
           try {
-            const expData = await generateExperiment(cmd)
+            aiMsg.content = '⏳ AI 正在分析实验需求...'
+            let streamedText = ''
+            const expData = await generateExperimentStream(
+              cmd,
+              (chunk) => {
+                streamedText += chunk
+                // 每收集50个字符更新一次，避免高频 DOM 更新
+                if (streamedText.length % 50 < chunk.length || streamedText.length < 50) {
+                  aiMsg.content = '⏳ AI 正在生成实验方案...\n\n```json\n' + streamedText + '\n```'
+                }
+              },
+              controller.signal,
+            )
             if (expData.type === 'experiment_design') {
               const expStore = useExperimentStore()
               expStore.loadFromJSON(expData.experiment_json)
               useLayoutStore().updateTaskStatus('experiment', 'completed')
             }
-            addMessage('ai', expData.reply || '')
+            aiMsg.content = expData.reply || ''
           } catch (err: unknown) {
             const msg = isTimeoutError(err)
               ? '实验设计生成超时，请重试或简化需求描述'
               : (err as Error).message || '网络请求失败'
-            addMessage('ai', msg)
+            aiMsg.content = msg
           }
         }
       } else if (mode !== 'normal') {

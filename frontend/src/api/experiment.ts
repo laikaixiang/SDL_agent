@@ -9,8 +9,73 @@ export async function generateExperiment(desc: string): Promise<{
   return request('/api/experiment_chat', {
     method: 'POST',
     body: { message: desc, history: [] },
-    timeout: 120000,
+    timeout: 240000,
   })
+}
+
+export async function generateExperimentStream(
+  desc: string,
+  onChunk: (text: string) => void,
+  signal?: AbortSignal,
+): Promise<{
+  type: string
+  experiment_json: ExperimentPlan
+  reply: string
+}> {
+  const resp = await fetch('/api/experiment_chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: desc, history: [], stream: true }),
+    signal,
+  })
+
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '')
+    throw new Error(text || `HTTP ${resp.status}`)
+  }
+
+  const reader = resp.body?.getReader()
+  if (!reader) throw new Error('无法读取响应流')
+
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() || ''
+
+    let dataLine = ''
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        dataLine = line.slice(6)
+      } else if (line === '' && dataLine) {
+        try {
+          const msg = JSON.parse(dataLine)
+          switch (msg.type) {
+            case 'chunk':
+              onChunk(msg.data as string)
+              break
+            case 'complete':
+              return {
+                type: 'experiment_design',
+                experiment_json: msg.data.experiment_json,
+                reply: msg.data.reply,
+              }
+            case 'error':
+              throw new Error(msg.data as string)
+          }
+        } catch (e) {
+          if (e instanceof SyntaxError) continue
+          throw e
+        }
+        dataLine = ''
+      }
+    }
+  }
+  throw new Error('流式响应意外结束')
 }
 
 export async function compileExperiment(json: ExperimentPlan): Promise<{

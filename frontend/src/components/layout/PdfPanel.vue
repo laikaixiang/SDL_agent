@@ -29,8 +29,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onOutsideClick))
         class="pdf-tab-selector"
         @click="dropdownOpen = !dropdownOpen"
       >
-        <span class="pdf-tab-label">{{ openPdfTabs.length }} 个文档</span>
-        <ChevronDown :size="12" class="pdf-tab-chevron" :class="{ open: dropdownOpen }" />
+        <span class="pdf-tab-label">{{ String(openPdfTabs.length).padStart(3, ' ') }} 个文档</span><ChevronDown :size="12" class="pdf-tab-chevron" :class="{ open: dropdownOpen }" />
         <div v-if="dropdownOpen && openPdfTabs.length > 0" class="pdf-tab-dropdown">
           <div
             v-for="tab in openPdfTabs"
@@ -86,23 +85,20 @@ onUnmounted(() => document.removeEventListener('mousedown', onOutsideClick))
   position: relative;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   padding: 6px 10px;
   cursor: pointer;
   user-select: none;
-  flex: 1;
-  min-width: 0;
+  flex-shrink: 0;
 }
 .pdf-tab-selector:hover { background: #3a3a3a; }
 
 .pdf-tab-label {
   font-size: 12px;
   color: #ccc;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex: 1;
-  min-width: 0;
+  white-space: pre;
+  font-family: 'Consolas', 'Monaco', monospace;
+  flex-shrink: 0;
 }
 
 .pdf-tab-chevron {
@@ -116,7 +112,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onOutsideClick))
   position: absolute;
   top: 100%;
   left: 0;
-  right: 0;
+  width: 450px;
   background: #2d2d2d;
   border: 1px solid #404040;
   border-top: none;

@@ -112,6 +112,17 @@ print(f"[会话管理] 数据保存路径: {SESSION_BASE_PATH}")
 # 初始化引导式算法生成（依赖 SESSION_BASE_PATH 做持久化）
 algorithm_guide = AlgorithmGuide(session_path=SESSION_BASE_PATH)
 
+# =============================================================================
+# 平台启动检测：模型流式能力
+# =============================================================================
+from platform_init.check_stream_capability import ensure_capability_check
+
+_stream_capabilities = {"default": {"streaming_enabled": False}}
+try:
+    _stream_capabilities = ensure_capability_check(config)
+except Exception as e:
+    print(f"[platform_init] 流式检测失败（不影响正常功能）: {e}")
+
 def _update_session_index(session_info):
     """更新 sessions_index.json，upsert 当前会话条目。"""
     index_path = os.path.join(config.DIALOGUE_DATA_DIR, "sessions_index.json")
@@ -967,13 +978,11 @@ def experiment_chat():
     """
     实验设计对话 - 使用自然语言生成实验设计JSON
 
-    返回格式：
-    {
-        "type": "experiment_design",
-        "experiment_json": {...},
-        "visual_data": {...},
-        "reply": "..."
-    }
+    支持两种模式：
+    - 非流式（默认）：POST body 不含 stream 或 stream=false
+      返回 JSON: {"type": "experiment_design", "experiment_json": {...}, ...}
+    - 流式：POST body 含 stream=true
+      返回 SSE 流: chunk 事件 → complete 事件
     """
     data = request.json
     if data is None:
@@ -983,10 +992,21 @@ def experiment_chat():
     if not user_message:
         return jsonify({'type': 'error', 'reply': '消息不能为空'})
 
+    use_stream = data.get('stream', False)
+
     try:
         from core.field_inference import ExperimentDesignAgent
         from experiment.format import ExperimentFormatConverter
 
+        if use_stream:
+            # ---- SSE 流式模式 ----
+            agent = ExperimentDesignAgent()
+            def event_stream():
+                for event_str in agent.parse_experiment_design_stream(user_message):
+                    yield event_str
+            return Response(event_stream(), mimetype="text/event-stream")
+
+        # ---- 非流式模式（保持向后兼容） ----
         agent = ExperimentDesignAgent()
         converter = ExperimentFormatConverter()
 
@@ -1018,6 +1038,27 @@ def experiment_chat():
             'type': 'error',
             'reply': f"服务器内部错误: {str(e)}"
         }), 500
+
+
+@app.route('/api/experiment_chat_stream', methods=['GET'])
+def experiment_chat_stream_get():
+    """GET 方式流式实验设计（供 platform_init 测试脚本和直接调试使用）"""
+    user_message = request.args.get('message', '').strip()
+    if not user_message:
+        return jsonify({'type': 'error', 'reply': 'message 参数不能为空'}), 400
+
+    from core.field_inference import ExperimentDesignAgent
+    agent = ExperimentDesignAgent()
+    def event_stream():
+        for event_str in agent.parse_experiment_design_stream(user_message):
+            yield event_str
+    return Response(event_stream(), mimetype="text/event-stream")
+
+
+@app.route('/api/capabilities', methods=['GET'])
+def get_capabilities():
+    """返回平台能力配置（模型流式支持等），前端据此选择请求方式"""
+    return jsonify(_stream_capabilities)
 
 
 @app.route('/api/experiment_upload', methods=['POST'])

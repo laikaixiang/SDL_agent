@@ -16,10 +16,11 @@ config.json
 
 # IDE
 .idea/
+.vscode/
 
 # CLAUDE
+.claude/
 CLAUDE.md
-rag_extraction_enhancement_design.md
 
 # Prompt overrides (运行时修改，源文件在 registry 中)
 prompts/overrides/

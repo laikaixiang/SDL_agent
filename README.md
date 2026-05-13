@@ -624,7 +624,7 @@ A: 参见"扩展指南 → 添加新硬件工具"，核心是在 `hardware/tools
 
 ## 十三、RAG增强文献提取
 
-> 详细设计文档：[rag_extraction_enhancement_design.md](rag_extraction_enhancement_design.md)
+> 详细设计文档：[rag_extraction_enhancement_design.md](.claude/rag_extraction_enhancement_design.md)
 
 ### 背景
 当前提取管线对每篇PDF的每一页都调用LLM，大量无关页面（参考文献、背景介绍等）浪费token和耗时。通过"Embedding + 向量数据库 + 相似度筛选"在LLM调用前预筛选页面。

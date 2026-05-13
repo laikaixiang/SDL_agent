@@ -82,6 +82,8 @@ async function onCancelExtraction() {
         :key="i"
         :role="msg.role"
         :content="msg.content"
+        :thinking="msg.thinking"
+        :thinking-duration="msg.thinking_duration"
         :timestamp="msg.timestamp"
       />
 

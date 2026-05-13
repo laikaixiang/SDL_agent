@@ -225,14 +225,37 @@ export const useChatStore = defineStore('chat', () => {
 
       const history = messages.value.slice(0, -2).map(m => ({ role: m.role, content: m.content }))
 
+      let thinkingStartTime = 0
+
       const result = await sendChatMessage(
         {
           message: finalText,
           action: actionMap[mode] || 'chat',
           history,
         },
-        (chunk) => {
-          aiMsg.content += chunk
+        {
+          onThinkingChunk(text) {
+            if (!thinkingStartTime) thinkingStartTime = Date.now()
+            aiMsg.thinking = text
+          },
+          onThinkingComplete(text) {
+            aiMsg.thinking = text
+            aiMsg.thinking_duration = thinkingStartTime
+              ? Math.round((Date.now() - thinkingStartTime) / 1000)
+              : 0
+          },
+          onTextChunk(text) {
+            aiMsg.content = text
+          },
+          onTextComplete(text) {
+            aiMsg.content = text
+          },
+          onError(msg) {
+            aiMsg.content = msg
+          },
+          onDone() {
+            // stream ended normally
+          },
         },
         controller.signal,
       )

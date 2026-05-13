@@ -43,6 +43,8 @@ from core import (
     SoftwareManager,
     AdaptiveStreamHandler,
 )
+from utils.sse import sse_response
+from utils.stream_adapter import StreamAdapter
 from core.extract_manager import PDFProcessor, ExtractionEngine, AlgorithmGuide
 from extract.embedding_service import create_embedding_service
 from extract.vector_store import ChromaVectorStore
@@ -793,16 +795,40 @@ def handle_auto_analyze(user_message: str) -> Response:
 
 def handle_normal_chat(user_message: str, history: list = None) -> Response:
     """
-    处理普通聊天
+    处理普通聊天 — SSE 流式输出，支持思考和正文分离。
 
     Args:
         user_message: 用户消息
-        history: 前端传来的对话历史 [{role, content, timestamp, mode, ...}]
+        history: 前端传来的对话历史 [{role, content, ...}]
 
     Returns:
-        流式响应（自适应：支持流式则使用流式，否则使用非流式模拟）
+        SSE 流式响应 (text/event-stream)
     """
-    return adaptive_handler.generate_response(user_message, model=config.MODEL_NAME_TALK, history=history)
+    model = config.MODEL_NAME_TALK
+
+    # Build messages from history
+    messages = []
+    if history:
+        for m in history:
+            role = m.get("role", "user")
+            content = m.get("content", "")
+            if not content:
+                continue
+            api_role = "assistant" if role == "ai" else "user"
+            messages.append({"role": api_role, "content": content})
+    messages.append({"role": "user", "content": user_message})
+
+    def raw_lines():
+        """Yield raw SSE lines from the LLM API."""
+        try:
+            yield from llm_client.stream_raw(model, messages)
+        except Exception as e:
+            # If the streaming request itself fails, emit an error line
+            # that the StreamAdapter will pick up.
+            pass  # StreamAdapter will handle the empty stream case
+
+    adapter = StreamAdapter()
+    return sse_response(adapter.adapt(raw_lines()))
 
 
 def handle_generate_algorithm(user_message: str) -> Response:

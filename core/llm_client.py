@@ -128,6 +128,48 @@ class LLMClient:
                     except Exception:
                         pass
 
+    def stream_raw(
+        self,
+        model: str,
+        messages: List[Dict[str, Any]],
+        temperature: float = 0.1,
+        max_tokens: int = 1024,
+        timeout: Optional[int] = None,
+    ) -> Generator[str, None, None]:
+        """
+        从 LLM API 流式获取原始 SSE 行。
+
+        与 _handle_stream_response 不同，此方法 yield 完整的解码 SSE 行
+        （如 "data: {...}"），以便 StreamAdapter 可以同时处理
+        reasoning_content 和 content。
+
+        Yields:
+            解码后的 SSE 行字符串
+        """
+        if timeout is None:
+            timeout = self.config.STREAM_TIMEOUT
+
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+        }
+
+        response = requests.post(
+            self.config.API_URL,
+            headers=self.headers,
+            json=payload,
+            stream=True,
+            timeout=timeout,
+        )
+        response.raise_for_status()
+
+        for line in response.iter_lines():
+            if line:
+                yield line.decode("utf-8")
+
     def call_api_with_validation(
         self,
         model: str,

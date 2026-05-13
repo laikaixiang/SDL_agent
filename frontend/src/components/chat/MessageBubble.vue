@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { markdownToHtml } from '@/utils/markdown'
+import ThinkingBlock from './ThinkingBlock.vue'
 
 const props = defineProps<{
   role: 'user' | 'ai'
   content: string
+  thinking?: string
+  thinkingDuration?: number
   timestamp?: string
 }>()
 
@@ -20,6 +23,11 @@ const renderedContent = computed(() => {
   <div class="msg-row" :class="role">
     <div class="msg-bubble" :class="role">
       <slot />
+      <ThinkingBlock
+        v-if="role === 'ai' && thinking"
+        :content="thinking"
+        :duration="thinkingDuration"
+      />
       <div v-if="role === 'ai'" class="msg-text markdown-body" v-html="renderedContent"></div>
       <div v-else class="msg-text">{{ content }}</div>
     </div>

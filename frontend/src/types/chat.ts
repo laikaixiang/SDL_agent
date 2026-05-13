@@ -1,6 +1,8 @@
 export interface Message {
   role: 'user' | 'ai'
   content: string
+  thinking?: string
+  thinking_duration?: number
   timestamp?: string
 }
 

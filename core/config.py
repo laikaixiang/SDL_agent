@@ -144,7 +144,6 @@ class Config:
     PDF_FOLDER: str = _external.get("PDF_FOLDER", r"dialogue data/PDF_TARGET")
     EXTRACT_DIR: str = _external.get("EXTRACT_DIR", "dialogue data/extract")
     TEMPORAL_DIR: str = _external.get("TEMPORAL_DIR", "dialogue data/temporal")
-    TEMPLATES_DIR: str = _external.get("TEMPLATES_DIR", "templates")
 
     # ======================== 处理参数配置 ========================
     DPI: int = _external.get("DPI", 200)

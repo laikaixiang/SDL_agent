@@ -267,7 +267,6 @@ class APITester:
             ("PDF_FOLDER", self.config.PDF_FOLDER),
             ("EXTRACT_DIR", self.config.EXTRACT_DIR),
             ("TEMPORAL_DIR", self.config.TEMPORAL_DIR),
-            ("TEMPLATES_DIR", self.config.TEMPLATES_DIR),
         ]
 
         all_passed = True

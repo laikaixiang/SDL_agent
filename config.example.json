@@ -56,7 +56,6 @@
     "PDF_FOLDER": "dialogue data/PDF_TARGET",
     "EXTRACT_DIR": "dialogue data/extract",
     "TEMPORAL_DIR": "dialogue data/temporal",
-    "TEMPLATES_DIR": "templates",
 
     "_处理参数": "=== API 调用和 PDF 处理参数 ===",
     "DPI": 200,

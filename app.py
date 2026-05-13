@@ -17,7 +17,7 @@ if sys.platform == 'win32':
     except Exception:
         pass
 
-from flask import Flask, request, jsonify, render_template, Response, session, send_from_directory
+from flask import Flask, request, jsonify, Response, send_from_directory
 import threading
 import os
 import json
@@ -53,8 +53,8 @@ from extract.literature_indexer import LiteratureIndexer
 from utils import CSVWriter
 from prompts.api import prompts_bp
 
-# 初始化Flask应用，static 文件夹已移入 templates/static
-app = Flask(__name__, static_folder='templates/static', static_url_path='/static')
+# 初始化Flask应用，static 文件夹指向 Vue 前端构建产物
+app = Flask(__name__, static_folder='frontend/dist', static_url_path='/static')
 app.secret_key = os.urandom(24)  # 用于session管理
 app.register_blueprint(prompts_bp)
 
@@ -251,39 +251,40 @@ software_manager = SoftwareManager(
 
 
 def open_browser():
-    """打开浏览器 — 默认打开新版 Vue 前端"""
-    webbrowser.open("http://127.0.0.1:5000/v2")
+    """打开浏览器 — 默认打开 Vue 前端"""
+    webbrowser.open("http://127.0.0.1:5000/")
 
 
 @app.route('/')
 def home():
-    """
-    主页路由
-    返回主界面模板
-    """
-    return render_template('index.html')
+    """主页路由 — 返回 Vue SPA"""
+    return send_from_directory('frontend/dist', 'index.html')
+
+
+@app.route('/assets/<path:filename>')
+def serve_assets(filename):
+    """Vite 构建产物 — JS/CSS/字体等"""
+    return send_from_directory('frontend/dist/assets', filename)
 
 
 @app.route('/extraction_mode')
 def extraction_mode_page():
-    """
-    提取模式设置页面
-    """
-    return render_template('extraction_mode.html')
+    """提取模式设置页面 — 返回 Vue SPA"""
+    return send_from_directory('frontend/dist', 'index.html')
 
 
-# ── V2 新版前端 (Vue SPA) ──
+# ── 旧路由兼容（/v2、/v2/*、/v2-static/* 重定向到新入口） ──
 @app.route('/v2')
 @app.route('/v2/')
 @app.route('/v2/<path:path>')
-def serve_v2_frontend(path: str = None):
-    """新版 Vue SPA 入口 — 所有 /v2/* 路由返回同一个 index.html"""
+def serve_v2_redirect(path: str = None):
+    """旧 /v2/* 路由 — 返回 Vue SPA"""
     return send_from_directory('frontend/dist', 'index.html')
 
 
 @app.route('/v2-static/<path:filename>')
 def serve_v2_static(filename: str):
-    """新版静态资源 — JS/CSS/图片等"""
+    """旧静态资源路由 — 兼容旧版 URL 路径"""
     return send_from_directory('frontend/dist', filename)
 
 

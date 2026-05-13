@@ -91,7 +91,7 @@ print("\n" + "=" * 60)
 print("测试 4: 前端模式配置")
 print("=" * 60)
 
-with open('templates/index.html', 'r', encoding='utf-8') as f:
+with open('frontend/dist/index.html', 'r', encoding='utf-8') as f:
     content = f.read()
 
     if "setMode('analyze', '数据分析：', '📊 分析数据')" in content:

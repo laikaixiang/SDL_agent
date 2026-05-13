@@ -8,6 +8,24 @@
       "keywords": [
         "bayesian_optimization"
       ]
+    },
+    {
+      "name": "normalize_normal_distribution",
+      "description": "将输入数据转换为标准正态分布（均值为0，标准差为1），适用于数据标准化处理，常用于机器学习模型输入前的预处理。",
+      "category": "自定义算法",
+      "input_type": "list[float] 或 np.ndarray，包含数值型数据，长度大于1",
+      "keywords": [
+        "normalize_normal_distribution"
+      ]
+    },
+    {
+      "name": "func",
+      "description": "func 算法用于对输入数据进行处理并生成期望的输出结果，适用于数据转换、特征提取或结果计算等场景。",
+      "category": "自定义算法",
+      "input_type": "dict，包含 'input' 字段，其值为 list 或其他支持的格式，具体结构需根据实际输入数据定义。",
+      "keywords": [
+        "func"
+      ]
     }
   ],
   "version": "1.0.0",

@@ -23,6 +23,21 @@
     </div>
 </div>
 
+<!-- PDF 阅读面板（左侧） -->
+<div class="pdf-panel" id="pdf-panel">
+    <div class="pdf-header">
+        <span>AI正在阅读...</span>
+        <div style="display:flex;align-items:center;gap:15px;">
+            <span id="pdf-title" style="font-size:0.8rem;color:#9ca3af;font-weight:normal;">等待连接...</span>
+            <button id="close-pdf-btn" style="background:none;border:none;color:#fff;font-size:1.5rem;cursor:pointer;padding:0;line-height:1;" title="关闭预览面板">×</button>
+        </div>
+    </div>
+    <div class="pdf-viewer" id="pdf-viewer">
+        <div class="scan-line"></div>
+        <img id="pdf-image" src="" alt="等待 AI 读取画面..." style="opacity:0;">
+    </div>
+</div>
+
 <!-- 主聊天区域 -->
 <div class="chat-container">
     <div class="header">
@@ -61,21 +76,6 @@
             <input type="text" id="user-input" placeholder="输入问题或指令..." autocomplete="off">
         </div>
         <button id="send-btn" class="send-btn">发送</button>
-    </div>
-</div>
-
-<!-- PDF 阅读面板（右侧） -->
-<div class="pdf-panel" id="pdf-panel">
-    <div class="pdf-header">
-        <span>AI正在阅读...</span>
-        <div style="display:flex;align-items:center;gap:15px;">
-            <span id="pdf-title" style="font-size:0.8rem;color:#9ca3af;font-weight:normal;">等待连接...</span>
-            <button id="close-pdf-btn" style="background:none;border:none;color:#fff;font-size:1.5rem;cursor:pointer;padding:0;line-height:1;" title="关闭预览面板">×</button>
-        </div>
-    </div>
-    <div class="pdf-viewer" id="pdf-viewer">
-        <div class="scan-line"></div>
-        <img id="pdf-image" src="" alt="等待 AI 读取画面..." style="opacity:0;">
     </div>
 </div>
 

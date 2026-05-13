@@ -220,3 +220,7 @@ class Config:
                 return False
 
         return True
+
+if __name__ == "__main__":
+    # 测试读取模型名
+    print(Config.get_config("MODEL_NAME_VL"))

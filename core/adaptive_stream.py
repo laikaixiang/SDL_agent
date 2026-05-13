@@ -140,8 +140,10 @@ class AdaptiveStreamHandler:
             响应内容片段
         """
         headers = self.llm_client.get_default_headers()
+        actual_model = model or self.config.MODEL_NAME_TALK
+        print(f"[DEBUG adaptive_stream] streaming model={actual_model}")
         payload = {
-            "model": model or self.config.MODEL_NAME_TALK,
+            "model": actual_model,
             "messages": self._build_messages(user_message, history),
             "stream": True
         }
@@ -190,8 +192,10 @@ class AdaptiveStreamHandler:
             完整的响应内容
         """
         headers = self.llm_client.get_default_headers()
+        actual_model = model or self.config.MODEL_NAME_TALK
+        print(f"[DEBUG adaptive_stream] non-streaming model={actual_model}")
         payload = {
-            "model": model or self.config.MODEL_NAME_TALK,
+            "model": actual_model,
             "messages": self._build_messages(user_message, history),
             "stream": False
         }

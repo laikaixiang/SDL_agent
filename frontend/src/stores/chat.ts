@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import type { Message } from '@/types/chat'
 import { sendChatMessage } from '@/api/chat'
 import { generateExperiment } from '@/api/experiment'
+import { isTimeoutError } from '@/api/client'
 import { useSSE } from '@/composables/useSSE'
 import { useLayoutStore } from '@/stores/layout'
 import { useExperimentStore } from '@/stores/experiment'
@@ -248,7 +249,10 @@ export const useChatStore = defineStore('chat', () => {
             }
             addMessage('ai', expData.reply || '')
           } catch (err: unknown) {
-            addMessage('ai', (err as Error).message || '网络请求失败')
+            const msg = isTimeoutError(err)
+              ? '实验设计生成超时，请重试或简化需求描述'
+              : (err as Error).message || '网络请求失败'
+            addMessage('ai', msg)
           }
         }
       } else if (mode !== 'normal') {

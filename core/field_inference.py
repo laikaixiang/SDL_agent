@@ -361,7 +361,7 @@ class ExperimentDesignAgent:
         ]
 
         result = self.llm_client.call_api(
-            model=self.config.MODEL_NAME_TALK,
+            model=self.config.EXPERIMENT_MODEL_NAME,
             messages=messages,
             temperature=0.3,
             max_tokens=2048

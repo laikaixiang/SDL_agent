@@ -18,7 +18,9 @@
       "Bash(python *)",
       "Bash(git checkout *)",
       "Bash(taskkill //F //IM python.exe)",
-      "Bash(taskkill //F //IM python3.exe)"
+      "Bash(taskkill //F //IM python3.exe)",
+      "Bash(tasklist //FI \"PID eq 28768\" //V)",
+      "Bash(tasklist)"
     ]
   },
   "enabledPlugins": {}

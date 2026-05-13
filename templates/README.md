@@ -56,7 +56,7 @@ templates/
 
 ---
 
-# 如何添加右侧面板
+# 如何添加面板
 
 ## 面板系统架构
 
@@ -66,16 +66,20 @@ templates/
 
 ```html
 <div class="app-wrapper" id="app-wrapper">
-    <!-- 左侧：主聊天界面 -->
-    <div class="chat-container">...</div>
+    <!-- 左侧：算法库面板 -->
+    <div class="algorithm-panel" id="algorithm-panel">...</div>
 
-    <!-- 右侧：PDF面板 -->
+    <!-- 左侧：PDF 阅读面板（文献提取时显示） -->
     <div class="pdf-panel" id="pdf-panel">...</div>
 
-    <!-- 右侧：单步控制面板 -->
+    <!-- 中间：主聊天界面 -->
+    <div class="chat-container">...</div>
+
+    <!-- 右侧：单步控制面板（绝对定位） -->
     <div class="step-control-panel" id="step-control-panel">...</div>
 
-    <!-- 在这里添加新的面板 -->
+    <!-- 右侧：实验设计面板（绝对定位） -->
+    <div class="experiment-design-panel" id="experiment-design-panel">...</div>
 </div>
 ```
 

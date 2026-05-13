@@ -12,9 +12,9 @@ async function request<T = unknown>(url: string, opts: RequestOptions = {}): Pro
 
   const controller = new AbortController()
   const linked = signal
-  if (linked) linked.addEventListener('abort', () => controller.abort())
+  if (linked) linked.addEventListener('abort', () => controller.abort(linked.reason))
 
-  const timer = setTimeout(() => controller.abort(), timeout)
+  const timer = setTimeout(() => controller.abort(new DOMException('请求超时', 'TimeoutError')), timeout)
 
   try {
     const resp = await fetch(BASE + url, {
@@ -30,16 +30,37 @@ async function request<T = unknown>(url: string, opts: RequestOptions = {}): Pro
     }
 
     return (await resp.json()) as T
+  } catch (err) {
+    // 将内部超时 AbortError 转换为有意义的 ApiError
+    if (controller.signal.aborted && controller.signal.reason instanceof DOMException
+        && controller.signal.reason.name === 'TimeoutError') {
+      throw new ApiError(408, '请求超时，请稍后重试')
+    }
+    // 外部信号触发的 abort，透传原始错误
+    if (linked?.aborted) {
+      throw err
+    }
+    throw err
   } finally {
     clearTimeout(timer)
   }
 }
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
     super(message)
     this.name = 'ApiError'
   }
+}
+
+export function isTimeoutError(err: unknown): boolean {
+  if (err instanceof ApiError && err.status === 408) return true
+  if (err instanceof DOMException && err.name === 'TimeoutError') return true
+  if (err instanceof DOMException && err.name === 'AbortError') return true
+  return false
 }
 
 export { request }

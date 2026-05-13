@@ -342,6 +342,7 @@ def chat():
     user_message = data.get('message', '').strip()
     action = data.get('action', 'chat')  # 用于区分普通对话还是特殊指令
     history = data.get('history', [])    # 前端传来的对话历史
+    print(f"[DEBUG /api/chat] message={user_message[:50]} action={action} MODEL_NAME_TALK={Config.MODEL_NAME_TALK}")
 
     # 特殊流程：用户已确认数据分析参数，正式开始分析
     if action == 'start_data_analysis':
@@ -791,7 +792,7 @@ def handle_normal_chat(user_message: str, history: list = None) -> Response:
     Returns:
         流式响应（自适应：支持流式则使用流式，否则使用非流式模拟）
     """
-    return adaptive_handler.generate_response(user_message, history=history)
+    return adaptive_handler.generate_response(user_message, model=config.MODEL_NAME_TALK, history=history)
 
 
 def handle_generate_algorithm(user_message: str) -> Response:
@@ -1974,6 +1975,9 @@ def api_literature_list():
         page = int(request.args.get('page', 1))
         limit = int(request.args.get('limit', 50))
         result = literature_indexer.query_registry(page=page, limit=limit)
+        pdf_dir = config.PDF_FOLDER if hasattr(config, 'PDF_FOLDER') else os.path.join(config.DIALOGUE_DATA_DIR, '..', 'PDF_TARGET')
+        for entry in result.get('entries', []):
+            entry['pdf_path'] = os.path.join(pdf_dir, entry.get('current_filename', '')).replace('\\', '/')
         return jsonify({"success": True, **result})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -1988,6 +1992,8 @@ def api_literature_detail(unique_id):
         detail = literature_indexer.get_detail(unique_id)
         if detail is None:
             return jsonify({"success": False, "error": "记录不存在"}), 404
+        pdf_dir = config.PDF_FOLDER if hasattr(config, 'PDF_FOLDER') else os.path.join(config.DIALOGUE_DATA_DIR, '..', 'PDF_TARGET')
+        detail['pdf_path'] = os.path.join(pdf_dir, detail.get('current_filename', '')).replace('\\', '/')
         return jsonify({"success": True, "entry": detail})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500

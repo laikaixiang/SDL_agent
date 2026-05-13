@@ -14,7 +14,7 @@ import traceback
 if sys.platform == 'win32':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-sys.path.insert(0, '.')
+sys.path.insert(0, '')
 
 
 def parse_sse_stream(raw: str) -> list[dict]:

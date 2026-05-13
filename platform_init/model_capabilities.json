@@ -1,0 +1,16 @@
+{
+  "models": {
+    "Pro/moonshotai/Kimi-K2.6": {
+      "supports_streaming": true,
+      "chunks_received": 123,
+      "latency_ms": 3184.0,
+      "tested_at": "2026-05-14T00:45:47",
+      "error": null
+    }
+  },
+  "default": {
+    "streaming_enabled": true,
+    "last_model": "Pro/moonshotai/Kimi-K2.6",
+    "last_check": "2026-05-14T00:45:47"
+  }
+}

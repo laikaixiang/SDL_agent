@@ -129,6 +129,10 @@ taskkill //F //PID <pid>                     # 杀掉旧进程
 ```
 不要用 `taskkill //F //IM python.exe`（会杀掉自己的测试脚本）。
 
+**原因 2 延伸 — 改 config.json 后前端仍使用旧模型**：症状是改了 `config.json` 的模型名，重启 Flask 后前端聊天 AI 仍自称旧模型，且终端无新代码的 debug 输出。根因同样是旧 `python.exe` 进程仍占着 5000 端口，所有 `/api/*` 请求打到旧进程（内存中缓存着旧 config 值），新进程或绑定失败或虽然绑定成功但请求被旧进程抢先处理。现象类似"代码不生效"或"前端调了另一个后端"，实际上就是端口残留。
+
+**排查**：同上 `netstat -ano | findstr ":5000.*LISTENING"`，杀掉所有 LISTENING 的 PID 后重启。若 taskkill 杀不掉，重启电脑是最可靠的方式。
+
 **原因 3 — LLM 返回空 JSON**：`LongCat-Flash-Thinking` 模型在 JSON 前输出推理文本，简单 `json.loads(content)` 失败。`core/field_inference.py:389` 的 `_parse_experiment_json()` 已实现多策略解析（清理 markdown → 提取 `{...}` 块）。
 
 > 完整记录见 `DEBUG_INTEGRATION_GUIDE.md`

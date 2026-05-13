@@ -3,6 +3,7 @@ import TopBar from '@/components/layout/TopBar.vue'
 import HistoryPanel from '@/components/layout/HistoryPanel.vue'
 import NavPanel from '@/components/layout/NavPanel.vue'
 import TaskPanel from '@/components/layout/TaskPanel.vue'
+import PdfPanel from '@/components/layout/PdfPanel.vue'
 import { useLayoutStore } from '@/stores/layout'
 
 const layout = useLayoutStore()
@@ -17,6 +18,7 @@ const layout = useLayoutStore()
         <RouterView />
       </main>
     </div>
+    <PdfPanel />
     <TaskPanel v-if="layout.activeTaskPanel" />
     <NavPanel v-show="!layout.rightPanelCollapsed" />
   </div>

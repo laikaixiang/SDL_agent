@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import type { SearchResult, PagePreview, LiteratureEntry } from '@/types/search'
 import { semanticSearch, getPageImage } from '@/api/search'
@@ -21,9 +21,15 @@ export const useSearchStore = defineStore('search', () => {
   const selectedLiterature = ref<LiteratureEntry | null>(null)
   const abstractLoading = ref(false)
 
-  // PDF viewer state (shown in ChatContainer)
-  const viewPdfFile = ref<{ pdfPath: string; filename: string } | null>(null)
+  // PDF viewer state (multi-tab, app-level panel)
+  interface OpenPdfTab { id: string; pdfPath: string; filename: string }
+  let _nextTabId = 0
+  const openPdfTabs = ref<OpenPdfTab[]>([])
+  const activePdfId = ref<string | null>(null)
   const pdfPanelOpen = ref(false)
+  const activePdfTab = computed<OpenPdfTab | null>(() =>
+    activePdfId.value ? (openPdfTabs.value.find(t => t.id === activePdfId.value) || null) : null
+  )
 
   async function search(q?: string) {
     const searchQuery = q || query.value.trim()
@@ -97,15 +103,43 @@ export const useSearchStore = defineStore('search', () => {
   }
 
   function openPdfViewer(pdfPath: string, filename: string) {
-    console.log('[searchStore] openPdfViewer called:', pdfPath, filename)
-    viewPdfFile.value = { pdfPath, filename }
+    const existing = openPdfTabs.value.find(t => t.pdfPath === pdfPath)
+    if (existing) {
+      activePdfId.value = existing.id
+      pdfPanelOpen.value = true
+      return
+    }
+    const id = `pdf-${++_nextTabId}`
+    openPdfTabs.value.push({ id, pdfPath, filename })
+    activePdfId.value = id
     pdfPanelOpen.value = true
-    console.log('[searchStore] after set, pdfPanelOpen:', pdfPanelOpen.value, 'viewPdfFile:', JSON.stringify(viewPdfFile.value))
   }
 
   function closePdfViewer() {
     pdfPanelOpen.value = false
-    viewPdfFile.value = null
+    openPdfTabs.value = []
+    activePdfId.value = null
+  }
+
+  function closePdfTab(id: string) {
+    const idx = openPdfTabs.value.findIndex(t => t.id === id)
+    if (idx === -1) return
+    openPdfTabs.value.splice(idx, 1)
+    if (activePdfId.value === id) {
+      if (openPdfTabs.value.length > 0) {
+        const nextIdx = Math.min(idx, openPdfTabs.value.length - 1)
+        activePdfId.value = openPdfTabs.value[nextIdx].id
+      } else {
+        activePdfId.value = null
+        pdfPanelOpen.value = false
+      }
+    }
+  }
+
+  function setActivePdf(id: string) {
+    if (openPdfTabs.value.some(t => t.id === id)) {
+      activePdfId.value = id
+    }
   }
 
   return {
@@ -113,6 +147,7 @@ export const useSearchStore = defineStore('search', () => {
     search, viewPage, closePreview,
     literatureList, literatureLoading, literatureTotal, selectedLiterature, abstractLoading,
     loadLiteratureList, viewAbstract, closeAbstract,
-    viewPdfFile, pdfPanelOpen, openPdfViewer, closePdfViewer,
+    openPdfTabs, activePdfId, activePdfTab, pdfPanelOpen,
+    openPdfViewer, closePdfViewer, closePdfTab, setActivePdf,
   }
 })

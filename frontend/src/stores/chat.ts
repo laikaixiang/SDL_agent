@@ -45,6 +45,8 @@ export const useChatStore = defineStore('chat', () => {
 
   // PDF page preview during extraction
   const currentPage = ref<PageReading | null>(null)
+  const extractionPdfPath = ref<string | null>(null)
+  const extractionFilename = ref<string | null>(null)
 
   const streamingMessage = computed(() =>
     isStreaming.value ? messages.value[messages.value.length - 1] : null
@@ -88,8 +90,10 @@ export const useChatStore = defineStore('chat', () => {
             // LLM streaming for current page — shown inline
             break
           case 'page_reading': {
-            const d = msg.data as { filename: string; page: number; image: string }
+            const d = msg.data as { filename: string; pdf_path?: string; page: number; image: string }
             currentPage.value = { filename: d.filename, page: d.page, image: d.image }
+            if (d.pdf_path && !extractionPdfPath.value) extractionPdfPath.value = d.pdf_path
+            if (d.filename && !extractionFilename.value) extractionFilename.value = d.filename
             break
           }
           case 'finding': {
@@ -105,6 +109,8 @@ export const useChatStore = defineStore('chat', () => {
             extractionRunning.value = false
             extractionDisconnect = null
             currentPage.value = null
+            extractionPdfPath.value = null
+            extractionFilename.value = null
             layout.updateTaskStatus('extraction', 'completed')
             const d = msg.data as Record<string, unknown> | undefined
             if (d?.message) addMessage('ai', d.message as string)
@@ -116,6 +122,8 @@ export const useChatStore = defineStore('chat', () => {
             extractionRunning.value = false
             extractionDisconnect = null
             currentPage.value = null
+            extractionPdfPath.value = null
+            extractionFilename.value = null
             addMessage('ai', msg.data as string)
             disconnect()
             break
@@ -283,6 +291,8 @@ export const useChatStore = defineStore('chat', () => {
     extractionDisconnect = null
     extractionRunning.value = false
     currentPage.value = null
+    extractionPdfPath.value = null
+    extractionFilename.value = null
     addMessage('ai', '提取任务已取消。')
   }
 
@@ -291,6 +301,8 @@ export const useChatStore = defineStore('chat', () => {
     currentMode.value = 'normal'
     fieldConfirm.value = null
     currentPage.value = null
+    extractionPdfPath.value = null
+    extractionFilename.value = null
     extractionRunning.value = false
     extractionDisconnect?.()
     extractionDisconnect = null
@@ -304,6 +316,8 @@ export const useChatStore = defineStore('chat', () => {
     extractionRunning,
     fieldConfirm,
     currentPage,
+    extractionPdfPath,
+    extractionFilename,
     streamingMessage,
     setMode,
     enableExtraction,

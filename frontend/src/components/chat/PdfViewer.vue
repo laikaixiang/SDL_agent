@@ -16,40 +16,25 @@ const jumpPage = ref('')
 let observer: IntersectionObserver | null = null
 
 onMounted(async () => {
-  // Guard: don't attempt to load if pdfPath is missing
   if (!props.pdfPath) {
-    console.error('[PdfViewer] pdfPath is empty or undefined, cannot load PDF')
     totalPages.value = 0
     return
   }
   // Load page 0 first, which also gives us total_pages from the page_preview API
   const url = `/api/page_preview?doc=${encodeURIComponent(props.pdfPath)}&page=1`
-  console.log('[PdfViewer] pdfPath:', props.pdfPath)
-  console.log('[PdfViewer] fetching:', url)
   try {
     const resp = await fetch(url)
-    console.log('[PdfViewer] page_preview status:', resp.status)
     const json = await resp.json()
-    console.log('[PdfViewer] page_preview raw:', JSON.stringify(json).substring(0, 300))
     // API returns { success: true, data: { total_pages, image_base64, ... } }
-    // 404 error returns { error: "..." }
     const d = json.data || json
-    console.log('[PdfViewer] parsed total_pages:', d.total_pages, 'has image:', !!d.image_base64)
-    if (d.error) {
-      console.error('[PdfViewer] API error:', d.error)
-    }
     if (d.total_pages) totalPages.value = d.total_pages
     const img = d.image_base64 || ''
     pageMap[0] = { loading: false, imageBase64: img.startsWith('data:') ? img.replace('data:image/jpeg;base64,', '') : img }
-  } catch (err) {
-    console.error('[PdfViewer] fetch error:', err)
+  } catch {
     totalPages.value = 1
   }
 
-  // If still no total, fallback
   if (!totalPages.value || totalPages.value < 1) totalPages.value = 1
-
-  console.log('[PdfViewer] totalPages:', totalPages.value, 'pageMap[0] hasImage:', !!pageMap[0]?.imageBase64)
 
   await nextTick()
   setupObserver()
@@ -63,17 +48,15 @@ async function loadPage(pageNum: number) {
   if (pageMap[pageNum]) return
   pageMap[pageNum] = { loading: true, imageBase64: '' }
   try {
-    console.log('[PdfViewer] loadPage:', pageNum)
     const data = await getPageImage(props.pdfPath, pageNum)
-    console.log('[PdfViewer] loadPage result has image:', !!data.image_base64, 'len:', data.image_base64?.length || 0)
     pageMap[pageNum] = { loading: false, imageBase64: data.image_base64 }
-  } catch (err) {
-    console.error('[PdfViewer] loadPage error:', err)
+  } catch {
     pageMap[pageNum] = { loading: false, imageBase64: '' }
   }
 }
 
 function setupObserver() {
+  const scrollContainer = document.querySelector('.pdf-scroll')
   observer = new IntersectionObserver((entries) => {
     for (const entry of entries) {
       if (entry.isIntersecting) {
@@ -83,7 +66,7 @@ function setupObserver() {
         if (pn + 1 < totalPages.value) loadPage(pn + 1)
       }
     }
-  }, { rootMargin: '400px 0px' })
+  }, { root: scrollContainer, rootMargin: '400px 0px' })
 
   // Observe all sentinels (may be none yet, that's OK — watch will re-run)
   document.querySelectorAll('.page-sentinel').forEach(el => observer?.observe(el))

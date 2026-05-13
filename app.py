@@ -342,7 +342,6 @@ def chat():
     user_message = data.get('message', '').strip()
     action = data.get('action', 'chat')  # 用于区分普通对话还是特殊指令
     history = data.get('history', [])    # 前端传来的对话历史
-    print(f"[DEBUG /api/chat] message={user_message[:50]} action={action} MODEL_NAME_TALK={Config.MODEL_NAME_TALK}")
 
     # 特殊流程：用户已确认数据分析参数，正式开始分析
     if action == 'start_data_analysis':
@@ -1180,7 +1179,7 @@ def software_reload():
 
 
 # =============================================================================
-# 新增：算法交互式选择路由
+# 算法交互式选择路由
 # =============================================================================
 
 @app.route('/api/list_algorithms', methods=['GET'])
@@ -1885,7 +1884,7 @@ def page_preview():
     try:
         info = pdf_processor.get_pdf_info(pdf_path)
         if info:
-            total_pages = info.get('total_pages', 0)
+            total_pages = info.get('num_pages', 0)
     except Exception:
         pass
 

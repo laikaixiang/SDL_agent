@@ -421,6 +421,7 @@ class ExtractionEngine:
 
         self.task_manager.put_task_message("page_reading", {
             "filename": os.path.basename(pdf_path),
+            "pdf_path": pdf_path.replace('\\', '/'),
             "page": page_num + 1,
             "image": img_base64
         })

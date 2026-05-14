@@ -12,6 +12,8 @@ from pydantic import BaseModel, Field
 
 from .config import Config
 from .llm_client import LLMClient
+from hardware import ToolRegistry
+from hardware.utils.reagent import find_reagent
 
 # 配置日志
 logger = logging.getLogger(__name__)
@@ -47,72 +49,36 @@ class HardwareAgent:
 
     def _load_hardware_tools(self) -> List[HardwareTool]:
         """
-        加载所有已注册的硬件工具定义
+        从 ToolRegistry 自动加载所有已注册的硬件工具定义
 
-        扩展方法：
-        1. 在 hardware/tools.py 中编写底层执行函数
-        2. 在此方法中添加 HardwareTool 定义
-        3. 在 execute_tool_call() 中添加分派逻辑
+        新工具只需在 hardware/tools/ 中放一个带 @register_tool 装饰器的 .py 文件，
+        启动时自动发现并加载，无需修改此处代码。
         """
-        return [
-            HardwareTool(
-                name="set_temperature",
-                description="设置设备温度",
-                params={
-                    "target": {"type": "float", "description": "目标温度值（℃）", "required": True, "default": None},
-                },
-                function="execute_set_temperature",
-            ),
-            HardwareTool(
-                name="move_robot_arm",
-                description="移动机械臂到指定位置",
-                params={
-                    "x": {"type": "float", "description": "X坐标", "required": True, "default": None},
-                    "y": {"type": "float", "description": "Y坐标", "required": True, "default": None},
-                    "z": {"type": "float", "description": "Z坐标", "required": True, "default": None},
-                },
-                function="execute_move_robot_arm",
-            ),
-            HardwareTool(
+        tools = []
+        for name, entry in ToolRegistry.get_all().items():
+            tools.append(HardwareTool(
+                name=name,
+                description=entry["description"],
+                params=entry["params"],
+                function=f"execute_{name}",
+            ))
+        # LLM-facing aliases（同一底层 spin_coating 函数的不同入口名称）
+        spin_entry = ToolRegistry.get_tool("spin_coating")
+        if spin_entry:
+            spin_params = {k: dict(v) for k, v in spin_entry["params"].items()}
+            tools.append(HardwareTool(
                 name="do_experiment",
-                description="执行旋涂实验",
-                params={
-                    "reagent":    {"type": "str", "description": "试剂名称", "required": True, "default": ""},
-                    "spin_speed": {"type": "int", "description": "转速(rpm)，最大6000", "required": True, "default": 3000},
-                    "spin_acc":   {"type": "int", "description": "加速度(rpm/s)", "required": False, "default": 1000},
-                    "spin_dur":   {"type": "int", "description": "持续时间(ms)", "required": True, "default": 30000},
-                    "volume":     {"type": "int", "description": "体积(µl)", "required": False, "default": 10},
-                },
+                description="执行旋涂实验（单步）",
+                params=spin_params,
                 function="execute_spin_coating",
-            ),
-            # ---- 合并 AutonomousPlatform 后新增 ----
-            HardwareTool(
+            ))
+            tools.append(HardwareTool(
                 name="save_experiment_step",
-                description="注册一步旋涂实验参数（多步实验需多次调用，最后用 start_experiment 启动）",
-                params={
-                    "reagent":    {"type": "str", "description": "试剂名称", "required": True, "default": ""},
-                    "spin_speed": {"type": "int", "description": "转速(rpm)，最大6000", "required": True, "default": 3000},
-                    "spin_acc":   {"type": "int", "description": "加速度(rpm/s)", "required": False, "default": 1000},
-                    "spin_dur":   {"type": "int", "description": "持续时间(ms)", "required": True, "default": 30000},
-                    "volume":     {"type": "int", "description": "体积(µl)", "required": False, "default": 10},
-                },
+                description="注册一步旋涂实验参数（多步实验用）",
+                params=spin_params,
                 function="execute_spin_coating",
-            ),
-            HardwareTool(
-                name="start_experiment",
-                description="启动已注册的多步实验序列",
-                params={},
-                function="execute_start_experiment",
-            ),
-            HardwareTool(
-                name="collect_spectrum",
-                description="启动光谱仪数据采集",
-                params={
-                    "duration": {"type": "int", "description": "采集时长(秒)", "required": False, "default": 60},
-                },
-                function="execute_collect_spectrum",
-            ),
-        ]
+            ))
+        return tools
 
     def get_tools_schema(self) -> str:
         """将工具列表转为 JSON 字符串，注入到 LLM prompt 中"""
@@ -177,7 +143,7 @@ class HardwareAgent:
 
     def execute_tool_call(self, tool_call: Dict[str, Any]) -> Dict[str, Any]:
         """
-        执行单个工具调用，分派到 hardware/tools底层函数
+        执行单个工具调用，通过 ToolRegistry 动态分派到硬件函数
 
         Args:
             tool_call: {"name": "工具名", "params": {参数}}
@@ -186,50 +152,54 @@ class HardwareAgent:
             {"status": "success"/"error", "result"/"message": ...}
         """
         try:
-            from hardware import (
-                execute_spin_coating,
-                execute_set_temperature,
-                execute_move_robot_arm,
-                execute_start_experiment,
-                execute_collect_spectrum,
-            )
-
             tool_name = tool_call.get("name")
-            params = tool_call.get("params", {})
+            params = dict(tool_call.get("params", {}))
 
-            # 记录硬件函数调用
+            # Alias map: LLM-facing names -> registry names
+            ALIASES = {"do_experiment": "spin_coating", "save_experiment_step": "spin_coating"}
+            resolved = ALIASES.get(tool_name, tool_name)
+
+            # Param rename: plan JSON keys -> function arg names
+            PARAM_RENAME = {"set_temperature": {"temperature": "target"}}
+
             logger.info(f"[硬件调用] 工具: {tool_name}, 参数: {params}")
             print(f"[硬件调用] 工具: {tool_name}, 参数: {params}")
 
-            if tool_name == "set_temperature":
-                result = execute_set_temperature(float(params["target"]))
-            elif tool_name == "move_robot_arm":
-                result = execute_move_robot_arm(
-                    float(params["x"]), float(params["y"]), float(params["z"]),
-                )
-            elif tool_name in ("do_experiment", "save_experiment_step"):
-                result = execute_spin_coating(
-                    int(params.get("spin_speed", 3000)),
-                    int(params.get("spin_acc", 1000)),
-                    int(params.get("spin_dur", 30000)),
-                    str(params.get("reagent", "")),
-                    int(params.get("volume", 10)),
-                )
-            elif tool_name == "start_experiment":
-                result = execute_start_experiment()
-            elif tool_name == "collect_spectrum":
-                result = execute_collect_spectrum(int(params.get("duration", 60)))
-            else:
+            entry = ToolRegistry.get_tool(resolved)
+            if not entry:
                 logger.warning(f"[硬件调用] 未知工具: {tool_name}")
                 return {"status": "error", "message": f"未知工具: {tool_name}"}
 
+            # Apply param renames
+            rename = PARAM_RENAME.get(resolved, {})
+            for old, new in rename.items():
+                if old in params and new not in params:
+                    params[new] = params.pop(old)
+
+            # Build kwargs using registry param order
+            kwargs = {}
+            for pname, pinfo in entry["params"].items():
+                if pname in params:
+                    kwargs[pname] = params[pname]
+                elif "default" in pinfo:
+                    kwargs[pname] = pinfo["default"]
+
+            result = entry["function"](**kwargs)
             logger.info(f"[硬件调用] 工具 {tool_name} 执行完成")
             return {"status": "success", "result": result}
 
-        except ImportError as e:
-            return {"status": "error", "message": f"硬件工具模块导入失败: {str(e)}"}
         except Exception as e:
             return {"status": "error", "message": f"执行工具调用失败: {str(e)}"}
+
+    def is_known_tool(self, name: str) -> bool:
+        """检查工具名称是否已注册（含别名映射）"""
+        ALIASES = {"do_experiment": "spin_coating", "save_experiment_step": "spin_coating"}
+        resolved = ALIASES.get(name, name)
+        return ToolRegistry.get_tool(resolved) is not None
+
+    def check_reagent(self, name: str) -> str:
+        """检查试剂是否存在，返回试剂位置"""
+        return find_reagent(name)
 
     def execute_complex_command(self, tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """依次执行多个工具调用，返回每个调用的结果列表"""

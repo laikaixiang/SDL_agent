@@ -121,23 +121,6 @@ python platform_init/test/experiment_design_test/test_fix_verification.py
 
 ## 文档说明
 
-### DIAGNOSIS_REPORT.md
-完整的诊断报告，包含：
-- 测试结果总结
-- 问题定位分析
-- 多种解决方案对比
-- 性能数据
-- 推荐实施步骤
-
-### SUMMARY.md
-修复总结文档，包含：
-- 问题诊断过程
-- 修复内容（代码对比）
-- 测试文件说明
-- 验证步骤
-- 性能数据
-- 后续优化建议
-
 ### README.md（本文件）
 测试套件使用指南
 
@@ -184,10 +167,95 @@ python platform_init/test/experiment_design_test/test_fix_verification.py
 
 ---
 
-## 联系信息
+## 端到端调试指南
 
-如有问题，请查看：
-- `DIAGNOSIS_REPORT.md` - 详细诊断过程
-- `SUMMARY.md` - 修复总结
-- Flask控制台日志 - 运行时错误信息
-- 浏览器控制台 - 前端错误信息
+### 步骤1：启动应用
+```bash
+cd D:\PycharmProjects\SDL_agent
+python app.py
+```
+预期输出：`[会话管理] 应用启动，会话时间戳: ...` + `* Running on http://127.0.0.1:5000`
+
+### 步骤2：浏览器控制台预期日志
+
+发送 "实验设计：设计一个旋涂实验，转速3000rpm..." 后，Console 应出现：
+```
+[ExperimentChat] startExperimentChat 被调用
+[ExperimentChat] command: 设计一个旋涂实验...
+[ExperimentChat] 发送请求到 /api/experiment_chat
+[ExperimentChat] 响应状态: 200
+[ExperimentChat] 响应数据: {type: 'experiment_design', experiment_json: {...}, ...}
+[ExperimentChat] 加载实验设计 JSON
+```
+如无日志：检查 JS 错误、`startExperimentChat` 是否被调用、Network 标签请求状态。
+
+### 步骤3：服务器控制台预期日志
+
+```
+============================================================
+[实验设计] /api/experiment_chat 被调用
+[实验设计] 接收到的数据: session_id / message
+[实验设计] 开始生成实验方案
+[ExperimentAgent] 开始处理会话...
+[ExperimentAgent] 开始调用 Approach 2 Agent...
+[实验设计] 事件: experiment_design_generated
+[实验设计] ✅ 生成成功，实验名称: xxx，步骤数量: N
+[实验设计] 已转换为前端可视化格式
+============================================================
+```
+如无日志：检查 `/api/experiment_chat` 是否被调用、前端是否正确发送请求。
+
+### 常见问题排查
+
+**问题1：前端没有调用 startExperimentChat**
+- 症状：浏览器控制台没有 `[ExperimentChat]` 日志
+- 排查：检查 `/api/chat` 是否返回 `experiment_design_mode` 类型；检查 `chat.js` 是否正确处理该类型
+- 测试：在控制台执行 `startExperimentChat("测试命令")`
+
+**问题2：后端没有收到请求**
+- 症状：服务器控制台没有 `[实验设计] /api/experiment_chat 被调用` 日志
+- 排查：检查浏览器 Network 标签，确认请求 URL 为 `/api/experiment_chat`、方法为 POST、请求体含 `session_id` 和 `message`
+
+**问题3：后端返回错误**
+- 症状：响应类型为 `error`
+- 排查：查看服务器控制台错误堆栈；检查 `experiment_agent` 是否正确初始化；检查 LLM API 是否可用
+- 常见错误：`消息不能为空`（前端未正确传递 message）、`实验设计生成失败`（LLM 调用失败或返回格式错误）
+
+**问题4：前端没有显示实验设计**
+- 症状：后端成功返回，但前端没有显示
+- 排查：检查控制台是否有 `experiment_json` 日志；检查 `loadExperimentFromJSON` 是否被调用；检查实验设计面板是否打开
+- 测试：在控制台执行 `loadExperimentFromJSON({experiment_name: "测试", steps: [{type: "tool", name: "spin_coating", params: {spin_speed: 3000}, description: "测试"}]})`
+
+### 手动测试清单
+
+- [ ] 启动应用成功
+- [ ] 浏览器打开页面成功
+- [ ] 输入 "实验设计：xxx" 后发送
+- [ ] `/api/chat` 返回 `experiment_design_mode`
+- [ ] 前端调用 `startExperimentChat`
+- [ ] 前端发送请求到 `/api/experiment_chat`
+- [ ] 后端收到请求并打印日志
+- [ ] 后端调用 `experiment_agent.run()`
+- [ ] 后端生成实验设计 JSON
+- [ ] 后端返回 `experiment_design` 类型
+- [ ] 前端收到响应并打印日志
+- [ ] 前端调用 `loadExperimentFromJSON`
+- [ ] 实验设计面板显示实验流程
+- [ ] 显示成功通知
+
+## 相关文件
+
+### 后端
+- `app.py:204-352` - `/api/chat` 路由（识别实验设计请求）
+- `app.py:803-920` - `/api/experiment_chat` 路由（生成实验设计）
+- `core/experiment_agent.py` - 交互式 ExperimentDesignAgent
+
+### 前端
+- `templates/static/js/chat/chat.js:87-90` - 处理 `experiment_design_mode`
+- `templates/static/js/experiment/experiment_chat.js` - 调用 `/api/experiment_chat`
+- `templates/static/js/experiment/experiment_design.js:395-420` - `loadExperimentFromJSON`
+
+### 测试
+- `platform_init/test/experiment_design_test/test_experiment_chat.py` - 单元测试
+- `platform_init/test/experiment_design_test/test_api_request.py` - API 测试
+- `platform_init/test/experiment_design_test/test_e2e.py` - 端到端测试

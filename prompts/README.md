@@ -46,8 +46,6 @@ prompts/
 │   └── _meta_optimize.yaml         ← 用 LLM 优化其他 prompt 的 prompt
 │
 ├── overrides/                      ← 运行时修改（gitignore，不提交）
-│
-└── reviewer_design.md              ← 提取审查功能设计文档
 
 extract/
 └── quality_checker.py              ← 确定性质量检测器（稀疏 + 重复检测）

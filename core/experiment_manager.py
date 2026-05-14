@@ -15,14 +15,6 @@ import subprocess
 import tempfile
 from typing import Dict, Callable, Optional, List
 
-from hardware import (
-    execute_spin_coating,
-    execute_set_temperature,
-    execute_move_robot_arm,
-    execute_start_experiment,
-    execute_collect_spectrum,
-    find_reagent,
-)
 from core.software_manager import SoftwareManager
 
 
@@ -37,15 +29,7 @@ class ExperimentManager:
     - 提供实时进度反馈
     """
 
-    def __init__(self, software_manager: Optional["SoftwareManager"] = None):
-        # 操作类型映射到执行函数
-        self.action_map = {
-            "spin_coating": self._execute_spin_coating,
-            "set_temperature": self._execute_set_temperature,
-            "move_robot_arm": self._execute_move_robot_arm,
-            "collect_spectrum": self._execute_collect_spectrum,
-        }
-
+    def __init__(self, software_manager: Optional["SoftwareManager"] = None, hardware_agent=None):
         # 辅助操作映射
         self.helper_map = {
             "WAIT":       self._execute_wait,
@@ -57,6 +41,10 @@ class ExperimentManager:
         }
 
         self._software_manager = software_manager
+        self._hardware_agent = hardware_agent
+        if self._hardware_agent is None:
+            from core.hardware_controller import HardwareAgent
+            self._hardware_agent = HardwareAgent()
 
     # ========== 格式转换方法 ==========
 
@@ -389,11 +377,15 @@ class ExperimentManager:
                             print(f"[执行器] 步骤 {step_num} 异常: {e}")
                     continue
 
-                # 执行工具操作
-                if action in self.action_map:
+                # 执行工具操作 - 通过 HardwareAgent 统一入口
+                if self._hardware_agent.is_known_tool(action):
                     try:
-                        result = self.action_map[action](params)
-                        is_success = self._check_success(result)
+                        agent_result = self._hardware_agent.execute_tool_call({
+                            "name": action,
+                            "params": params
+                        })
+                        result = agent_result.get("result", "") or agent_result.get("message", "")
+                        is_success = agent_result.get("status") == "success"
 
                         results.append({
                             "step": step_num,
@@ -442,7 +434,11 @@ class ExperimentManager:
             has_spin_coating = any(r["action"] == "spin_coating" for r in results)
             if has_spin_coating:
                 print("[执行器] 检测到旋涂步骤，发送启动指令...")
-                start_result = execute_start_experiment()
+                start_agent_result = self._hardware_agent.execute_tool_call({
+                    "name": "start_experiment",
+                    "params": {}
+                })
+                start_result = start_agent_result.get("result", "")
                 results.append({
                     "step": "final",
                     "action": "start_experiment",
@@ -504,32 +500,6 @@ class ExperimentManager:
 
         # 默认认为成功（如果没有明确的失败标志）
         return True
-
-    def _execute_spin_coating(self, params: dict) -> str:
-        """执行旋涂操作"""
-        return execute_spin_coating(
-            spin_speed=params.get("spin_speed", 3000),
-            spin_acc=params.get("spin_acc", 1000),
-            spin_dur=params.get("spin_dur", 30000),
-            reagent=params.get("reagent", ""),
-            volume=params.get("volume", 10)
-        )
-
-    def _execute_set_temperature(self, params: dict) -> str:
-        """执行温度设置"""
-        return execute_set_temperature(params.get("temperature", 25))
-
-    def _execute_move_robot_arm(self, params: dict) -> str:
-        """执行机械臂移动"""
-        return execute_move_robot_arm(
-            x=params.get("x", 0),
-            y=params.get("y", 0),
-            z=params.get("z", 0)
-        )
-
-    def _execute_collect_spectrum(self, params: dict) -> str:
-        """执行光谱采集"""
-        return execute_collect_spectrum(params.get("duration", 60))
 
     def _execute_wait(self, params: dict) -> str:
         """执行等待操作"""
@@ -660,7 +630,7 @@ class ExperimentManager:
                     return False, f"步骤 {i+1} 的辅助操作 '{action}' 不支持"
             elif step_type == "software":
                 pass  # 算法名在运行时由 SoftwareManager 校验
-            elif action not in self.action_map:
+            elif not self._hardware_agent.is_known_tool(action):
                 return False, f"步骤 {i+1} 的操作类型 '{action}' 不支持"
 
             # 检查旋涂步骤的试剂是否存在
@@ -670,7 +640,7 @@ class ExperimentManager:
                     return False, f"步骤 {i+1} 缺少试剂名称"
 
                 # 检查试剂是否存在
-                reagent_pos = find_reagent(reagent)
+                reagent_pos = self._hardware_agent.check_reagent(reagent)
                 if reagent_pos[:2] != "BP":
                     return False, f"步骤 {i+1} 的试剂 '{reagent}' 不存在或未配置"
 
@@ -682,13 +652,7 @@ class ExperimentManager:
         """
         将实验JSON编译为Python代码
 
-        支持的控制结构：
-        - LOOP: for循环
-        - GROUP: 单次循环 (for i in range(1))
-        - CONDITION: if-else条件判断
-        - WAIT: time.sleep()
-        - USER_INPUT: input()
-        - END: 标志最近的循环/条件/组结束
+        委托给 experiment.compiler.ExperimentCompiler
 
         Args:
             experiment_json: 实验方案JSON
@@ -696,100 +660,8 @@ class ExperimentManager:
         Returns:
             str: 生成的Python代码
         """
-        steps = experiment_json.get("steps", [])
-        code_lines = [
-            "# 自动生成的实验执行代码",
-            "import time",
-            "",
-            "# 用户输入变量存储",
-            "user_vars = {}",
-            "",
-            "def execute_experiment():",
-        ]
-
-        indent_level = 1
-        stack = []  # 用于跟踪嵌套结构 (type, indent_level)
-
-        for idx, step in enumerate(steps):
-            step_type = step.get("type", "tool")
-            step_name = step.get("name", "")
-            params = step.get("params", {})
-            description = step.get("description", "")
-
-            indent = "    " * indent_level
-
-            # 处理 END 标记
-            if step_type == "helper" and step_name == "END":
-                if stack:
-                    stack.pop()
-                    indent_level -= 1
-                continue
-
-            # 添加注释
-            if description:
-                code_lines.append(f"{indent}# {description}")
-
-            # 处理不同类型的步骤
-            if step_type == "helper":
-                if step_name == "LOOP":
-                    iterations = params.get("iterations", 3)
-                    code_lines.append(f"{indent}for _loop_iter in range({iterations}):")
-                    stack.append(("LOOP", indent_level))
-                    indent_level += 1
-
-                elif step_name == "GROUP":
-                    group_name = params.get("name", "步骤组")
-                    code_lines.append(f"{indent}# GROUP: {group_name}")
-                    code_lines.append(f"{indent}for _group_iter in range(1):")
-                    stack.append(("GROUP", indent_level))
-                    indent_level += 1
-
-                elif step_name == "CONDITION":
-                    condition = params.get("condition", "True")
-                    code_lines.append(f"{indent}if {condition}:")
-                    stack.append(("CONDITION", indent_level))
-                    indent_level += 1
-
-                elif step_name == "WAIT":
-                    duration_ms = params.get("duration", 1000)
-                    duration_s = duration_ms / 1000.0
-                    code_lines.append(f"{indent}time.sleep({duration_s})  # 等待 {duration_s} 秒")
-
-                elif step_name == "USER_INPUT":
-                    prompt = params.get("prompt", "请输入参数")
-                    variable_name = params.get("variable_name", "user_value")
-                    code_lines.append(f"{indent}user_vars['{variable_name}'] = input('{prompt}: ')")
-
-            elif step_type == "tool":
-                # 硬件工具调用
-                code_lines.append(f"{indent}print('执行硬件操作: {step_name}')")
-                code_lines.append(f"{indent}# TODO: 调用硬件函数 {step_name}({params})")
-
-            elif step_type == "software":
-                # 算法调用
-                algo_name = step_name
-                input_file = step.get("input_file", "")
-                output_file = step.get("output_file", "")
-                code_lines.append(f"{indent}print('执行算法: {algo_name}')")
-                code_lines.append(f"{indent}# TODO: 调用算法 {algo_name}")
-                if input_file:
-                    code_lines.append(f"{indent}# 输入文件: {input_file}")
-                if output_file:
-                    code_lines.append(f"{indent}# 输出文件: {output_file}")
-
-        # 关闭所有未闭合的结构
-        while stack:
-            stack.pop()
-            indent_level -= 1
-            indent = "    " * indent_level
-            code_lines.append(f"{indent}pass  # 自动闭合")
-
-        code_lines.append("")
-        code_lines.append("if __name__ == '__main__':")
-        code_lines.append("    execute_experiment()")
-        code_lines.append("")
-
-        return "\n".join(code_lines)
+        from experiment.compiler import ExperimentCompiler
+        return ExperimentCompiler().compile_to_python(experiment_json)
 
     def compile_and_run(self, experiment_json: dict) -> dict:
         """

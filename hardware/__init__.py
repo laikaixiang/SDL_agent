@@ -8,15 +8,17 @@
 # MQTT 连接器
 from .agent_client import MQTTConnector, Client_Conf
 
-# 工具注册系统
-from .tools.registry import ToolRegistry, register_tool
+# 工具注册系统（装饰器 + 自动发现 + 热加载）
+from .tools.registry import ToolRegistry, register_tool, discover_tools, reload_tools
 
-# 底层同步工具函数
-from .tools.spin_coating import execute_spin_coating
-from .tools.temperature import execute_set_temperature
-from .tools.robot_arm import execute_move_robot_arm
-from .tools.experiment_control import execute_start_experiment
-from .tools.spectrum import execute_collect_spectrum
+# === 自动发现 tools/ 目录下的工具模块 ===
+# 添加新工具只需在 hardware/tools/ 中新建 .py 文件并加 @register_tool 装饰器，无需改此文件
+discover_tools()
+
+# 将所有已注册工具函数提升到包命名空间（同 register_tool 装饰器效果，确保顶层可导入）
+for _name, _entry in ToolRegistry.get_all().items():
+    _func = _entry["function"]
+    globals()[_func.__name__] = _func
 
 # MQTT 客户端和配置
 from .mqtt import get_mqtt_client, local_client, EXPERIMENT_TOPIC, REAGENT_LAYOUT_PATH
@@ -45,12 +47,15 @@ __all__ = [
     # 工具注册
     'ToolRegistry',
     'register_tool',
-    # 底层同步工具函数
+    'discover_tools',
+    'reload_tools',
+    # 底层同步工具函数（自动发现，新工具在 hardware/tools/ 添加后在此补充）
     'execute_spin_coating',
     'execute_set_temperature',
     'execute_move_robot_arm',
     'execute_start_experiment',
     'execute_collect_spectrum',
+    'get_tips',
     # MQTT 客户端
     'get_mqtt_client',
     'local_client',

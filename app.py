@@ -1566,7 +1566,7 @@ def execute_experiment_design():
 
     def _run():
         try:
-            executor = ExperimentExecutor(software_manager=software_manager)
+            executor = ExperimentExecutor(software_manager=software_manager, hardware_agent=hardware_controller.agent)
             total = len(steps)
 
             def on_progress(step_num, status, message):

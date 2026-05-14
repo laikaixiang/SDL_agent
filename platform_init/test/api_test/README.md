@@ -155,14 +155,6 @@ app.py 调用 adaptive_handler.generate_response()
 - 实时响应
 - 无需任何修改
 
-## 下一步
-
-1. 激活conda环境: `conda activate SDL_agent`
-2. 运行测试: `python test/api_test/test_adaptive_stream.py`
-3. 启动应用: `python app.py`
-4. 在浏览器中测试聊天功能
-5. 查看控制台输出，确认流式检测结果
-
 ## 故障排除
 
 如果遇到问题：

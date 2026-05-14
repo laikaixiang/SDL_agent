@@ -12,7 +12,7 @@ from .registry import register_tool
         "x": {"type": "float", "description": "X坐标", "required": True, "default": 220},
         "y": {"type": "float", "description": "Y坐标", "required": True, "default": -220},
         "z": {"type": "float", "description": "Z坐标", "required": True, "default": 20},
-        "r": {"type": "float", "description": "r", "required": True, "default": 0}
+        "r": {"type": "float", "description": "R轴坐标", "required": False, "default": 0}
     }
 )
 def execute_move_robot_arm(x: float, y: float, z: float, r: float) -> str:

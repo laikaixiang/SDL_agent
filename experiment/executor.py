@@ -13,15 +13,6 @@ import os
 import time
 from typing import Callable, Optional
 
-from hardware import (
-    execute_spin_coating,
-    execute_set_temperature,
-    execute_move_robot_arm,
-    execute_start_experiment,
-    execute_collect_spectrum,
-    find_reagent,
-)
-
 
 class ExperimentExecutor:
     """
@@ -34,15 +25,7 @@ class ExperimentExecutor:
     - 提供实时进度反馈
     """
 
-    def __init__(self, software_manager: Optional["SoftwareManager"] = None):
-        # 操作类型映射到执行函数
-        self.action_map = {
-            "spin_coating": self._execute_spin_coating,
-            "set_temperature": self._execute_set_temperature,
-            "move_robot_arm": self._execute_move_robot_arm,
-            "collect_spectrum": self._execute_collect_spectrum,
-        }
-
+    def __init__(self, software_manager: Optional["SoftwareManager"] = None, hardware_agent=None):
         # 辅助操作映射
         self.helper_map = {
             "WAIT":       self._execute_wait,
@@ -54,6 +37,10 @@ class ExperimentExecutor:
         }
 
         self._software_manager = software_manager
+        self._hardware_agent = hardware_agent
+        if self._hardware_agent is None:
+            from core.hardware_controller import HardwareAgent
+            self._hardware_agent = HardwareAgent()
 
     # ========== 执行方法 ==========
 
@@ -174,11 +161,15 @@ class ExperimentExecutor:
                             print(f"[执行器] 步骤 {step_num} 异常: {e}")
                     continue
 
-                # 执行工具操作
-                if action in self.action_map:
+                # 执行工具操作 - 通过 HardwareAgent 统一入口
+                if self._hardware_agent.is_known_tool(action):
                     try:
-                        result = self.action_map[action](params)
-                        is_success = self._check_success(result)
+                        agent_result = self._hardware_agent.execute_tool_call({
+                            "name": action,
+                            "params": params
+                        })
+                        result = agent_result.get("result", "") or agent_result.get("message", "")
+                        is_success = agent_result.get("status") == "success"
 
                         results.append({
                             "step": step_num,
@@ -227,7 +218,11 @@ class ExperimentExecutor:
             has_spin_coating = any(r["action"] == "spin_coating" for r in results)
             if has_spin_coating:
                 print("[执行器] 检测到旋涂步骤，发送启动指令...")
-                start_result = execute_start_experiment()
+                start_agent_result = self._hardware_agent.execute_tool_call({
+                    "name": "start_experiment",
+                    "params": {}
+                })
+                start_result = start_agent_result.get("result", "")
                 results.append({
                     "step": "final",
                     "action": "start_experiment",
@@ -289,32 +284,6 @@ class ExperimentExecutor:
 
         # 默认认为成功（如果没有明确的失败标志）
         return True
-
-    def _execute_spin_coating(self, params: dict) -> str:
-        """执行旋涂操作"""
-        return execute_spin_coating(
-            spin_speed=params.get("spin_speed", 3000),
-            spin_acc=params.get("spin_acc", 1000),
-            spin_dur=params.get("spin_dur", 30000),
-            reagent=params.get("reagent", ""),
-            volume=params.get("volume", 10)
-        )
-
-    def _execute_set_temperature(self, params: dict) -> str:
-        """执行温度设置"""
-        return execute_set_temperature(params.get("temperature", 25))
-
-    def _execute_move_robot_arm(self, params: dict) -> str:
-        """执行机械臂移动"""
-        return execute_move_robot_arm(
-            x=params.get("x", 0),
-            y=params.get("y", 0),
-            z=params.get("z", 0)
-        )
-
-    def _execute_collect_spectrum(self, params: dict) -> str:
-        """执行光谱采集"""
-        return execute_collect_spectrum(params.get("duration", 60))
 
     def _execute_wait(self, params: dict) -> str:
         """执行等待操作"""
@@ -445,7 +414,7 @@ class ExperimentExecutor:
                     return False, f"步骤 {i+1} 的辅助操作 '{action}' 不支持"
             elif step_type == "software":
                 pass  # 算法名在运行时由 SoftwareManager 校验
-            elif action not in self.action_map:
+            elif not self._hardware_agent.is_known_tool(action):
                 return False, f"步骤 {i+1} 的操作类型 '{action}' 不支持"
 
             # 检查旋涂步骤的试剂是否存在
@@ -455,7 +424,7 @@ class ExperimentExecutor:
                     return False, f"步骤 {i+1} 缺少试剂名称"
 
                 # 检查试剂是否存在
-                reagent_pos = find_reagent(reagent)
+                reagent_pos = self._hardware_agent.check_reagent(reagent)
                 if reagent_pos[:2] != "BP":
                     return False, f"步骤 {i+1} 的试剂 '{reagent}' 不存在或未配置"
 

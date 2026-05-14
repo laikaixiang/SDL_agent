@@ -9,6 +9,8 @@
 import subprocess
 import tempfile
 import os
+import json
+from pathlib import Path
 
 
 class ExperimentCompiler:
@@ -20,6 +22,70 @@ class ExperimentCompiler:
     - 编译并执行代码
     - 支持控制流（LOOP/CONDITION/WAIT等）
     """
+
+    _registry_cache = None
+
+    @classmethod
+    def _load_registry(cls):
+        """加载 REGISTRY.json，模块级缓存"""
+        if cls._registry_cache is None:
+            registry_path = Path(__file__).parent.parent / "hardware" / "tools" / "REGISTRY.json"
+            with open(registry_path, encoding='utf-8') as f:
+                cls._registry_cache = json.load(f)
+        return cls._registry_cache
+
+    @classmethod
+    def _build_imports(cls, steps, registry):
+        """收集tool步骤 → 去重 → 生成import语句"""
+        tool_names = set()
+        for step in steps:
+            if step.get("type") == "tool":
+                name = step.get("name") or step.get("action", "")
+                if name and name in registry:
+                    tool_names.add(name)
+        if not tool_names:
+            return ""
+        func_names = sorted(f"execute_{n}" for n in tool_names)
+        return f"from hardware import {', '.join(func_names)}"
+
+    @classmethod
+    def _build_tool_call(cls, tool_name, params_dict, registry):
+        """根据registry param顺序生成位置参数调用字符串"""
+        if tool_name not in registry:
+            raise ValueError(f"未知工具 '{tool_name}'，未在REGISTRY.json中注册")
+
+        entry = registry[tool_name]
+        args = []
+        for pname, pinfo in entry["params"].items():
+            if pname in params_dict:
+                raw_value = params_dict[pname]
+            elif "default" in pinfo:
+                raw_value = pinfo["default"]
+            elif pinfo.get("required", False):
+                raise ValueError(f"工具 '{tool_name}' 缺少必需参数 '{pname}'")
+            else:
+                raw_value = None
+
+            ptype = pinfo.get("type", "str")
+            try:
+                if ptype == "int":
+                    formatted = str(int(raw_value))
+                elif ptype == "float":
+                    formatted = str(float(raw_value))
+                elif ptype == "str":
+                    formatted = f'"{raw_value}"'
+                elif ptype == "bool":
+                    if isinstance(raw_value, str):
+                        formatted = "True" if raw_value.lower() in ("true", "1", "yes") else "False"
+                    else:
+                        formatted = "True" if raw_value else "False"
+                else:
+                    formatted = repr(raw_value)
+            except (ValueError, TypeError):
+                raise ValueError(f"参数 '{pname}' 期望类型 {ptype}，但值为 '{raw_value}'")
+            args.append(formatted)
+
+        return f"execute_{tool_name}({', '.join(args)})"
 
     def compile_to_python(self, experiment_json: dict) -> str:
         """
@@ -40,15 +106,22 @@ class ExperimentCompiler:
             str: 生成的Python代码
         """
         steps = experiment_json.get("steps", [])
+        registry = self._load_registry()
+        import_line = self._build_imports(steps, registry)
+
         code_lines = [
             "# 自动生成的实验执行代码",
             "import time",
+        ]
+        if import_line:
+            code_lines.append(import_line)
+        code_lines.extend([
             "",
             "# 用户输入变量存储",
             "user_vars = {}",
             "",
             "def execute_experiment():",
-        ]
+        ])
 
         indent_level = 1
         stack = []  # 用于跟踪嵌套结构 (type, indent_level)
@@ -106,7 +179,16 @@ class ExperimentCompiler:
             elif step_type == "tool":
                 # 硬件工具调用
                 code_lines.append(f"{indent}print('执行硬件操作: {step_name}')")
-                code_lines.append(f"{indent}# TODO: 调用硬件函数 {step_name}({params})")
+                if step_name in registry:
+                    try:
+                        call_str = self._build_tool_call(step_name, params, registry)
+                        code_lines.append(f"{indent}result = {call_str}")
+                        code_lines.append(f"{indent}print(f'结果: {{result}}')")
+                    except ValueError as e:
+                        code_lines.append(f"{indent}# ERROR: {e}")
+                else:
+                    code_lines.append(f"{indent}# WARNING: 工具 '{step_name}' 未在REGISTRY.json中注册")
+                    code_lines.append(f"{indent}print('错误: 未知工具 {step_name}')")
 
             elif step_type == "software":
                 # 算法调用
@@ -199,44 +281,17 @@ class ExperimentCompiler:
 
 
 if __name__ == "__main__":
-    """测试编译器功能"""
-    # 示例实验JSON
     test_experiment = {
         "experiment_name": "测试实验",
         "steps": [
-            {"type": "helper", "name": "LOOP", "params": {"iterations": 3}, "description": "循环3次"},
-            {"type": "helper", "name": "WAIT", "params": {"duration": 1000}, "description": "等待1秒"},
-            {"type": "helper", "name": "USER_INPUT", "params": {"prompt": "请输入温度", "variable_name": "temperature"}, "description": "用户输入温度"},
-            {"type": "helper", "name": "CONDITION", "params": {"condition": "int(user_vars.get('temperature', 0)) > 100"}, "description": "判断温度"},
-            {"type": "tool", "name": "set_temperature", "params": {"temperature": 150}, "description": "设置温度"},
-            {"type": "helper", "name": "END", "params": {}, "description": "结束条件"},
-            {"type": "helper", "name": "END", "params": {}, "description": "结束循环"},
+            {"type": "tool", "name": "move_robot_arm", "params": {"x": 100, "y": 200, "z": 300}, "description": "移动机械臂到起点"},
+            {"type": "helper", "name": "WAIT", "params": {"duration": 2000}, "description": "等待2秒"},
+            {"type": "tool", "name": "spin_coating", "params": {"spin_speed": 3000, "reagent": "Perovskite"}, "description": "旋涂"},
         ]
     }
-
-    # 创建编译器
     compiler = ExperimentCompiler()
-
-    # 编译为Python代码
     print("=" * 60)
     print("编译实验JSON为Python代码")
     print("=" * 60)
     python_code = compiler.compile_to_python(test_experiment)
     print(python_code)
-    print("\n" + "=" * 60)
-
-    # 可选：编译并运行
-    run_test = input("\n是否运行生成的代码？(y/n): ").strip().lower()
-    if run_test == 'y':
-        print("\n" + "=" * 60)
-        print("编译并运行实验")
-        print("=" * 60)
-        result = compiler.compile_and_run(test_experiment)
-        if result["success"]:
-            print("✅ 执行成功")
-            print("\n输出:")
-            print(result["output"])
-        else:
-            print("❌ 执行失败")
-            print("\n错误:")
-            print(result["error"])

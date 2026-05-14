@@ -474,8 +474,6 @@ npx vue-tsc -b             # TypeScript 类型检查（编辑 stores/api/types �
 
 ### 前端-后端回应文本原则
 
-> 详见 `frontend/DEBUG_INTEGRATION_GUIDE.md`
-
 - **后端 `reply` 统一返回**：AI 回复、实验结果、错误说明等用户可见的业务文本，统一由 Python 后端 `reply` 字段返回，前端直接 `addMessage('ai', data.reply)` 展示
 - **前端不构造回应文本**：不在 TS 中写 fallback 字符串（如 `'实验设计完成'`）、不在 catch 块中拼业务错误前缀（如 `'❌ 实验设计失败：'`）、不在日志中加分段标题（如 `'--- 执行输出 ---'`）
 - **catch 只处理网络错误**：`try/catch` 中的 `catch` 块仅处理网络/HTTP 层面的异常；业务错误通过 `data.type === 'error'` 判断，使用后端返回的 `reply`
@@ -730,8 +728,6 @@ A: 参见"扩展指南 → 添加新硬件工具"，核心是在 `hardware/tools
 
 ## 十三、RAG增强文献提取
 
-> 详细设计文档：[rag_extraction_enhancement_design.md](.claude/rag_extraction_enhancement_design.md)
-
 ### 背景
 当前提取管线对每篇PDF的每一页都调用LLM，大量无关页面（参考文献、背景介绍等）浪费token和耗时。通过"Embedding + 向量数据库 + 相似度筛选"在LLM调用前预筛选页面。
 
@@ -741,16 +737,16 @@ A: 参见"扩展指南 → 添加新硬件工具"，核心是在 `hardware/tools
 |------|------|------|------|
 | Phase 1 | 页面预筛选 | Embedding向量相似度判断页面与提取目标的相关性，跳过无关页面 | ✅ 已完成 |
 | Phase 2 | Few-shot增强 | 检索历史提取结果作为示例，提升LLM提取准确率 | ✅ 已完成 |
-| Phase 3 | 语义搜索 | 全文献库语义搜索（后端API已完成，前端UI为Phase 4） | ✅ 已完成 |
-| Phase 4 | 前端搜索UI | 搜索栏、结果卡片、页面预览 | ⏳ 待实现 |
+| Phase 3 | 语义搜索 | 全文献库语义搜索（后端 API + ChromaDB 向量检索） | ✅ 已完成 |
+| Phase 4 | 前端搜索UI | 搜索栏、结果卡片、页面预览（Vue 3 重构版已实现） | ✅ 已完成 |
 | 去重 | 提取结果去重 | 按实体名称（fields[0]）合并重复行，保留最长描述 | ✅ 已完成 |
 
 ### Phase 1 已实现文件清单
 
 | 文件 | 说明 |
 |------|------|
-| `core/embedding_service.py` | Embedding 服务抽象层：`APIEmbeddingService`（SiliconFlow BGE / Qwen / DeepSeek 通用接口）+ `JinaEmbeddingService`（多模态图文）+ `LocalEmbeddingService`（TODO 占位）+ 工厂函数 |
-| `core/vector_store.py` | 向量存储抽象层：`ChromaVectorStore`（ChromaDB 持久化 + 余弦距离 + upsert 去重）+ `PgvectorVectorStore`（TODO 占位） |
+| `core/embedding_service.py` | Embedding 服务抽象层：`APIEmbeddingService`（SiliconFlow BGE / Qwen / DeepSeek 通用接口）+ `JinaEmbeddingService`（多模态图文）+ `LocalEmbeddingService`（本地模型）+ 工厂函数 |
+| `core/vector_store.py` | 向量存储抽象层：`ChromaVectorStore`（ChromaDB 持久化 + 余弦距离 + upsert 去重）+ `PgvectorVectorStore`（PostgreSQL 迁移路径） |
 | `core/page_indexer.py` | PDF 页面预索引：`make_page_id()` / `compute_content_hash()` + `PageIndexer`（SQLite 元数据库 + 内容 hash 增量去重） |
 | `core/page_filter.py` | 页面预筛选：`PageFilter.set_task()` 缓存任务向量 + `should_process()` 逐页余弦相似度比较 |
 | `core/config.py` | 新增 17 个配置项：Embedding（7）+ VectorStore（2）+ PageFilter（3）+ FewShot（2 flag）+ SemanticSearch（1 flag） |
@@ -789,8 +785,6 @@ LLM提取完成 → 保存到 extraction_history.db (page_id, extracted JSON, ta
 | `extract/dedup.py` | `deduplicate_extraction_results(data, fields)` 按 `fields[0]` 实体名去重，规范化（strip/lower/strict），合并（longest/first_non_empty），添加 `_occurrence_count` / `_source_docs` |
 | `extract/extraction_engine.py` | `_save_extraction_results()` 中 CSV 写入前调用去重 |
 | `core/config.py` | `DEDUP_ENABLED=True`, `DEDUP_NORMALIZE="strip"`, `DEDUP_MERGE_STRATEGY="longest"`, `DEDUP_ADD_METADATA=True` |
-
-**TODO（后续优化）:** 语义相似度去重（embedding 聚类）；LLM 层面跨页感知去重
 
 ### 技术栈
 
@@ -847,11 +841,31 @@ python platform_init/test/dedup/test_dedup.py
 
 ## 十四、文献库元数据提取与索引
 
-> 设计文档：[extract/LITERATURE_INDEXER_DESIGN.md](extract/LITERATURE_INDEXER_DESIGN.md)
-
 ### 概述
 
 自动扫描 `dialogue data/PDF_TARGET/` 下的 PDF 文献，提取关键元数据（标题、摘要、创新点、关键图坐标）并建立 SQLite 注册表，支持基于文件修改时间的增量更新，避免重复提取。
+
+### 数据模型
+
+**Pydantic 模型** (`utils/pdf_metadata_extractor.py`):
+
+```python
+class ImageBBox(BaseModel):
+    page: int           # page number (1 or 2)
+    x1: float; y1: float; x2: float; y2: float  # pixel coordinates
+    description: str    # e.g. "Figure 1: Device architecture"
+
+class PDFMetadata(BaseModel):
+    title: str
+    authors: str = ""
+    abstract_summary: str               # 2-3 sentence Chinese summary
+    innovation_points: list[str]        # ≤3 innovation points
+    key_image: ImageBBox | None = None
+    doi: str = ""; arxiv_id: str = ""
+    published_date: str = ""; journal: str = ""
+```
+
+**唯一 ID 逻辑：** DOI（从 PDF XMP 元数据提取）→ fallback: MD5(file_path)[:12]
 
 ### 技术路线
 
@@ -939,7 +953,36 @@ curl -X POST "http://127.0.0.1:5000/api/literature/reindex?force=true"
 
 ### 注册表结构
 
-保存在 `dialogue data/PDF_TARGET/literature_registry.db`，核心字段：
+保存在 `dialogue data/PDF_TARGET/literature_registry.db`：
+
+```sql
+CREATE TABLE literature_registry (
+    id TEXT PRIMARY KEY,              -- DOI from PDF, fallback MD5(path)
+    title TEXT NOT NULL,
+    sanitized_title TEXT,              -- safe filename version
+    authors TEXT,
+    abstract_summary TEXT,
+    innovation_points TEXT,            -- JSON array
+    key_image_page INTEGER,
+    key_image_x1 REAL, key_image_y1 REAL,
+    key_image_x2 REAL, key_image_y2 REAL,
+    key_image_desc TEXT,
+    doi TEXT, arxiv_id TEXT,
+    published_date TEXT, journal TEXT,
+    current_filename TEXT NOT NULL,
+    file_hash TEXT,
+    file_mtime REAL,
+    extraction_status TEXT DEFAULT 'pending',  -- pending|done|failed
+    error_message TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_literature_title ON literature_registry(title);
+CREATE INDEX idx_literature_doi ON literature_registry(doi);
+CREATE INDEX idx_literature_status ON literature_registry(extraction_status);
+```
+
+核心字段说明：
 
 | 字段 | 说明 |
 |------|------|
@@ -949,7 +992,26 @@ curl -X POST "http://127.0.0.1:5000/api/literature/reindex?force=true"
 | `innovation_points` | 创新点列表 (JSON数组) |
 | `key_image_page/x1/y1/x2/y2` | 关键图四格坐标 (像素) |
 | `file_mtime` | 文件修改时间 (增量更新依据) |
-| `doi` / `arxiv_id` / `journal` | TODO 字段 (后续实现提取逻辑) |
+| `doi` / `arxiv_id` / `journal` | 预留字段 |
+
+### 配置
+
+```json
+{
+  "LITERATURE_REGISTRY_DB_PATH": "dialogue data/PDF_TARGET/literature_registry.db",
+  "METADATA_EXTRACTION_MODEL": "LongCat-Flash-Omni",
+  "BATCH_MAX_WORKERS": 3,
+  "METADATA_RETRY_ATTEMPTS": 2
+}
+```
+
+### 复用现有基础设施
+
+| 现有模块 | 复用方式 |
+|---------|---------|
+| `extract/pdf_processor.py` | `pdf_page_to_image()` 截图、`get_pdf_info()` 元数据、`extract_text_from_page()` 文本 |
+| `core/config.py` | 新增配置键 + 默认值 |
+| `core/extract_manager.py` | LiteratureIndexer 导入和初始化入口 |
 
 ### 相关文件
 
@@ -958,8 +1020,6 @@ curl -X POST "http://127.0.0.1:5000/api/literature/reindex?force=true"
 | `utils/pdf_metadata_extractor.py` | 单篇 PDF 元数据提取器 |
 | `utils/batch_processor.py` | 并发批处理器 (ThreadPoolExecutor) |
 | `extract/literature_indexer.py` | 文献库索引器 (注册表管理) |
-| `extract/LITERATURE_INDEXER_DESIGN.md` | 详细设计文档 |
-| `extract/PLAN_2026-05-10-pdf-metadata-extraction.md` | 实现计划 |
 
 ---
 

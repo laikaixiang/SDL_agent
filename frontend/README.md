@@ -159,13 +159,10 @@ taskkill //F //PID <pid>                     # 杀掉旧进程
 
 **原因 3 — LLM 返回空 JSON**：`LongCat-Flash-Thinking` 模型在 JSON 前输出推理文本，简单 `json.loads(content)` 失败。`core/field_inference.py:389` 的 `_parse_experiment_json()` 已实现多策略解析（清理 markdown → 提取 `{...}` 块）。
 
-> 完整记录见 `DEBUG_INTEGRATION_GUIDE.md`
-
 ### 坑：前端不要构造对用户的回应文本
 
 - **AI 回复、实验结果、错误说明**等文本由 Python 后端 `reply` 字段统一返回，前端直接使用
 - **按钮标签、placeholder、loading 提示**等纯 UI 文案前端自行管理，但不要与 `app.py` 中已定义的文案重复
-- 具体的前端-后端数据流和接口规范见 `DEBUG_INTEGRATION_GUIDE.md`
 
 ## 技术路线与操作方法
 
@@ -260,8 +257,6 @@ python test/experiment_stream_test/test_stream.py  # 6 项集成测试
 [6] TS  expStore.loadFromJSON(experiment_json)  更新 canvas
        └─ addMessage('ai', reply)               显示结果
 ```
-
-> 详细接口规范、错误处理、调试清单见 `DEBUG_INTEGRATION_GUIDE.md`
 
 ---
 
@@ -503,6 +498,36 @@ npm run build:flask      # 生产构建（输出到 dist/）
 | 前端变更不生效 | 未重新构建 | `cd frontend && npm run build:flask` |
 | `RichHandler` 崩溃 | `rich` 版本过低 | `pip install --upgrade rich` → 15.0.0 |
 | TypeScript 编译错误 | 类型定义不同步 | `cd frontend && npx vue-tsc -b` 查看具体错误 |
+
+### 13. 逐步引导式算法生成
+
+将"生成新算法"从单个 textarea 表单改为后端驱动的 4 步问答式引导流程。
+
+**API:** `POST /api/algorithm_gen/guide`
+- 会话管理：模块级 `_guide_sessions: dict[str, dict]`（进程内存，重启清空），key 为 uuid
+- 状态机：`stage: "question"`（提问阶段）→ `stage: "done"`（生成完成）
+- 请求体：`{"session_id": "<uuid>|null", "answer": "<用户回答>|null"}`
+- 首次调用 `session_id=null` 创建会话返回 Q1；后续调用传入 session_id + answer
+- 4 个问题全部答完后自动拼接为结构化 prompt，调用 `software_manager.generate_algorithm()`
+
+**4 个引导问题：**
+1. 算法功能：要解决什么问题？核心功能是什么？
+2. 输入数据：格式（dict/list/numpy/CSV）、关键字段、数据规模
+3. 期望输出：输出类型、各字段含义、是否需要可视化
+4. 可调参数：参数名称/默认值/类型/范围
+
+**前端（旧版 `templates/static/js/analysis/algorithm_panel.js`）：**
+- `openAlgorithmGenerator()` — 调 API 取 Q1
+- `submitAlgorithmGuideAnswer(sessionId)` — 收集输入 → 调 API → 渲染下一问或最终结果
+- `_renderGuideCard(reply, progress, sessionId)` — 渲染问题卡片（进度条 + AI 文本 + textarea + 提交/取消按钮）
+- `cancelAlgorithmGeneration()` — fire-and-forget 发空答案终止后端会话
+- 所有 AI 回应文本由后端 `reply` 字段统一返回，前端不构造任何回应文案
+
+**CSS（`templates/static/css/main.css`）：**
+- `.guide-card` — 绿底边框卡片（`#f0fdf4` / `#bbf7d0`）
+- `.guide-progress-bar` / `.guide-progress-fill` — 渐变进度条（`#10b981` → `#34d399`），0.4s transition
+
+**涉及文件：** `app.py`（新路由）、`algorithm_panel.js`（重写 171-223 行）、`main.css`（新增样式）
 
 ### 关键文件速查
 

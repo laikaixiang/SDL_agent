@@ -90,6 +90,30 @@ npm run build:flask      # 生产构建（base=/v2-static/）
 cd .. && python platform_init/test/frontend/test_frontend.py  # 10 项集成测试
 ```
 
+### 调试：配置变更不生效（改 config.json 后前端仍用旧值）
+
+**技术路线**：前端 Vue SPA → `/api/*` fetch → Vite 代理（dev）或同源（prod）→ Flask `127.0.0.1:5000` → `core/config.py` 的 `_external` dict（模块导入时一次性从 config.json 加载到内存）。
+
+**关键认知**：`config.json` 只在 `python app.py` 启动时读取一次，Flask 进程内存中缓存全量配置。改 config 后必须重启 Flask（`Ctrl+C` → `python app.py`），不存在热重载。
+
+**验证方法**：
+1. 在 `app.py` 的 `/api/chat` 路由入口加 `print(f"[DEBUG] MODEL_NAME_TALK={Config.MODEL_NAME_TALK}")`
+2. 重启后发消息，看终端有无该输出 — 无输出说明请求未到达本进程（端口残留）
+3. 用 `platform_init/test/api_test/api_test.py` 直接调 API 验证 config 读取正确性（独立进程，不受残留影响）
+4. `netstat -ano | grep ":5000.*LISTENING"` 确认只有一个进程
+
+**故障排查决策树**：
+```
+改 config.json 后前端仍用旧值
+  ├─ 终端有 [DEBUG /api/chat] 输出？
+  │   ├─ 是 → 看 MODEL_NAME_TALK 值是否正确
+  │   │   ├─ 正确 → 问题在更下游（API 调用、模型提供商路由）
+  │   │   └─ 错误 → 检查环境变量覆盖（env var > config.json）
+  │   └─ 否 → 请求未到达本进程
+  │       └─ netstat 查端口 → 多进程 → kill 旧进程 → 重启
+  └─ 仍不行 → 重启电脑（最常见兜底方案）
+```
+
 ### 坑：git checkout 后 /v2 白屏或 404
 
 **原因**：`frontend/dist/` 虽在 `.gitignore`，但早期有部分文件（`index.html`、`Badge-*.css` 等）被误提交到 git。checkout 时这些旧文件会覆盖本地构建产物，导致 `index.html` 引用的 JS/CSS 文件名与实际构建产物不匹配。
@@ -142,6 +166,102 @@ taskkill //F //PID <pid>                     # 杀掉旧进程
 - **AI 回复、实验结果、错误说明**等文本由 Python 后端 `reply` 字段统一返回，前端直接使用
 - **按钮标签、placeholder、loading 提示**等纯 UI 文案前端自行管理，但不要与 `app.py` 中已定义的文案重复
 - 具体的前端-后端数据流和接口规范见 `DEBUG_INTEGRATION_GUIDE.md`
+
+## 技术路线与操作方法
+
+### 前端-后端分工
+
+```
+用户输入 → TS（UI层，传参） → Python（业务层，处理） → TS（UI层，展示）
+```
+
+| 职责 | TypeScript | Python |
+|------|-----------|--------|
+| 用户输入 | 拼接模式前缀、构造请求体 | — |
+| 业务逻辑 | — | LLM 调用、JSON 解析、数据处理 |
+| 对用户回应 | **仅展示** `data.reply` | **统一生成**所有 AI 回复、结果说明、错误文本 |
+| Canvas 更新 | `loadFromJSON()` 渲染步骤 | `json_to_visual()` 生成 nodes/edges |
+| UI 文案 | 按钮标签、placeholder（不跟后端重复） | — |
+
+### 实验设计开发流程
+
+1. **参考旧版实现**：`templates/static/js/chat/chat.js` + `experiment/experiment_chat.js` 是经过验证的参考实现
+2. **后端先行**：先用 Flask test client 验证 `/api/experiment_chat` 返回正确
+3. **前端对接**：按下方数据流实现 `chat.ts` 模式处理，**不构造回应文本**
+4. **验证**：`npx vue-tsc --noEmit` → `npm run build:flask` → 浏览器测试
+
+### 新增模式的通用步骤
+
+1. 在 `chat.ts` 的 `MODE_PREFIX` 和 `MODE_LABEL` 中注册
+2. 在 `app.py` 的 `/api/chat` 中添加前缀检测 → 分发到 handler
+3. Handler 返回 `{type, reply, ...}` — `reply` 包含所有用户可见文本
+4. 前端 `send()` 中按 `result.type` 分支处理，调用具体 API
+5. 前端 **不构造回应文本**，直接使用 `expData.reply`
+
+### 日常操作
+
+```bash
+# 启动后端
+python app.py                              # http://127.0.0.1:5000
+
+# 前端开发
+cd frontend && npm run dev                 # http://localhost:5173/v2（代理到 :5000）
+
+# 类型检查 + 构建
+cd frontend && npx vue-tsc --noEmit        # 类型检查
+cd frontend && npm run build:flask         # 生产构建（输出到 dist/）
+
+# 测试后端 API（无需浏览器）
+python -c "
+from app import app
+with app.test_client() as c:
+    resp = c.post('/api/experiment_chat',
+        data=json.dumps({'message': '设计一个旋涂实验'}),
+        content_type='application/json')
+    print(resp.status_code, resp.get_json()['type'])
+"
+
+# 检查端口残留
+netstat -ano | findstr ":5000.*LISTENING"   # 查看占用进程
+taskkill //F //PID <pid>                     # 清理
+
+# 完整测试
+python test/experiment_stream_test/test_stream.py  # 6 项集成测试
+```
+
+### 实验设计完整数据流
+
+```
+用户输入 "设计旋涂实验"
+  │
+  ▼
+[1] TS  chatStore.send() → 拼接 "实验设计：" 前缀
+       └─ POST /api/chat { message, action, history }
+  │
+  ▼
+[2] Py  /api/chat → handle_hardware_request()
+       └─ 返回 { type: "experiment_design_mode", command, reply }
+  │
+  ▼
+[3] TS  sendChatMessage 将 data.reply 写入消息气泡
+       └─ result.type === 'experiment_design_mode'
+       └─ generateExperiment(cmd)
+  │
+  ▼
+[4] TS  POST /api/experiment_chat { message: cmd }
+  │
+  ▼
+[5] Py  ExperimentDesignAgent()
+       └─ parse_experiment_design() → LLM → _parse_experiment_json()
+       └─ json_to_visual() → nodes/edges
+       └─ 返回 { type: "experiment_design", experiment_json, visual_data, reply }
+  │
+  ▼
+[6] TS  expStore.loadFromJSON(experiment_json)  更新 canvas
+       └─ addMessage('ai', reply)               显示结果
+```
+
+> 详细接口规范、错误处理、调试清单见 `DEBUG_INTEGRATION_GUIDE.md`
 
 ---
 
@@ -250,3 +370,149 @@ PDF 页面预览从对话气泡移到 ExtractionPage 右侧面板：
 ### 9. 实验设计面板优化
 
 参见上文 "实验设计面板：步骤画布优化" 章节。
+
+### 10. 后端 Prompt 集中管理系统
+
+后端所有 LLM prompt 已从业务代码中提取到 `prompts/` 目录，16 个 YAML 文件覆盖 5 个业务模块。
+
+**前端可用的新 API**：
+
+| 接口 | 方法 | 说明 |
+|------|------|------|
+| `/api/prompts` | GET | 列出所有 prompt 元信息 |
+| `/api/prompts/<name>` | GET | 获取单个 prompt 详情 |
+| `/api/prompts/<name>` | PUT | 修改 prompt，写入 overrides |
+| `/api/prompts/<name>/reset` | POST | 撤销修改 |
+| `/api/prompts/reload` | POST | 重新加载全部 |
+| `/api/prompts/optimize` | POST | LLM 优化建议 |
+| `/api/prompts/test` | POST | 试跑测试 |
+
+前端如需 prompt 管理面板，直接调用这些 API 即可，无需新增后端路由。
+
+### 11. 提取结果来源追踪 + PDF 预览
+
+每条提取结果自动附带 `_source_doc`（PDF 文件名）+ `_source_page`（页码）。
+
+**新增 PDF 预览 API**：
+
+| 接口 | 方法 | 说明 |
+|------|------|------|
+| `/api/page_preview` | GET | 获取 PDF 页面图片 + 文本 + 关键词高亮。参数：`?doc=...&page=...&query=...` |
+| `/api/page_context` | POST | Batch 读取页面上下文。body：`{"results": [{"doc":..., "page":..., "query":...}]}` |
+
+前端可在提取结果表格中为每条记录添加"查看来源"按钮，点击后调 `/api/page_preview` 打开 PDF 预览面板，对照原文核验准确性。
+
+### 12. 提取质量检查
+
+后端新增 `extract/quality_checker.py`，在保存 CSV 前自动执行：
+- 稀疏检测：字段填充率 < 30% 的记录自动删除
+- 重复检测：完全一致或子集关系的记录保留信息量最大的
+
+配置项：`QUALITY_CHECK_ENABLED`、`QUALITY_SPARSE_THRESHOLD`。
+
+### 整体数据流
+
+```
+用户输入 → InputBar.vue → ChatStore.send() → POST /api/chat
+                                                    ↓
+                        ┌───────────────────────────┴───────────────────────┐
+                        ↓                          ↓                          ↓
+              普通对话 (chat)             实验设计 (experiment)          文献提取 (extraction)
+              handle_normal_chat          handle_hardware_request        handle_extraction_request
+              (流式 SSE)                  (返回 experiment_design_mode)  (返回 field_confirm)
+                                                   ↓                          ↓
+                                          ChatStore 检测到              用户确认 →
+                                          experiment_design_mode        action: start_extraction
+                                                   ↓                          ↓
+                                          调用 generateExperiment()     SSE /api/task_stream
+                                          → /api/experiment_chat        → findings 推送到对话气泡
+                                                   ↓
+                                          ExperimentDesignAgent
+                                          .parse_experiment_design()
+                                          （三重回退 JSON 解析）
+                                                   ↓
+                                          推送到 ExperimentStore
+                                          .loadFromJSON()
+                                                   ↓
+                                          聊天框输出步骤摘要
+```
+
+### 各模式路由表
+
+| 模式 | 前端前缀 | 第一跳 (后端) | 第二跳 (后端) | 前端结果处理 |
+|------|---------|-------------|-------------|------------|
+| 普通对话 | 无 | `handle_normal_chat` → 流式 SSE | — | 字符逐步追加到 AI 气泡 |
+| 文献提取 | `帮我搜寻：` | `handle_extraction_request` → `field_confirm` | 用户确认 → `start_extraction` → SSE `/api/task_stream` | findings 推送到对话气泡，PDF 预览在右侧面板 |
+| 实验设计 | `实验设计：` | `handle_hardware_request` → `experiment_design_mode` | `ChatStore` 自动调用 `/api/experiment_chat` | JSON 推送到实验面板，步骤摘要到聊天框 |
+| 硬件控制 | `硬件控制：` | `handle_hardware_request` → `hardware_confirm` | 用户确认 → `start_hardware` | MQTT 指令执行 |
+| 数据分析 | `数据分析` | `handle_data_analysis` → 智能交互 | — | 算法列表 / 执行结果 |
+| 算法生成 | `生成算法：` | `handle_generate_algorithm` | — | 算法代码 |
+
+### 实验设计完整调用链
+
+```
+1. 用户在输入框选择 "🧪 实验设计" 模式
+2. 输入 "帮我设计一个实验" 并按 Enter
+3. InputBar.submit() → ChatStore.send()
+4. MODE_PREFIX['experiment'] = '实验设计：' → finalText = '实验设计：帮我设计一个实验'
+5. POST /api/chat {message: '实验设计：帮我设计一个实验', action: '', history: [...]}
+6. 后端 chat() 检测 startswith("实验设计：") → handle_hardware_request()
+7. handle_hardware_request() 检测 mode="design" → 返回 {type: 'experiment_design_mode', command: '帮我设计一个实验', reply: '...'}
+8. ChatStore.send() 检测 result.type === 'experiment_design_mode' → 显示 "🔬 AI 正在设计实验方案..."
+9. 调用 generateExperiment(command) → POST /api/experiment_chat {message: '帮我设计一个实验'}
+10. 后端 ExperimentDesignAgent.parse_experiment_design() 调用 LLM（10-15 秒）
+11. LLM 返回 JSON → 三重回退解析 → 验证格式 → 转换 visual_data
+12. 返回 {type: 'experiment_design', experiment_json: {...}, visual_data: {...}, reply: '...'}
+13. ChatStore 接收 expData → expStore.loadFromJSON(json) 推送到实验面板
+14. 聊天框显示步骤摘要：实验名 + 步骤列表
+```
+
+### 调试方法
+
+**后端快速验证（无需浏览器、无需启动 Flask）：**
+```bash
+cd D:/PycharmProjects/SDL_agent
+python -c "
+import sys, json; sys.path.insert(0, '.')
+from app import app
+with app.test_client() as c:
+    # 测试实验设计
+    resp = c.post('/api/experiment_chat',
+        data=json.dumps({'message': '设计一个旋涂实验'}),
+        content_type='application/json')
+    print(resp.status_code)
+    data = resp.get_json()
+    print(data.get('type'))
+"
+```
+
+**前端类型检查与构建：**
+```bash
+cd frontend
+npx vue-tsc -b          # 类型检查（确保无 TS 错误）
+npm run build:flask      # 生产构建（输出到 dist/）
+```
+
+**常见问题排查：**
+
+| 症状 | 可能原因 | 排查方法 |
+|------|---------|---------|
+| `❌ 实验设计失败：{"error":"服务器内部错误"}` | Flask 500 错误 | 检查 Flask 控制台 traceback；常见：`rich`/`fastmcp` 版本冲突、JSON 解析失败 |
+| 实验设计模式无反应 | Flask 未重启（Python 模块缓存） | Ctrl+C 停止 → 清除 `__pycache__` → `python app.py` 重启 |
+| JSON 解析失败 | LLM 返回了非标准格式 | 查看控制台 `[实验设计] LLM原始输出` 日志 |
+| 前端变更不生效 | 未重新构建 | `cd frontend && npm run build:flask` |
+| `RichHandler` 崩溃 | `rich` 版本过低 | `pip install --upgrade rich` → 15.0.0 |
+| TypeScript 编译错误 | 类型定义不同步 | `cd frontend && npx vue-tsc -b` 查看具体错误 |
+
+### 关键文件速查
+
+| 功能 | 后端文件 | 前端文件 |
+|------|---------|---------|
+| 实验设计生成 | `core/field_inference.py:ExperimentDesignAgent` | `stores/chat.ts:send()` (experiment 分支) |
+| JSON 解析 | `core/field_inference.py:_parse_experiment_json()` | — |
+| 格式转换 | `experiment/format.py:ExperimentFormatConverter` | — |
+| 实验面板 | — | `stores/experiment.ts`, `pages/ExperimentPage.vue` |
+| API 请求封装 | `app.py:/api/experiment_chat` | `api/experiment.ts:generateExperiment()` |
+| API 类型定义 | — | `api/chat.ts:JsonResponse`, `ChatResult` |
+| 模式气泡 | — | `stores/chat.ts:MODE_PREFIX`, `MODE_LABEL` |
+| SSE 任务流 | `app.py:/api/task_stream` | `composables/useSSE.ts` |

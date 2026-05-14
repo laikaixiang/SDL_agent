@@ -23,7 +23,7 @@ SDL_agent 是一套集**学术文献PDF数据智能提取**、**AI算法自动�
 
 ```mermaid
 flowchart TD
-    A["前端交互层<br/>index.html + 16 JS模块"] -->|用户指令/文件上传| B["Web服务层<br/>app.py"]
+    A["前端交互层<br/>Vue 3 + TypeScript SPA"] -->|用户指令/文件上传| B["Web服务层<br/>app.py"]
 
     %% 文献提取分支
     B -->|分支1：文献提取| C["PDF解析与转码<br/>core/pdf_processor.py"]
@@ -62,7 +62,7 @@ flowchart TD
 
 ### 2. 流程拆解
 
-#### （1）前端交互（index.html + 16 JS模块）
+#### （1）前端交互（Vue 3 + TypeScript SPA）
 
 用户通过可视化Web界面操作，支持**5种核心模式**：
 
@@ -72,7 +72,7 @@ flowchart TD
 - **实验设计模式**：AI自主生成实验流程JSON，前端Canvas画布支持可视化编辑、JSON/Python代码切换查看、编译执行；
 - **数据分析模式**：LLM智能选择算法并执行分析，结果可视化展示。
 
-界面支持PDF预览、算法面板、实验设计画布、进度实时展示、任务中断等能力。前端采用16个JS模块分工协作（chat/extraction/hardware/analysis/experiment/ui），所有CSS集中在 `main.css`。
+界面支持PDF预览、算法面板、实验设计画布、进度实时展示、任务中断等能力。前端基于 Vue 3 + TypeScript + Vite 构建，采用 Pinia 状态管理和 Vue Router 路由，组件按功能域拆分（chat/experiment/extraction/hardware/analysis/search）。
 
 
 <div align="center">
@@ -112,10 +112,11 @@ flowchart TD
 **设计阶段**（基于 `core/field_inference.py:ExperimentDesignAgent`）：
 1. **动态提示词构建**：自动加载 REGISTRY.json 硬件工具 + software/algorithms/ 软件算法 + 内置辅助操作（WAIT/LOOP/GROUP/CONDITION/END/USER_INPUT），生成~2300字符系统提示词；
 2. **AI生成JSON**：用户输入"实验设计：<描述>"，LLM生成标准JSON实验计划；
-3. **格式转换**：`experiment/format.py:json_to_visual()`将JSON转为前端可视化格式（节点+边）；
-4. **可视化编辑**：前端Canvas画布支持拖拽节点、编辑参数、调整执行顺序；
-5. **双向同步**：`visual_to_json()`将前端修改转回标准JSON格式；
-6. **代码编译**：`experiment/compiler.py` 将JSON编译为Python代码，支持直接编译执行（`compile_and_run()`）。
+3. **SSE流式推送**（v2.3）：POST `/api/experiment_chat` 支持 `{stream: true}`，通过 `parse_experiment_design_stream()` 生成器逐chunk推送LLM输出，前端实时显示生成进度（"AI正在分析实验需求→生成实验方案→解析完成"），非流式模式仍向后兼容；
+4. **格式转换**：`experiment/format.py:json_to_visual()`将JSON转为前端可视化格式（节点+边）；
+5. **可视化编辑**：前端Canvas画布支持拖拽节点、编辑参数、调整执行顺序；
+6. **双向同步**：`visual_to_json()`将前端修改转回标准JSON格式；
+7. **代码编译**：`experiment/compiler.py` 将JSON编译为Python代码，支持直接编译执行（`compile_and_run()`）。
 
 **执行阶段**（基于 `experiment/executor.py:ExperimentExecutor`）：
 1. **计划验证**：检查JSON结构、参数完整性、试剂可用性；
@@ -156,12 +157,43 @@ flowchart TD
 
 #### （6）AI算法生成
 
-1. **自然语言描述**：用户在算法面板输入算法需求（如"计算光谱峰值波长"）；
-2. **规格提取**：`software/algorithms/extra_algorithms_fromProjects/prompt_template.py`调用LLM提取算法规格（输入/输出/逻辑）；
-3. **代码生成**：LLM生成完整Python代码，继承`BaseAlgorithm`基类；
-4. **自动保存**：代码保存到`software/algorithms/extra_algorithms_fromProjects/`；
-5. **热加载**：`core/software_manager.py`自动重新扫描算法目录，新算法立即可用；
-6. **前端集成**：算法面板实时更新，用户可直接调用新生成的算法。
+**操作方法：**
+1. 点击算法面板中的"生成新算法"按钮；
+2. AI 在对话中依次询问 4 个方面：算法功能 → 输入数据 → 期望输出 → 可调参数；
+3. 用户在底部输入框回答每个问题（可跳过），按 Enter 提交；
+4. 支持"返回"按钮回退修改上一题答案，答案自动恢复至输入框；
+5. 4 题全部回答后，AI 自动拼接答案并调用 LLM 生成 Python 算法代码；
+6. 生成的算法保存到 `software/algorithms/extra_algorithms_fromProjects/`，热加载后立即可用。
+
+**技术路线：**
+```
+用户点击"生成新算法"
+  → POST /api/algorithm_gen/guide (空请求)
+  → 后端 AlgorithmGuide 返回 Q1 + progress "1/4"
+  → 前端在对话区渲染引导卡片（进度条 + 问题文本 + 取消/返回/提交按钮）
+  → 用户在底部主输入框打字，按 Enter → chat.js 检测 window._guideMode
+  → 路由到 handleGuideSend() → POST /api/algorithm_gen/guide (action=answer)
+  → 后端存储答案，返回下一题或触发算法生成
+  → 支持 action=back（返回上一题，带回 previous_answer 恢复至输入框）
+  → 支持 action=cancel（清理会话）
+  → 4 题答完后拼接为结构化 prompt → software_manager.generate_algorithm()
+  → 返回 stage=done + reply 字段，前端直接展示 data.reply
+```
+
+**会话持久化：** 引导会话保存在 `dialogue data/history/{timestamp}/algorithm_guide.json`，服务重启后不丢失。
+
+**关键约束：** 前端不构造任何 AI 回应文本，所有回复由后端 `reply` 字段统一返回。
+
+**相关文件：**
+
+| 文件 | 说明 |
+|------|------|
+| `extract/algorithm_guide.py` | AlgorithmGuide 类：4 个问题定义、会话状态管理、文件持久化、back/answer/cancel 动作 |
+| `app.py` → `/api/algorithm_gen/guide` | Flask 路由：接收 session_id + answer + action，调用 AlgorithmGuide.handle() |
+| `templates/static/js/analysis/algorithm_panel.js` | 旧前端：openAlgorithmGenerator() 激活引导模式，handleGuideSend() 处理发送，_guideGoBack() 回退 |
+| `templates/static/js/chat/chat.js` | 旧前端：sendMessage() 优先检查 window._guideMode，路由到引导处理器 |
+| `frontend/src/stores/analysis.ts` | Vue store：startGuide() / submitGuideAnswer() / guideGoBack() / cancelGuide() |
+| `frontend/src/components/chat/ChatContainer.vue` | Vue 前端：引导卡片渲染在消息区，onSend() 拦截引导模式 |
 
 ![生成新算法](D:\PycharmProjects\SDL_agent\figures\生成新算法.png)
 
@@ -218,24 +250,35 @@ SDL_agent/
 │       ├── base.py             # BaseAlgorithm基类
 │       ├── default/            # 内置算法（data_statistics、data_normalization、spectrum_analysis）
 │       └── extra_algorithms_fromProjects/  # AI生成算法 + prompt_template.py
-├── platform_init/              # 平台初始化工具
-│   └── update_registry.py      # 自动扫描tools/*.py同步到REGISTRY.json
+├── platform_init/              # 平台初始化工具（启动时运行）
+│   ├── check_stream_capability.py  # 模型流式能力检测 → model_capabilities.json
+│   ├── get_layout.py            # 视觉扫描布局
+│   └── update_registry.py       # 自动扫描tools/*.py同步到REGISTRY.json
 ├── test/                       # 测试目录
 │   └── compile_test/           # 实验编译器测试套件
-├── templates/
-│   ├── index.html              # 前端主界面骨架（~200行，CSS/JS完全解耦）
-│   └── static/                 # 前端静态资源
-│       ├── css/main.css        # 所有UI样式
-│       ├── js/                 # 16个JS模块（按功能域拆分）
-│       │   ├── state.js        # 全局状态（最先加载）
-│       │   ├── chat/           # 聊天模块（chat.js、history.js）
-│       │   ├── extraction/     # 文献提取模块（extraction.js、file_upload.js）
-│       │   ├── hardware/       # 硬件控制模块（hardware.js、step_panel.js、task_stream.js）
-│       │   ├── analysis/       # 数据分析模块（analysis.js、algorithm_panel.js）
-│       │   ├── experiment/     # 实验设计模块（experiment_chat.js、experiment_design.js、experiment_confirm.js）
-│       │   ├── ui/             # UI模块（menu.js、panel.js、input_state.js）
-│       │   └── notification.js # 通知模块
-│       └── README.md           # JS模块结构及加载顺序说明
+├── frontend/                   # Vue 3 + TypeScript 前端（构建产物在 dist/）
+│   ├── src/
+│   │   ├── main.ts             # 入口：挂载 app + router + pinia
+│   │   ├── App.vue             # 根组件（layout shell）
+│   │   ├── router.ts           # 路由表（hash mode）
+│   │   ├── api/                # HTTP API 封装（client, chat, experiment, hardware, search, analysis, history）
+│   │   ├── stores/             # Pinia 状态管理（chat, experiment, hardware, search, analysis, layout, theme）
+│   │   ├── composables/        # Vue composables（useSSE.ts）
+│   │   ├── components/         # Vue 组件
+│   │   │   ├── common/         # 通用组件（Badge, LoadingSpinner, EmptyState）
+│   │   │   ├── layout/         # 布局组件（Sidebar, TopBar, HistoryPanel, NavPanel, TaskPanel）
+│   │   │   ├── chat/           # 对话组件（ChatContainer, MessageBubble, InputBar）
+│   │   │   ├── experiment/     # 实验设计组件（ElementPanel, StepCanvas, StepCard, StepEditor, CodeArea）
+│   │   │   ├── search/         # 搜索组件（SearchBar, SearchResultList, SearchResultCard, PagePreview）
+│   │   │   ├── modals/         # 弹窗组件（ModalContainer, ConfirmDialog）
+│   │   │   └── cards/          # 卡片组件
+│   │   ├── pages/              # 页面级组件（ChatPage, ExperimentPage, ExtractionPage, HardwarePage, AnalysisPage）
+│   │   └── types/              # TypeScript 类型定义
+│   ├── dist/                   # 生产构建输出（Flask static_folder）
+│   ├── index.html              # Vite 入口 HTML
+│   ├── package.json            # 依赖和构建脚本
+│   ├── vite.config.ts          # Vite 配置（dev proxy → Flask :5000）
+│   └── tsconfig.json
 ├── dialogue data/              # 会话数据目录（每次启动创建时间戳文件夹）
 │   ├── YYYYMMDD_HHMMSS/        # 单次会话目录
 │   │   ├── extract/            # 归档提取结果（带时间戳CSV）
@@ -271,8 +314,8 @@ SDL_agent/
 | `hardware/tools.py` | 硬件执行层 | 统一同步工具函数（execute_*） |
 | `hardware/tools/REGISTRY.json` | 工具注册表 | LLM可读的工具元数据（名称、描述、参数） |
 | `software/algorithms/extra_algorithms_fromProjects/prompt_template.py` | 算法生成器 | LLM生成算法代码、规格提取 |
-| `templates/index.html` | 前端界面骨架 | 面板结构、模式切换 |
-| `templates/static/js/` | 前端逻辑（16模块） | 按功能域拆分，全局函数通信 |
+| `frontend/src/` | Vue 3 + TypeScript 前端源码 | Pinia 状态管理、Vue Router、组件化架构 |
+| `frontend/dist/` | 前端构建产物 | Flask 直接服务，`npm run build` 生成 |
 | `dialogue data/{timestamp}/` | 会话目录 | 单次运行的所有数据（extract/temporal/results/experiment_designs） |
 
 ---
@@ -317,9 +360,11 @@ cp config.example.json config.json
     "API_KEY": "sk-your-api-key-here",
     "API_URL": "https://api.siliconflow.cn/v1/chat/completions",
     "MODEL_NAME_VL": "Qwen/Qwen3-VL-30B-A3B-Instruct",
-    "MODEL_NAME_TALK": "Qwen/Qwen3-VL-30B-A3B-Instruct"
+    "MODEL_NAME_TALK": "Qwen/Qwen3-VL-30B-A3B-Instruct",
+    "EXPERIMENT_MODEL_NAME": "Pro/MiniMaxAI/MiniMax-M2.5"
 }
 ```
+> **注意**：`EXPERIMENT_MODEL_NAME` 控制实验设计使用的模型，`MODEL_NAME_TALK` 控制普通对话模型，两者独立配置。
 
 **方式二：环境变量（CI/CD 友好）**
 
@@ -369,12 +414,72 @@ class Client_Conf:
    - **硬件控制**：输入"硬件控制：执行旋涂实验，转速3000rpm"；
    - **实验设计**：输入"实验设计：设计三步旋涂实验"，AI生成JSON计划并可视化；
    - **数据分析**：输入"数据分析"，LLM自动选择算法并执行；
-   - **算法生成**：打开算法面板，输入"生成计算光谱峰值的算法"。
+   - **算法生成**：打开算法面板，点击"生成新算法" → AI 逐步引导描述需求（4 轮问答）→ 自动生成代码。
 
 <div align="center">
   <p><i>💡 请在此处放置快速启动演示GIF</i></p>
   <p><i>建议内容：从启动app.py到完成一次文献提取的完整流程动图</i></p>
 </div>
+
+---
+
+## 前端构建与部署
+
+SDL_agent 同时维护**两套前端系统**，通过不同 URL 访问：
+
+| Frontend | URL | 源码 | 技术栈 | 构建 |
+|----------|-----|------|--------|------|
+| V1（旧） | `/` | `templates/` | 原生 HTML/CSS/JS | 无需构建，直接服务 |
+| V2（新） | `/v2` | `frontend/src/` | Vue 3 + TS + Vite | `cd frontend && npm run build:flask` |
+
+### V2 技术路线
+
+```
+frontend/src/ (Vue 3 + TS 源码)
+      │  npm run build:flask (--base=/v2-static/)
+      ↓
+frontend/dist/ (Vite 打包产物)
+      │  Flask /v2 → dist/index.html
+      │  Flask /v2-static/<path> → dist/ 静态资源
+      ↓
+浏览器 http://127.0.0.1:5000/v2 (Vue SPA)
+```
+
+### 构建命令
+
+```bash
+cd frontend
+npm install                # 安装依赖（首次）
+npm run dev                # 开发模式（Vite :5173 代理到 Flask :5000，热重载）
+npm run build:flask        # 生产构建 → frontend/dist/（--base=/v2-static/，Flask 服务用）
+npm run build              # 生产构建（base=/，通用部署用）
+npx vue-tsc -b             # TypeScript 类型检查（编辑 stores/api/types 后必跑）
+```
+
+> **注意**：Flask 部署必须用 `build:flask`（带 `--base=/v2-static/`），否则 `/v2` 页面引用的 JS/CSS 路径错误导致 404。开发时用 `npm run dev` 启动 Vite 代理（`/api` → Flask `:5000`），无需构建。
+
+### Flask 路由说明
+
+- `/` — V1 旧前端（`templates/index.html`）
+- `/v2` — V2 新前端（`frontend/dist/index.html`）
+- `/v2-static/<path>` — V2 静态资源（JS/CSS/字体，从 `frontend/dist/` 服务）
+- `/api/*` — 后端 API（两个前端共用）
+
+### 开发工作流
+
+1. 终端1：`python app.py`（Flask 后端，端口 5000）
+2. 终端2：`cd frontend && npm run dev`（Vite 开发服务器，端口 5173，API 代理到 5000）
+3. 浏览器访问 `http://localhost:5173` 开发前端（热重载）
+4. 完成开发后 `npm run build:flask` 构建，**必须重启 Flask** 使新 dist 生效
+
+### 前端-后端回应文本原则
+
+> 详见 `frontend/DEBUG_INTEGRATION_GUIDE.md`
+
+- **后端 `reply` 统一返回**：AI 回复、实验结果、错误说明等用户可见的业务文本，统一由 Python 后端 `reply` 字段返回，前端直接 `addMessage('ai', data.reply)` 展示
+- **前端不构造回应文本**：不在 TS 中写 fallback 字符串（如 `'实验设计完成'`）、不在 catch 块中拼业务错误前缀（如 `'❌ 实验设计失败：'`）、不在日志中加分段标题（如 `'--- 执行输出 ---'`）
+- **catch 只处理网络错误**：`try/catch` 中的 `catch` 块仅处理网络/HTTP 层面的异常；业务错误通过 `data.type === 'error'` 判断，使用后端返回的 `reply`
+- **纯 UI 文案前端自行管理**：按钮标签、placeholder、loading 提示、空状态引导文字等属于前端领域，不与 `app.py` 中的文案重复
 
 ---
 
@@ -417,7 +522,7 @@ class Client_Conf:
 5. **实验设计可视化**：AI生成JSON实验计划，前端Canvas画布支持拖拽编辑，支持编译为Python代码执行；
 6. **硬件控制闭环**：提取的实验参数可直接驱动自动化实验平台执行；
 7. **智能数据分析**：LLM自动读取CSV列名，智能选择算法并执行分析；
-8. **模块化前端**：16个JS模块按功能域拆分，CSS完全解耦，无ES模块依赖；
+8. **现代化前端**：Vue 3 + TypeScript + Vite 构建，Pinia 状态管理，组件化架构，Hash 路由 SPA；
 9. **灵活中断控制**：对话与提取任务支持随时中断，硬件执行期间自动锁定防止误操作；
 10. **高可靠性**：MQTT通信带超时重连，任务支持手动中断，异常自动捕获。
 
@@ -578,9 +683,10 @@ cd test/compile_test && python test_experiment_compiler.py
 7. **算法热加载**：AI生成的算法自动保存到 `extra_algorithms_fromProjects/`，无需重启即可使用；
 8. **Python版本**：建议使用Python 3.10+，避免依赖兼容问题；
 9. **文件路径**：Windows环境下使用正斜杠 `/`，避免路径解析错误；
-10. **代码修改**：修改后端代码后需重启Flask应用（无热重载），前端HTML/JS/CSS修改刷新浏览器即可；
+10. **代码修改**：修改后端代码后需重启Flask应用（无热重载）。修改前端 Vue 源码后需 `cd frontend && npm run build` 重新构建（开发时用 `npm run dev` 启动 Vite 热重载代理）；
 11. **硬件工具注册**：`hardware/tools.py` 文件与 `hardware/tools/` 目录存在命名冲突，Python优先将目录识别为包，文件可能不可访问；
-12. **前端fetch超时**：LLM操作（实验设计）需10-15秒，前端使用 AbortController 设置30秒超时。
+12. **前端fetch超时**：LLM操作（实验设计）需10-15秒，前端使用 AbortController 设置30秒超时；
+13. **API 返回类型同步**：后端新增字段时（如编译失败返回 `message`），同步更新 `frontend/src/api/*.ts` 中对应函数的 Promise 返回类型，否则 TypeScript 消费者看不到新字段。
 
 ---
 
@@ -618,7 +724,7 @@ A: 参见"扩展指南 → 添加新硬件工具"，核心是在 `hardware/tools
 - **实验设计**：自定义JSON解析器（`core/field_inference.py`）+ 格式转换（`experiment/format.py`）
 - **实验编译**：`experiment/compiler.py`（JSON→Python代码）
 - **数据分析**：Pandas、NumPy、Matplotlib
-- **前端**：原生HTML/CSS/JavaScript（16 JS模块 + Canvas API，无ES模块依赖）
+- **前端**：Vue 3.5 + TypeScript 5.6 + Vite 6（Vue Router 4 Hash模式 + Pinia 2 状态管理 + lucide-vue-next 图标）
 
 ---
 
@@ -739,7 +845,125 @@ python platform_init/test/dedup/test_dedup.py
 
 ---
 
-## 十四、贡献指南
+## 十四、文献库元数据提取与索引
+
+> 设计文档：[extract/LITERATURE_INDEXER_DESIGN.md](extract/LITERATURE_INDEXER_DESIGN.md)
+
+### 概述
+
+自动扫描 `dialogue data/PDF_TARGET/` 下的 PDF 文献，提取关键元数据（标题、摘要、创新点、关键图坐标）并建立 SQLite 注册表，支持基于文件修改时间的增量更新，避免重复提取。
+
+### 技术路线
+
+```
+PDF_TARGET/*.pdf
+     │
+     ├─ 计算 file_mtime
+     ├─ 查 SQLite 注册表: mtime 未变? → 跳过
+     │
+     └─ 有新/修改的文件:
+          ├─ LLM 视觉提取 (前两页截图 + 文本):
+          │    ├─ 论文标题
+          │    ├─ 2-3句中文摘要总结
+          │    └─ 创新点列表 (≤3条)
+          │
+          ├─ 关键图定位 (混合方案):
+          │    ├─ 规则优先: PyMuPDF 提取前两页嵌入位图, 取最大
+          │    └─ 回退视觉LLM: 多张候选图面积接近时, LLM识别概述图
+          │
+          ├─ 去重: 标题重复 → 删除旧记录
+          ├─ 重命名: 源文件 → {论文标题}.pdf
+          └─ 写入注册表
+```
+
+### API 接口
+
+| 方法 | 路由 | 说明 |
+|------|------|------|
+| POST | `/api/literature/index` | 批量索引 PDF_TARGET 下所有 PDF |
+| GET | `/api/literature/search` | 语义搜索文献 (`?q=关键词&top_k=20`)，仅搜第1页+标题加权，返回预览图 |
+| POST | `/api/literature/extract` | 单篇提取 (`{pdf_path, task}`)，PageFilter 逐页筛选→LLM提取 |
+| GET | `/api/literature/registry` | 分页查询注册表 (`?status=done&page=1&limit=20`) |
+| GET | `/api/literature/registry/<id>` | 查询单篇详情（含关键图坐标） |
+| POST | `/api/literature/reindex` | 强制重新索引 (`?force=true` 忽略 mtime) |
+
+### 语义搜索与单篇提取技术路线
+
+```
+搜索: 用户输入查询
+  │ embed_text(query) → query_vec
+  │ ChromaDB.search(query_vec, where={"page_num": 0})   ← 仅第1页
+  │ 关联 literature_registry.db 获取标题/摘要
+  │ 综合评分 = 0.7 × embedding_sim + 0.3 × title_match
+  └─ 返回排序结果 + 第1页预览图(base64 JPEG)
+
+单篇提取: 选中PDF + 任务描述
+  │ PageFilter.set_task(task) → 缓存任务向量
+  │ 遍历PDF所有页面: should_process(pdf_path, page_num)
+  │   ├─ cosine_sim ≥ threshold → 调用Vision LLM提取
+  │   └─ < threshold → 跳过
+  └─ 返回提取结果 + 更新注册表状态
+```
+
+### 使用示例
+
+```bash
+# 一键索引所有 PDF
+curl -X POST http://127.0.0.1:5000/api/literature/index
+# 返回: {"status":"ok","result":{"total":11,"skipped":0,"extracted":11,...}}
+
+# 语义搜索：按研究方向查找文献，返回预览图
+curl "http://127.0.0.1:5000/api/literature/search?q=钙钛矿钝化剂&top_k=5"
+# 返回: {"status":"ok","results":[{title, score, preview_image(base64), ...}]}
+
+# 单篇提取：对指定PDF逐页筛选后LLM提取
+curl -X POST http://127.0.0.1:5000/api/literature/extract \
+  -H "Content-Type: application/json" \
+  -d '{"pdf_path":"Stabilization of...FAPbI3 Perovskite Solar.pdf",
+       "task":"提取钝化剂名称和器件效率"}'
+# 返回: {"status":"ok","result":{"total_pages":13,"relevant_pages":5,"skipped_pages":8,...}}
+
+# 分页查询注册表
+curl "http://127.0.0.1:5000/api/literature/registry?page=1&limit=5"
+
+# 查看单篇详情（含关键图坐标）
+curl http://127.0.0.1:5000/api/literature/registry/<paper_id>
+
+# 再次索引（文件未修改时全部跳过）
+curl -X POST http://127.0.0.1:5000/api/literature/index
+# 返回: {"status":"ok","result":{"total":11,"skipped":11,...}}
+
+# 强制重新索引全部文件
+curl -X POST "http://127.0.0.1:5000/api/literature/reindex?force=true"
+```
+
+### 注册表结构
+
+保存在 `dialogue data/PDF_TARGET/literature_registry.db`，核心字段：
+
+| 字段 | 说明 |
+|------|------|
+| `id` | 唯一标识 (DOI > MD5) |
+| `title` | 论文标题 |
+| `abstract_summary` | 中文摘要总结 |
+| `innovation_points` | 创新点列表 (JSON数组) |
+| `key_image_page/x1/y1/x2/y2` | 关键图四格坐标 (像素) |
+| `file_mtime` | 文件修改时间 (增量更新依据) |
+| `doi` / `arxiv_id` / `journal` | TODO 字段 (后续实现提取逻辑) |
+
+### 相关文件
+
+| 文件 | 说明 |
+|------|------|
+| `utils/pdf_metadata_extractor.py` | 单篇 PDF 元数据提取器 |
+| `utils/batch_processor.py` | 并发批处理器 (ThreadPoolExecutor) |
+| `extract/literature_indexer.py` | 文献库索引器 (注册表管理) |
+| `extract/LITERATURE_INDEXER_DESIGN.md` | 详细设计文档 |
+| `extract/PLAN_2026-05-10-pdf-metadata-extraction.md` | 实现计划 |
+
+---
+
+## 十五、贡献指南
 
 欢迎提交Issue和Pull Request！
 
@@ -751,4 +975,4 @@ python platform_init/test/dedup/test_dedup.py
 
 ---
 
-## 十四、致谢
+## 十六、致谢

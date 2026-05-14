@@ -221,6 +221,126 @@ pm.reload()
 
 ---
 
+## 技术路线
+
+### 整体架构
+
+```
+ 业务代码                        prompts/                         LLM
+┌──────────┐    pm.get()     ┌──────────────┐    template    ┌──────────┐
+│ app.py   │ ───────────────→│ manager.py   │ ────────────→ │  API     │
+│ core/    │                 │              │               │          │
+│ extract/ │ ←── 渲染文本 ──│ _xxx.yaml   │               │ response │
+│ software │                 │ overrides/   │               └──────────┘
+└──────────┘                 └──────┬───────┘
+                                    │
+                             ┌──────▼───────┐
+                             │ registry.yaml│ ← 索引
+                             └──────────────┘
+
+ 修改路径:
+ 直接改 YAML → 重启生效 (永久)
+ PUT /api/prompts/<name> → overrides/ → 立即生效 (临时覆盖，可 reset)
+```
+
+### 提取数据流（含质量检查）
+
+```
+用户: "帮我搜寻：钙钛矿钝化剂"
+  │
+  ▼
+field_inference → 推断字段列表 (_infer_fields.yaml)
+  │
+  ▼  用户确认字段
+PDF 逐页处理
+  ├── page_filter (Phase 1) → 余弦相似度过滤
+  ├── LLM 提取 (_system_vision.yaml / _system_text.yaml)
+  ├── few_shot 示例注入 (_few_shot_block.yaml)
+  └── 每条结果自动附带 _source_doc + _source_page
+  │
+  ▼  所有页面处理完毕
+QualityChecker (确定性规则, extract/quality_checker.py)
+  ├── 稀疏检测 (字段填充率 < 30% → 删除)
+  └── 重复检测 (完全一致或子集 → 保留信息量大的)
+  │
+  ▼
+dedup (字符串级去重, extract/dedup.py)
+  │
+  ▼
+写入 CSV (含 _source_doc, _source_page)
+  │
+  ▼
+用户核验 (/api/page_preview → PDF 原文高亮)
+```
+
+## 常用操作
+
+### 看当前有哪些 prompt
+
+```bash
+curl http://127.0.0.1:5000/api/prompts
+curl http://127.0.0.1:5000/api/prompts?category=extraction
+```
+
+### 看某个 prompt 的当前内容
+
+```bash
+curl http://127.0.0.1:5000/api/prompts/extraction_system_vision
+# 返回: current_template, original_template, overridden 状态
+```
+
+### 临时修改一个 prompt（不提交 git）
+
+```bash
+curl -X PUT http://127.0.0.1:5000/api/prompts/misc_session_title \
+  -H 'Content-Type: application/json' \
+  -d '{"template": "新的模板 ${lines}"}'
+```
+
+### 撤销修改
+
+```bash
+curl -X POST http://127.0.0.1:5000/api/prompts/misc_session_title/reset
+```
+
+### 永久修改（改源文件）
+
+```bash
+vim prompts/extraction/_system_vision.yaml   # 改 template 字段
+# 重启 Flask 或调 POST /api/prompts/reload
+```
+
+### 用 LLM 优化一个 prompt
+
+```bash
+curl -X POST http://127.0.0.1:5000/api/prompts/optimize \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "field_inference_infer_fields", "requirements": "提高钙钛矿钝化场景的字段命名准确性"}'
+# 返回优化前后的对比，确认后用 PUT 覆盖
+```
+
+### 测试一个 prompt 的效果
+
+```bash
+curl -X POST http://127.0.0.1:5000/api/prompts/test \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "hardware_command_parse", "variables": {"tools_schema": "...", "user_command": "设置温度"}, "user_content": "把温度设为 25 度"}'
+```
+
+### 新增一个 prompt
+
+1. 在对应 category 子目录创建 `_xxx.yaml`
+2. 在 `registry.yaml` 注册
+3. 业务代码中 `pm.get("xxx", ...)` 调用
+
+### 跑全部测试
+
+```bash
+python platform_init/test/prompt/test_migration.py
+python platform_init/test/prompt/test_evaluation.py
+python platform_init/test/prompt/test_quality_checker.py
+```
+
 ## 测试
 
 ```bash

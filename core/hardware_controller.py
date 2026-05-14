@@ -186,7 +186,7 @@ class HardwareAgent:
             {"status": "success"/"error", "result"/"message": ...}
         """
         try:
-            from hardware.tools import (
+            from hardware import (
                 execute_spin_coating,
                 execute_set_temperature,
                 execute_move_robot_arm,
@@ -354,7 +354,7 @@ class HardwareController:
     def get_hardware_status(self) -> Dict[str, Any]:
         """获取硬件连接状态和可用工具列表"""
         try:
-            from hardware.tools import local_client
+            from hardware import local_client
             return {
                 "status": "connected" if local_client.is_connected else "disconnected",
                 "available_tools": len(self.agent.hardware_tools),

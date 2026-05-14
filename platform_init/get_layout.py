@@ -1,7 +1,7 @@
 from typing import *
 import json
 
-from hardware.tools.registry import register_tool
+from hardware import register_tool
 from hardware.mqtt.client import get_mqtt_client
 import vision.platform_scan as scan
 

@@ -1,64 +1,51 @@
 """
-硬件工具模块 - 统一导出接口
+硬件工具模块 - 向后兼容层
 
-这个包导出所有硬件相关功能：
-- 实验操作工具（本包内的子模块）
-- MQTT通信（hardware.mqtt）
-- 试剂查找（hardware.utils）
-- PydanticAI工具（hardware.pydantic_ai）
+⚠️ 所有导出内容已迁移到 hardware/__init__.py
+   新代码请使用 from hardware import xxx 代替 from hardware.tools import xxx
+
+本文件通过延迟加载从 hardware 顶层重新导出，保持旧代码兼容。
 """
 
-# 先导入registry，再导入使用它的工具
+import importlib
+
+# 子模块仍需要 ToolRegistry（虽然不通过 __init__.py 导入，但保留直接访问路径）
 try:
     from .registry import ToolRegistry
 except ImportError:
-    # 如果registry.py不存在或有问题，提供一个空的占位符
     class ToolRegistry:
         pass
 
-# 导入本包内的实验操作工具
-from .spin_coating import execute_spin_coating
-from .temperature import execute_set_temperature
-from .robot_arm import execute_move_robot_arm
-from .experiment_control import execute_start_experiment
-from .spectrum import execute_collect_spectrum
 
-# 从其他hardware子模块导入
-from ..mqtt import get_mqtt_client, local_client, EXPERIMENT_TOPIC, REAGENT_LAYOUT_PATH
-from ..utils.reagent import find_reagent, get_reagent
-from ..pydantic_ai import (
-    Deps,
-    read_pdf,
-    get_all_reagents,
-    save_experiment_step,
-    start_experiment,
-    do_experiment,
-)
+def __getattr__(name):
+    """延迟从 hardware 顶层获取属性，避免循环导入"""
+    import sys
+    mod = sys.modules.get(__name__)
+    if mod and name in mod.__dict__:
+        return mod.__dict__[name]
 
-# 兼容旧代码：保留topic和json_path变量
-topic = EXPERIMENT_TOPIC
-json_path = REAGENT_LAYOUT_PATH
+    hw = importlib.import_module('hardware')
+    try:
+        return getattr(hw, name)
+    except AttributeError:
+        raise ImportError(f"cannot import name '{name}' from 'hardware.tools'")
+
 
 __all__ = [
-    # 工具函数（同步执行）
+    'ToolRegistry',
     'execute_spin_coating',
     'execute_set_temperature',
     'execute_move_robot_arm',
     'execute_start_experiment',
     'execute_collect_spectrum',
-    'ToolRegistry',
-    # MQTT客户端
     'get_mqtt_client',
     'local_client',
-    # 配置常量
     'EXPERIMENT_TOPIC',
     'REAGENT_LAYOUT_PATH',
-    'topic',  # 兼容旧代码
-    'json_path',  # 兼容旧代码
-    # 试剂工具
+    'topic',
+    'json_path',
     'find_reagent',
     'get_reagent',
-    # PydanticAI工具
     'Deps',
     'read_pdf',
     'get_all_reagents',

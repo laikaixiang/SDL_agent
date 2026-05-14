@@ -24,7 +24,7 @@ from .field_inference import ExperimentDesignParser
 
 # TODO: 待hardware/tools解耦完成后，从hardware/tools/REGISTRY.json读取工具定义
 # 从 hardware/tools.py 导入 PydanticAI 异步工具函数和依赖容器
-from hardware.tools import (
+from hardware import (
     Deps,                    # 依赖注入容器（包含 send_event 回调）
     read_pdf,                # 读取 PDF 文件内容
     save_experiment_step,    # 注册一步旋涂实验参数

@@ -24,3 +24,13 @@ export async function saveHistoryBatch(messages: unknown[]): Promise<{ success: 
     timeout: 10000,
   })
 }
+
+export interface SessionData {
+  title: string
+  messages: { role: string; content: string; timestamp?: string; mode?: string }[]
+  outputs: Record<string, string[]>
+}
+
+export async function fetchSession(timestamp: string): Promise<{ success: boolean; data: SessionData }> {
+  return request(`/api/history/session/${timestamp}`)
+}

@@ -3,15 +3,16 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useChatStore } from '@/stores/chat'
 import { useLayoutStore } from '@/stores/layout'
-import { fetchSessions, type SessionEntry } from '@/api/history'
+import { fetchSessions, fetchSession, type SessionEntry } from '@/api/history'
 
 const store = useChatStore()
 const layout = useLayoutStore()
 const router = useRouter()
 const sessions = ref<SessionEntry[]>([])
 const loading = ref(true)
+const restoring = ref<string | null>(null)
 
-onMounted(async () => {
+async function loadSessions() {
   try {
     const data = await fetchSessions()
     sessions.value = data.sessions
@@ -22,7 +23,26 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
-})
+}
+
+onMounted(() => loadSessions())
+
+async function onSessionClick(s: SessionEntry) {
+  if (restoring.value) return
+  restoring.value = s.timestamp
+  try {
+    const resp = await fetchSession(s.timestamp)
+    if (resp.success && resp.data.messages.length > 0) {
+      store.loadMessages(resp.data.messages)
+      layout.closeTaskPanel()
+      router.push('/')
+    }
+  } catch {
+    // silently fail
+  } finally {
+    restoring.value = null
+  }
+}
 
 interface ModeItem {
   icon: string
@@ -100,12 +120,15 @@ function displayTitle(s: SessionEntry): string {
         v-for="s in sessions"
         :key="s.timestamp"
         class="history-item"
+        :class="{ restoring: restoring === s.timestamp }"
         :title="displayTitle(s)"
+        @click="onSessionClick(s)"
       >
         <div class="history-item-title">{{ displayTitle(s) }}</div>
         <div class="history-item-meta">
           <span>{{ formatDate(s.started_at || s.timestamp) }}</span>
           <span>{{ s.message_count }} 条消息</span>
+          <span v-if="restoring === s.timestamp" class="restoring-hint">加载中...</span>
         </div>
       </div>
       <div v-if="sessions.length === 0" class="history-empty">
@@ -241,6 +264,16 @@ function displayTitle(s: SessionEntry): string {
   text-align: center;
   font-size: 13px;
   color: var(--color-text-tertiary);
+}
+
+.history-item.restoring {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.restoring-hint {
+  color: var(--color-primary);
+  font-size: 11px;
 }
 
 .skeleton { cursor: default; }

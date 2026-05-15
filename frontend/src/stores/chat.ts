@@ -378,6 +378,14 @@ export const useChatStore = defineStore('chat', () => {
     })
   }
 
+  function loadMessages(msgs: { role: string; content: string; timestamp?: string }[]) {
+    messages.value = msgs.map(m => ({
+      role: m.role as 'user' | 'ai',
+      content: m.content,
+      timestamp: m.timestamp,
+    }))
+  }
+
   function clear() {
     messages.value = []
     currentMode.value = 'normal'
@@ -415,5 +423,6 @@ export const useChatStore = defineStore('chat', () => {
     addConfirmField,
     updateConfirmField,
     persistHistory,
+    loadMessages,
   }
 })

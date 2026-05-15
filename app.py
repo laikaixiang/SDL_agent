@@ -27,6 +27,7 @@ import asyncio
 import atexit
 import signal
 import webbrowser
+import re
 import requests
 from threading import Timer
 from datetime import datetime
@@ -1850,6 +1851,38 @@ def history_sessions():
     else:
         data = {"sessions": []}
     return jsonify(data)
+
+
+@app.route('/api/history/session/<timestamp>', methods=['GET'])
+def history_load_session(timestamp: str):
+    """
+    加载指定会话的 chat_history.json。
+
+    URL: /api/history/session/20260507_190432
+    返回: { success, data: { title, messages, outputs } } 或 { success: false, error }
+    """
+    # 安全检查：timestamp 只能包含数字和下划线
+    if not re.match(r'^\d{8}_\d{6}$', timestamp):
+        return jsonify({"success": False, "error": "无效的时间戳格式"}), 400
+
+    history_path = os.path.join(config.DIALOGUE_DATA_DIR, timestamp, "chat_history.json")
+    if not os.path.exists(history_path):
+        return jsonify({"success": False, "error": "会话记录不存在"}), 404
+
+    try:
+        with open(history_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception as e:
+        return jsonify({"success": False, "error": f"读取失败: {str(e)}"}), 500
+
+    return jsonify({
+        "success": True,
+        "data": {
+            "title": data.get("title"),
+            "messages": data.get("messages", []),
+            "outputs": data.get("outputs", {}),
+        }
+    })
 
 
 # =============================================================================

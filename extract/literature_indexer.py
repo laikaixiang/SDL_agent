@@ -670,7 +670,10 @@ class LiteratureIndexer:
                 }
 
             # 步骤3：对相关页面调LLM提取
-            llm_client = LLMClient()
+            llm_client = LLMClient(
+                api_key=self.config.VL_API_KEY,
+                api_url=self.config.VL_API_URL,
+            )
             pdf_processor = PDFProcessor()
             extraction_results = []
 

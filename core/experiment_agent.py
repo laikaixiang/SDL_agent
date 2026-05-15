@@ -51,8 +51,8 @@ class ExperimentDesignAgent:
         model = OpenAIChatModel(
             self.config.EXPERIMENT_MODEL_NAME,          # 复用大语言模型
             provider=OpenAIProvider(
-                base_url=self.config.API_URL.rsplit('/chat/completions', 1)[0],  # 提取 base_url
-                api_key=self.config.API_KEY,
+                base_url=self.config.EXPERIMENT_API_URL.rsplit('/chat/completions', 1)[0],
+                api_key=self.config.EXPERIMENT_API_KEY,
             ),
         )
         return Agent(

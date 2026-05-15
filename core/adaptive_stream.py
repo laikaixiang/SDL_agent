@@ -74,7 +74,7 @@ class AdaptiveStreamHandler:
             }
 
             response = requests.post(
-                self.config.API_URL,
+                self.config.TALK_API_URL,
                 headers=headers,
                 json=payload,
                 stream=True,
@@ -150,7 +150,7 @@ class AdaptiveStreamHandler:
 
         try:
             response = requests.post(
-                self.config.API_URL,
+                self.config.TALK_API_URL,
                 headers=headers,
                 json=payload,
                 stream=True,
@@ -202,7 +202,7 @@ class AdaptiveStreamHandler:
 
         try:
             response = requests.post(
-                self.config.API_URL,
+                self.config.TALK_API_URL,
                 headers=headers,
                 json=payload,
                 timeout=self.config.TIMEOUT

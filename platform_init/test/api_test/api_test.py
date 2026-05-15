@@ -2,14 +2,16 @@
 独立API测试工具 - 无需启动app.py即可测试API配置
 
 功能：
-1. 测试API配置是否正确
-2. 测试API密钥是否有效
-3. 测试对话模型是否可用
-4. 测试视觉模型是否可用
-5. 测试流式响应是否正常
+1. 测试配置完整性（所有模型 + API密钥）
+2. 测试 TALK API 密钥是否有效
+3. 测试 VL API 密钥是否有效
+4. 测试 EXPERIMENT API 密钥是否有效
+5. 测试 EMBEDDING API 密钥是否有效
+6. 测试流式响应是否正常（TALK 模型）
+7. 文件路径检查
 
 使用方法：
-    python test/api_test/api_test.py
+    python platform_init/test/api_test/api_test.py
 """
 
 import sys
@@ -21,6 +23,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 import requests
 import json
 import time
+import base64
 
 # 直接导入 Config，避免触发 core/__init__.py 的所有导入
 try:
@@ -28,7 +31,6 @@ try:
 except ImportError as e:
     print(f"导入配置模块出错: {e}")
     print("尝试使用备用导入方法...")
-    # 如果导入失败，直接读取配置文件
     import importlib.util
     spec = importlib.util.spec_from_file_location("config", "core/config.py")
     config_module = importlib.util.module_from_spec(spec)
@@ -36,320 +38,376 @@ except ImportError as e:
     Config = config_module.Config
 
 
+# 1x1 白色像素 PNG（用于 VL 模型快速测试）
+_TINY_PNG_BASE64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="
+)
+
+
 class APITester:
-    """API测试器"""
+    """API测试器 — 测试每个模型的独立 API_KEY/URL 是否有效"""
 
     def __init__(self):
         self.config = Config()
         self.test_results = []
 
-    def print_header(self, title):
-        """打印测试标题"""
+    # ---- helpers ----
+
+    def _header(self, title):
         print("\n" + "=" * 60)
         print(f"  {title}")
         print("=" * 60)
 
-    def print_result(self, test_name, success, message=""):
-        """打印测试结果"""
-        status = "[通过]" if success else "[失败]"
-        print(f"{status} {test_name}")
-        if message:
-            print(f"      {message}")
-        self.test_results.append((test_name, success, message))
+    def _ok(self, name, msg=""):
+        print(f"[通过] {name}")
+        if msg:
+            print(f"       {msg}")
+        self.test_results.append((name, True, msg))
 
-    def test_config_validation(self):
-        """测试1: 配置验证"""
-        self.print_header("测试1: 配置验证")
+    def _fail(self, name, msg=""):
+        print(f"[失败] {name}")
+        if msg:
+            print(f"       {msg}")
+        self.test_results.append((name, False, msg))
 
-        # 检查必要配置
-        checks = [
-            ("API_KEY", self.config.API_KEY, "API密钥已设置"),
-            ("API_URL", self.config.API_URL, "API地址已设置"),
-            ("MODEL_NAME_TALK", self.config.MODEL_NAME_TALK, "对话模型名称已设置"),
-            ("MODEL_NAME_VL", self.config.MODEL_NAME_VL, "视觉语言模型名称已设置"),
-            ("EXPERIMENT_MODEL_NAME", self.config.EXPERIMENT_MODEL_NAME, "实验模型名称已设置"),
+    def _skip(self, name, msg=""):
+        print(f"[跳过] {name} — {msg}")
+        self.test_results.append((name, None, msg))
+
+    def _api_url_clean(self, raw_url):
+        """确保 URL 以 /chat/completions 结尾（chat 类端点）"""
+        if not raw_url.endswith('/chat/completions'):
+            return f"{raw_url.rstrip('/')}/chat/completions"
+        return raw_url
+
+    # ---- test 1: 配置完整性 ----
+
+    def test_config(self):
+        self._header("测试1: 配置完整性")
+
+        # 模型名称
+        for key in ("MODEL_NAME_TALK", "MODEL_NAME_VL", "EXPERIMENT_MODEL_NAME", "EMBEDDING_MODEL"):
+            v = getattr(self.config, key, "")
+            if v:
+                self._ok(key, v)
+            else:
+                self._fail(key, "未设置")
+
+        # API 凭证（全局 + 独立），任一可用即可
+        models = [
+            ("TALK",    self.config.TALK_API_KEY,    self.config.TALK_API_URL),
+            ("VL",      self.config.VL_API_KEY,      self.config.VL_API_URL),
+            ("EXPERIMENT", self.config.EXPERIMENT_API_KEY, self.config.EXPERIMENT_API_URL),
+            ("EMBEDDING",  self.config.EMBEDDING_API_KEY,  self.config.EMBEDDING_API_URL),
         ]
-
-        all_passed = True
-        for name, value, desc in checks:
-            if value:
-                self.print_result(desc, True, f"{name} = {value}")
+        for name, key, url in models:
+            if key and url:
+                self._ok(f"{name}_API_KEY/URL", f"key={key[:15]}... url={url}")
+            elif key and not url:
+                self._fail(f"{name}_API_KEY/URL", "API_KEY 已设置但 API_URL 为空")
+            elif not key and url:
+                self._fail(f"{name}_API_KEY/URL", "API_URL 已设置但 API_KEY 为空")
             else:
-                self.print_result(desc, False, f"{name} 未设置")
-                all_passed = False
-
-        return all_passed
-
-    def test_api_connection(self):
-        """测试2: API连接测试"""
-        self.print_header("测试2: API连接测试")
-
-        try:
-            # 发送一个简单的请求测试连接
-            headers = {
-                "Authorization": f"Bearer {self.config.API_KEY}",
-                "Content-Type": "application/json"
-            }
-
-            payload = {
-                "model": self.config.MODEL_NAME_TALK,
-                "messages": [{"role": "user", "content": "Hi"}],
-                "max_tokens": 10
-            }
-
-            # 智能处理API URL
-            api_url = self.config.API_URL
-            if not api_url.endswith('/chat/completions'):
-                api_url = f"{api_url}/chat/completions"
-
-            print(f"正在测试API端点: {api_url}")
-
-            response = requests.post(
-                api_url,
-                headers=headers,
-                json=payload,
-                timeout=10
-            )
-
-            if response.status_code == 200:
-                self.print_result("API连接", True, f"状态码: {response.status_code}")
-                return True
-            else:
-                self.print_result("API连接", False,
-                                f"状态码: {response.status_code}, 响应: {response.text[:200]}")
-                return False
-
-        except requests.exceptions.Timeout:
-            self.print_result("API连接", False, "请求超时 (>10秒)")
-            return False
-        except requests.exceptions.ConnectionError as e:
-            self.print_result("API连接", False, f"连接错误: {str(e)[:100]}")
-            return False
-        except Exception as e:
-            self.print_result("API连接", False, f"错误: {str(e)[:100]}")
-            return False
-
-    def test_talk_model(self):
-        """测试3: 对话模型测试"""
-        self.print_header("测试3: 对话模型测试")
-
-        try:
-            headers = {
-                "Authorization": f"Bearer {self.config.API_KEY}",
-                "Content-Type": "application/json"
-            }
-
-            payload = {
-                "model": self.config.MODEL_NAME_TALK,
-                "messages": [{"role": "user", "content": "请用一句话介绍你自己"}],
-                "max_tokens": 50
-            }
-
-            # 智能处理API URL
-            api_url = self.config.API_URL
-            if not api_url.endswith('/chat/completions'):
-                api_url = f"{api_url}/chat/completions"
-
-            print(f"正在测试模型: {self.config.MODEL_NAME_TALK}")
-
-            response = requests.post(
-                api_url,
-                headers=headers,
-                json=payload,
-                timeout=30
-            )
-
-            if response.status_code == 200:
-                data = response.json()
-                content = data.get('choices', [{}])[0].get('message', {}).get('content', '')
-
-                if content:
-                    self.print_result("对话模型响应", True, f"响应内容: {content[:100]}...")
-                    return True
+                # 回退到全局
+                if self.config.API_KEY and self.config.API_URL:
+                    self._ok(f"{name}_API_KEY/URL",
+                             f"未单独设置，回退到全局 API_KEY (key={self.config.API_KEY[:15]}...)")
                 else:
-                    self.print_result("对话模型响应", False, "响应内容为空")
-                    return False
-            else:
-                self.print_result("对话模型响应", False,
-                                f"状态码: {response.status_code}, 响应: {response.text[:200]}")
-                return False
+                    self._fail(f"{name}_API_KEY/URL", "未设置且全局 API_KEY/URL 也不可用")
 
-        except Exception as e:
-            self.print_result("对话模型响应", False, f"错误: {str(e)[:100]}")
-            return False
+    # ---- test 2: TALK API ----
 
-    def test_streaming_response(self):
-        """测试4: 流式响应测试"""
-        self.print_header("测试4: 流式响应测试")
+    def test_talk_api(self):
+        self._header("测试2: TALK API 密钥")
+
+        key = self.config.TALK_API_KEY
+        url = self._api_url_clean(self.config.TALK_API_URL)
+        model = self.config.MODEL_NAME_TALK
+
+        if not key:
+            self._skip("TALK API", "TALK_API_KEY 为空且无全局回退")
+            return
+
+        self._do_chat_test("TALK API", key, url, model,
+                           "请用一句话介绍你自己", "对话模型响应")
+
+    # ---- test 3: VL API ----
+
+    def test_vl_api(self):
+        self._header("测试3: VL API 密钥（视觉模型）")
+
+        key = self.config.VL_API_KEY
+        url = self._api_url_clean(self.config.VL_API_URL)
+        model = self.config.MODEL_NAME_VL
+
+        if not key:
+            self._skip("VL API", "VL_API_KEY 为空且无全局回退")
+            return
+
+        headers = {
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json"
+        }
+
+        # VL 模型用图片 + 文字请求测试
+        payload = {
+            "model": model,
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{_TINY_PNG_BASE64}"}},
+                    {"type": "text", "text": "描述这张图片"}
+                ]
+            }],
+            "max_tokens": 30,
+            "stream": False,
+        }
+
+        print(f"  模型: {model}")
+        print(f"  端点: {url}")
 
         try:
-            headers = {
-                "Authorization": f"Bearer {self.config.API_KEY}",
-                "Content-Type": "application/json"
-            }
+            resp = requests.post(url, headers=headers, json=payload, timeout=30)
+            if resp.status_code == 200:
+                data = resp.json()
+                content = data.get('choices', [{}])[0].get('message', {}).get('content', '')
+                if content:
+                    self._ok("VL API", f"响应: {content[:100]}")
+                else:
+                    self._fail("VL API", "响应 content 为空")
+            else:
+                self._fail("VL API", f"HTTP {resp.status_code}: {resp.text[:200]}")
+        except requests.exceptions.Timeout:
+            self._fail("VL API", "请求超时 (>30s)")
+        except Exception as e:
+            self._fail("VL API", str(e)[:150])
 
-            payload = {
-                "model": self.config.MODEL_NAME_TALK,
-                "messages": [{"role": "user", "content": "数到5"}],
-                "stream": True,
-                "max_tokens": 50
-            }
+    # ---- test 4: EXPERIMENT API ----
 
-            # 智能处理API URL
-            api_url = self.config.API_URL
-            if not api_url.endswith('/chat/completions'):
-                api_url = f"{api_url}/chat/completions"
+    def test_experiment_api(self):
+        self._header("测试4: EXPERIMENT API 密钥")
 
-            print(f"正在测试流式响应，模型: {self.config.MODEL_NAME_TALK}")
+        key = self.config.EXPERIMENT_API_KEY
+        url = self._api_url_clean(self.config.EXPERIMENT_API_URL)
+        model = self.config.EXPERIMENT_MODEL_NAME
 
-            response = requests.post(
-                api_url,
-                headers=headers,
-                json=payload,
-                stream=True,
-                timeout=30
-            )
+        if not key:
+            self._skip("EXPERIMENT API", "EXPERIMENT_API_KEY 为空且无全局回退")
+            return
 
-            if response.status_code != 200:
-                self.print_result("流式响应", False,
-                                f"状态码: {response.status_code}")
-                return False
+        self._do_chat_test("EXPERIMENT API", key, url, model,
+                           "Say hello in one sentence", "实验模型响应")
 
-            # 读取流式响应
-            chunks_received = 0
-            full_content = ""
+    # ---- test 5: EMBEDDING API ----
 
-            for line in response.iter_lines():
+    def test_embedding_api(self):
+        self._header("测试5: EMBEDDING API 密钥")
+
+        key = self.config.EMBEDDING_API_KEY
+        url = self.config.EMBEDDING_API_URL
+        model = self.config.EMBEDDING_MODEL
+
+        if not key:
+            self._skip("EMBEDDING API", "EMBEDDING_API_KEY 为空")
+            return
+
+        headers = {
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": model,
+            "input": "Hello, this is a test sentence for embedding.",
+        }
+
+        print(f"  模型: {model}")
+        print(f"  端点: {url}")
+
+        try:
+            resp = requests.post(url, headers=headers, json=payload, timeout=30)
+            if resp.status_code == 200:
+                data = resp.json()
+                vec = data.get('data', [{}])[0].get('embedding', [])
+                dim = len(vec) if vec else 0
+                self._ok("EMBEDDING API", f"返回 embedding 维度: {dim}")
+            else:
+                self._fail("EMBEDDING API", f"HTTP {resp.status_code}: {resp.text[:200]}")
+        except requests.exceptions.Timeout:
+            self._fail("EMBEDDING API", "请求超时 (>30s)")
+        except Exception as e:
+            self._fail("EMBEDDING API", str(e)[:150])
+
+    # ---- test 6: 流式响应 (TALK) ----
+
+    def test_streaming(self):
+        self._header("测试6: 流式响应 (TALK 模型)")
+
+        key = self.config.TALK_API_KEY
+        url = self._api_url_clean(self.config.TALK_API_URL)
+        model = self.config.MODEL_NAME_TALK
+
+        if not key:
+            self._skip("流式响应", "TALK_API_KEY 为空且无全局回退")
+            return
+
+        headers = {
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": "数到5"}],
+            "stream": True,
+            "max_tokens": 50,
+        }
+
+        print(f"  模型: {model}  (stream=True)")
+
+        try:
+            resp = requests.post(url, headers=headers, json=payload, stream=True, timeout=30)
+            if resp.status_code != 200:
+                self._fail("流式响应", f"HTTP {resp.status_code}")
+                return
+
+            chunks = 0
+            full = ""
+            for line in resp.iter_lines():
                 if line:
-                    decoded_line = line.decode('utf-8')
-                    if decoded_line.startswith("data: "):
-                        data_str = decoded_line[6:]
-                        if data_str == "[DONE]":
+                    decoded = line.decode('utf-8')
+                    if decoded.startswith("data: "):
+                        data_str = decoded[6:]
+                        if data_str.strip() == "[DONE]":
                             break
                         try:
                             chunk = json.loads(data_str)
-                            content = chunk.get('choices', [{}])[0].get('delta', {}).get('content', '')
-                            if content:
-                                full_content += content
-                                chunks_received += 1
+                            c = chunk.get('choices', [{}])[0].get('delta', {}).get('content', '')
+                            if c:
+                                full += c
+                                chunks += 1
                         except json.JSONDecodeError:
                             pass
 
-            if chunks_received > 0:
-                self.print_result("流式响应", True,
-                                f"接收到 {chunks_received} 个数据块，内容: {full_content[:100]}...")
-                return True
+            if chunks > 0:
+                self._ok("流式响应", f"{chunks} 个 chunk, 内容: {full[:100]}")
             else:
-                self.print_result("流式响应", False, "未接收到数据块")
-                return False
-
+                self._fail("流式响应", "未收到任何 chunk")
+        except requests.exceptions.Timeout:
+            self._fail("流式响应", "请求超时 (>30s)")
         except Exception as e:
-            self.print_result("流式响应", False, f"错误: {str(e)[:100]}")
-            return False
+            self._fail("流式响应", str(e)[:150])
 
-    def test_vision_model(self):
-        """测试5: 视觉模型测试（可选）"""
-        self.print_header("测试5: 视觉语言模型测试（可选）")
-
-        print(f"已配置视觉模型: {self.config.MODEL_NAME_VL}")
-        print("注意: 此测试需要图片，跳过实际API调用。")
-        print("视觉模型将在处理PDF时进行测试。")
-
-        self.print_result("视觉模型配置", True,
-                        f"模型: {self.config.MODEL_NAME_VL}")
-        return True
+    # ---- test 7: 文件路径 ----
 
     def test_file_paths(self):
-        """测试6: 文件路径测试"""
-        self.print_header("测试6: 文件路径测试")
+        self._header("测试7: 文件路径")
 
-        paths_to_check = [
-            ("PDF_FOLDER", self.config.PDF_FOLDER),
-            ("EXTRACT_DIR", self.config.EXTRACT_DIR),
-            ("TEMPORAL_DIR", self.config.TEMPORAL_DIR),
-        ]
-
-        all_passed = True
-        for name, path in paths_to_check:
+        for name in ("PDF_FOLDER", "EXTRACT_DIR", "TEMPORAL_DIR"):
+            path = getattr(self.config, name, "")
             if os.path.exists(path):
-                self.print_result(f"{name} 已存在", True, f"路径: {path}")
+                self._ok(name, path)
             else:
-                # 尝试创建目录
                 try:
                     os.makedirs(path, exist_ok=True)
-                    self.print_result(f"{name} 已创建", True, f"路径: {path}")
+                    self._ok(name, f"已创建: {path}")
                 except Exception as e:
-                    self.print_result(f"{name} 创建失败", False, f"错误: {str(e)[:100]}")
-                    all_passed = False
+                    self._fail(name, str(e)[:100])
 
-        return all_passed
+    # ---- internal ----
+
+    def _do_chat_test(self, label, key, url, model, user_msg, ok_label):
+        """通用 chat-completion 测试"""
+        headers = {
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": user_msg}],
+            "max_tokens": 50,
+            "stream": False,
+        }
+
+        print(f"  模型: {model}")
+        print(f"  端点: {url}")
+
+        try:
+            resp = requests.post(url, headers=headers, json=payload, timeout=30)
+            if resp.status_code == 200:
+                data = resp.json()
+                content = data.get('choices', [{}])[0].get('message', {}).get('content', '')
+                if content:
+                    self._ok(label, f"{ok_label}: {content[:100]}")
+                else:
+                    self._fail(label, "响应 content 为空")
+            else:
+                self._fail(label, f"HTTP {resp.status_code}: {resp.text[:200]}")
+        except requests.exceptions.Timeout:
+            self._fail(label, "请求超时 (>30s)")
+        except Exception as e:
+            self._fail(label, str(e)[:150])
+
+    # ---- summary ----
 
     def print_summary(self):
-        """打印测试总结"""
-        self.print_header("测试总结")
+        self._header("测试总结")
 
         total = len(self.test_results)
-        passed = sum(1 for _, success, _ in self.test_results if success)
-        failed = total - passed
+        passed = sum(1 for _, s, _ in self.test_results if s is True)
+        failed = sum(1 for _, s, _ in self.test_results if s is False)
+        skipped = sum(1 for _, s, _ in self.test_results if s is None)
 
         print(f"\n总测试数: {total}")
         print(f"通过: {passed}")
         print(f"失败: {failed}")
+        print(f"跳过: {skipped}")
 
         if failed > 0:
             print("\n失败的测试:")
-            for name, success, message in self.test_results:
-                if not success:
+            for name, success, msg in self.test_results:
+                if success is False:
                     print(f"  - {name}")
-                    if message:
-                        print(f"    {message}")
+                    if msg:
+                        print(f"    {msg}")
 
         print("\n" + "=" * 60)
-        if failed == 0:
-            print("  [成功] 所有测试通过！")
-            print("  您的API配置工作正常。")
-        else:
-            print("  [警告] 部分测试失败。")
-            print("  请检查 core/config.py 中的配置。")
+        if failed == 0 and passed > 0:
+            print("  [成功] 所有已执行的测试通过！")
+        elif failed > 0:
+            print("  [警告] 部分测试失败，请检查 config.json。")
+        elif passed == 0:
+            print("  [注意] 所有测试被跳过，请检查配置。")
         print("=" * 60 + "\n")
 
         return failed == 0
 
+    # ---- run ----
+
     def run_all_tests(self):
-        """运行所有测试"""
         print("\n" + "=" * 60)
-        print("  SDL Agent - API配置测试")
-        print("  独立测试工具（无需启动app.py）")
+        print("  SDL Agent - 独立 API 配置测试")
+        print("  测试每个模型的 API_KEY/URL 是否有效")
         print("=" * 60)
 
-        # 运行测试
-        self.test_config_validation()
-        time.sleep(0.5)
-
-        self.test_api_connection()
-        time.sleep(0.5)
-
-        self.test_talk_model()
-        time.sleep(0.5)
-
-        self.test_streaming_response()
-        time.sleep(0.5)
-
-        self.test_vision_model()
-        time.sleep(0.5)
-
+        self.test_config()
+        time.sleep(0.3)
+        self.test_talk_api()
+        time.sleep(0.3)
+        self.test_vl_api()
+        time.sleep(0.3)
+        self.test_experiment_api()
+        time.sleep(0.3)
+        self.test_embedding_api()
+        time.sleep(0.3)
+        self.test_streaming()
+        time.sleep(0.3)
         self.test_file_paths()
 
-        # 打印总结
         return self.print_summary()
 
 
 def main():
-    """主函数"""
     tester = APITester()
     success = tester.run_all_tests()
-
-    # 返回退出码
     sys.exit(0 if success else 1)
 
 

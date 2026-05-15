@@ -86,10 +86,23 @@ class Config:
     配置读取优先级：环境变量 > config.json > 类属性默认值
     """
 
-    # ======================== API 配置 ========================
+    # ======================== API 配置（全局默认）========================
+    # 当各模块未单独配置 API_KEY/URL 时，使用此全局默认值
     API_KEY: str = _external.get("API_KEY", "")
     # API_URL 是完整的 endpoint，已包含 /chat/completions 路径
     API_URL: str = _external.get("API_URL", "https://api.siliconflow.cn/v1/chat/completions")
+
+    # ======================== 各模块独立 API 配置 ========================
+    # 每个模型可独立配置 API 密钥和端点，未设置时回退到全局 API_KEY/API_URL
+    # Talk 模型（对话、数据分析、字段推断、算法生成）
+    TALK_API_KEY: str = _external.get("TALK_API_KEY") or _external.get("API_KEY", "")
+    TALK_API_URL: str = _external.get("TALK_API_URL") or _external.get("API_URL", "https://api.siliconflow.cn/v1/chat/completions")
+    # VL 模型（PDF 视觉提取）
+    VL_API_KEY: str = _external.get("VL_API_KEY") or _external.get("API_KEY", "")
+    VL_API_URL: str = _external.get("VL_API_URL") or _external.get("API_URL", "https://api.siliconflow.cn/v1/chat/completions")
+    # 实验设计模型
+    EXPERIMENT_API_KEY: str = _external.get("EXPERIMENT_API_KEY") or _external.get("API_KEY", "")
+    EXPERIMENT_API_URL: str = _external.get("EXPERIMENT_API_URL") or _external.get("API_URL", "https://api.siliconflow.cn/v1/chat/completions")
 
     # ======================== 实验设计智能体模型配置 ========================
     EXPERIMENT_MODEL_NAME: str = _external.get("EXPERIMENT_MODEL_NAME", "Pro/MiniMaxAI/MiniMax-M2.5")
@@ -207,18 +220,15 @@ class Config:
         Returns:
             配置是否有效
         """
-        required_configs = [
-            'API_KEY',
-            'API_URL',
-            'MODEL_NAME_VL',
-            'MODEL_NAME_TALK'
-        ]
-
-        for config_name in required_configs:
-            if not getattr(cls, config_name, None):
-                return False
-
-        return True
+        # 至少需要一种可用的 API 配置（全局或独立均可）
+        has_credentials = bool(
+            cls.API_KEY or cls.TALK_API_KEY or cls.VL_API_KEY or cls.EXPERIMENT_API_KEY
+        )
+        has_url = bool(
+            cls.API_URL or cls.TALK_API_URL or cls.VL_API_URL or cls.EXPERIMENT_API_URL
+        )
+        has_models = bool(cls.MODEL_NAME_VL and cls.MODEL_NAME_TALK)
+        return has_credentials and has_url and has_models
 
 if __name__ == "__main__":
     # 测试读取模型名

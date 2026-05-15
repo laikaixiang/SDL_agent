@@ -64,7 +64,7 @@ config = Config()
 # 初始化 PromptManager（全局单例，各模块通过 create_prompt_manager() 获取）
 from prompts import create_prompt_manager as _init_prompt_manager
 _init_prompt_manager()
-llm_client = LLMClient()
+llm_client = LLMClient(api_key=config.TALK_API_KEY, api_url=config.TALK_API_URL)
 pdf_processor = PDFProcessor()
 field_inference = FieldInference()
 algorithm_parser = AlgorithmParser(llm_client)    # 算法解析器

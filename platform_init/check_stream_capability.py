@@ -113,7 +113,7 @@ def ensure_capability_check(config) -> Dict[str, Any]:
         return caps
 
     print(f"[platform_init] 检测模型流式能力: {model} ...")
-    result = test_model_streaming(model, config.API_KEY, config.API_URL)
+    result = test_model_streaming(model, config.EXPERIMENT_API_KEY, config.EXPERIMENT_API_URL)
 
     caps.setdefault("models", {})[model] = result
     caps["default"] = {

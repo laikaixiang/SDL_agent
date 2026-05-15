@@ -43,8 +43,8 @@ try:
         spec = importlib.util.spec_from_file_location("config", _config_path)
         config_module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(config_module)
-        _API_KEY = config_module.Config.API_KEY
-        _API_URL = config_module.Config.API_URL  # 已包含完整路径，不需要拼接
+        _API_KEY = config_module.Config.TALK_API_KEY
+        _API_URL = config_module.Config.TALK_API_URL  # 已包含完整路径，不需要拼接
         _MODEL   = config_module.Config.MODEL_NAME_TALK
     else:
         raise ImportError("Config file not found")

@@ -24,13 +24,29 @@ class LLMClient:
     - 支持流式和非流式请求
     """
 
-    def __init__(self):
-        """初始化LLM客户端"""
+    def __init__(self, api_key: str = None, api_url: str = None):
+        """
+        初始化LLM客户端
+
+        Args:
+            api_key: API密钥，未提供则使用配置中的全局默认值
+            api_url: API端点，未提供则使用配置中的全局默认值
+        """
         self.config = Config()
+        self._api_key = api_key if api_key else self.config.API_KEY
+        self._api_url = api_url if api_url else self.config.API_URL
         self.headers = {
-            "Authorization": f"Bearer {self.config.API_KEY}",
+            "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json"
         }
+
+    def get_api_url(self) -> str:
+        """获取当前实例使用的 API URL"""
+        return self._api_url
+
+    def get_api_key(self) -> str:
+        """获取当前实例使用的 API Key"""
+        return self._api_key
 
     def call_api(
         self,
@@ -77,7 +93,7 @@ class LLMClient:
         for attempt in range(max_retries):
             try:
                 response = requests.post(
-                    self.config.API_URL,
+                    self._api_url,
                     headers=self.headers,
                     json=payload,
                     timeout=timeout,
@@ -158,7 +174,7 @@ class LLMClient:
         }
 
         response = requests.post(
-            self.config.API_URL,
+            self._api_url,
             headers=self.headers,
             json=payload,
             stream=True,

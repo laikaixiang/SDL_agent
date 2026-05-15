@@ -54,7 +54,10 @@ class PDFMetadataExtractor:
     def __init__(self, config: Optional[Config] = None):
         """初始化提取器"""
         self.config = config or Config()
-        self.llm_client = LLMClient()
+        self.llm_client = LLMClient(
+            api_key=self.config.VL_API_KEY,
+            api_url=self.config.VL_API_URL,
+        )
         self.pdf_processor = PDFProcessor()
 
     # ---- 唯一ID生成 ----

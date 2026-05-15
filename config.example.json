@@ -2,16 +2,26 @@
     "_用法说明": "复制本文件为 config.json，填入你的实际配置值。config.json 已被 .gitignore 忽略，不会提交到 git。",
     "_复制命令": "cp config.example.json config.json",
 
-    "_API配置": "=== LLM 服务 API（文献提取和普通对话）===",
+    "_API配置": "=== 全局默认 API（当各模块未单独配置时使用）===",
     "API_KEY": "sk-your-api-key-here",
     "API_URL": "https://api.siliconflow.cn/v1/chat/completions",
 
-    "_实验设计模型": "=== 实验设计智能体使用的模型 ===",
+    "_各模块独立API配置": "=== 每个模型可单独配置 API 密钥和端点，未设置则回退到全局 API_KEY/API_URL ===",
+    "_对话API配置": "=== 专门用于对话的api ===",
+    "TALK_API_KEY": "",
+    "TALK_API_URL": "",
+    "MODEL_NAME_TALK": "Qwen/Qwen3-VL-30B-A3B-Instruct",
+
+    "_视觉API配置": "=== 专门用于识别图像的api ===",
+    "VL_API_KEY": "",
+    "VL_API_URL": "",
+    "MODEL_NAME_VL": "Qwen/Qwen3-VL-30B-A3B-Instruct",
+
+    "_实验设计API配置": "=== 专门用于实验设计的API ===",
+    "EXPERIMENT_API_KEY": "",
+    "EXPERIMENT_API_URL": "",
     "EXPERIMENT_MODEL_NAME": "Pro/MiniMaxAI/MiniMax-M2.5",
 
-    "_模型配置": "=== 各功能模块使用的模型名称 ===",
-    "MODEL_NAME_VL": "Qwen/Qwen3-VL-30B-A3B-Instruct",
-    "MODEL_NAME_TALK": "Qwen/Qwen3-VL-30B-A3B-Instruct",
 
     "_Embedding配置": "=== RAG 页面预筛选和 Few-Shot 检索使用的 Embedding 服务 ===",
     "EMBEDDING_BACKEND": "api",

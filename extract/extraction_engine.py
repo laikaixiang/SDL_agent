@@ -638,7 +638,10 @@ class ExtractionEngine:
         Returns:
             API响应或None
         """
-        headers = self.llm_client.get_default_headers()
+        headers = {
+            "Authorization": f"Bearer {self.config.VL_API_KEY}",
+            "Content-Type": "application/json"
+        }
 
         payload = {
             "model": self.config.MODEL_NAME_VL,
@@ -653,7 +656,7 @@ class ExtractionEngine:
         for attempt in range(max_retries):
             try:
                 response = requests.post(
-                    self.config.API_URL,
+                    self.config.VL_API_URL,
                     headers=headers,
                     json=payload,
                     timeout=self.config.STREAM_TIMEOUT,
@@ -714,7 +717,10 @@ class ExtractionEngine:
         Returns:
             API响应或None
         """
-        headers = self.llm_client.get_default_headers()
+        headers = {
+            "Authorization": f"Bearer {self.config.TALK_API_KEY}",
+            "Content-Type": "application/json"
+        }
 
         payload = {
             "model": self.config.MODEL_NAME_TALK,  # 使用文本模型
@@ -729,7 +735,7 @@ class ExtractionEngine:
         for attempt in range(max_retries):
             try:
                 response = requests.post(
-                    self.config.API_URL,
+                    self.config.TALK_API_URL,
                     headers=headers,
                     json=payload,
                     timeout=self.config.STREAM_TIMEOUT,

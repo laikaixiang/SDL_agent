@@ -32,7 +32,10 @@ class FieldInference:
     def __init__(self):
         """初始化字段推断器"""
         self.config = Config()
-        self.llm_client = LLMClient()
+        self.llm_client = LLMClient(
+            api_key=self.config.TALK_API_KEY,
+            api_url=self.config.TALK_API_URL,
+        )
 
     def infer_fields(self, task_description: str, history: list = None) -> Tuple[bool, List[str] | str]:
         """
@@ -185,7 +188,10 @@ class ExperimentDesignAgent:
     def __init__(self):
         """Initialize experiment design agent"""
         self.config = Config()
-        self.llm_client = LLMClient()
+        self.llm_client = LLMClient(
+            api_key=self.config.EXPERIMENT_API_KEY,
+            api_url=self.config.EXPERIMENT_API_URL,
+        )
         self.hardware_registry = self._load_hardware_registry()
         self.software_registry = self._load_software_registry()
         self.helper_registry = self._get_helper_registry()

@@ -1,4 +1,56 @@
 {
+  "drop": {
+    "name": "drop",
+    "description": "滴液",
+    "params": {
+      "drop_plate": {
+        "type": "int",
+        "description": "需要滴液基底的目标托盘",
+        "required": true
+      },
+      "drop_pos": {
+        "type": "int",
+        "description": "基底在托盘中位置",
+        "required": true,
+        "default": 1
+      },
+      "tip": {
+        "type": "int",
+        "description": "空气泵编号(1或者2)",
+        "required": true,
+        "default": 1
+      },
+      "Vol": {
+        "type": "int",
+        "description": "滴液体积(uL)",
+        "required": true,
+        "default": 60
+      }
+    }
+  },
+  "drop_tips": {
+    "name": "drop_tips",
+    "description": "放枪头",
+    "params": {
+      "tip_box": {
+        "type": "int",
+        "description": "枪头盒位置",
+        "required": true
+      },
+      "tip_pos": {
+        "type": "int",
+        "description": "枪头在枪头盒中位置(从1开始)",
+        "required": false,
+        "default": 1
+      },
+      "tips": {
+        "type": "int",
+        "description": "空气泵编号(1或者2)",
+        "required": true,
+        "default": 1
+      }
+    }
+  },
   "start_experiment": {
     "name": "start_experiment",
     "description": "启动已注册的实验序列",
@@ -22,6 +74,34 @@
       "tips": {
         "type": "int",
         "description": "空气泵编号(1或者2)",
+        "required": true,
+        "default": 1
+      }
+    }
+  },
+  "move_glass": {
+    "name": "move_glass",
+    "description": "基板转移",
+    "params": {
+      "start_plate": {
+        "type": "int",
+        "description": "基底托盘位置_起始",
+        "required": true
+      },
+      "start_pos": {
+        "type": "int",
+        "description": "基底在托盘中位置_起始",
+        "required": true,
+        "default": 1
+      },
+      "end_plate": {
+        "type": "int",
+        "description": "基底托盘位置_目标",
+        "required": true
+      },
+      "end_pos": {
+        "type": "int",
+        "description": "基底在托盘中位置_目标",
         "required": true,
         "default": 1
       }
@@ -97,6 +177,35 @@
         "type": "int",
         "description": "体积(µl)",
         "required": true
+      }
+    }
+  },
+  "suck": {
+    "name": "suck",
+    "description": "吸液",
+    "params": {
+      "bottom_box": {
+        "type": "int",
+        "description": "试剂瓶盒编号",
+        "required": true
+      },
+      "bottom_pos": {
+        "type": "int",
+        "description": "试剂瓶在盒中位置(从1开始)",
+        "required": true,
+        "default": 1
+      },
+      "tip": {
+        "type": "int",
+        "description": "空气泵编号(1或者2)",
+        "required": true,
+        "default": 1
+      },
+      "Vol": {
+        "type": "int",
+        "description": "吸液体积(uL)",
+        "required": true,
+        "default": 60
       }
     }
   },

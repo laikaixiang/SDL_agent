@@ -64,7 +64,8 @@ config = Config()
 # 初始化 PromptManager（全局单例，各模块通过 create_prompt_manager() 获取）
 from prompts import create_prompt_manager as _init_prompt_manager
 _init_prompt_manager()
-llm_client = LLMClient(api_key=config.TALK_API_KEY, api_url=config.TALK_API_URL)
+_talk_extra = config.get_extra_body("TALK")
+llm_client = LLMClient(api_key=config.TALK_API_KEY, api_url=config.TALK_API_URL, extra_body=_talk_extra)
 pdf_processor = PDFProcessor()
 field_inference = FieldInference()
 algorithm_parser = AlgorithmParser(llm_client)    # 算法解析器
@@ -101,15 +102,19 @@ literature_indexer = LiteratureIndexer()     # 文献库索引器（注册表查
 # 全局会话时间戳（应用启动时创建）
 SESSION_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-# 创建会话专属文件夹
+# 全局 temporal 目录（所有会话共享，不在 history 下）
+GLOBAL_TEMPORAL_DIR = os.path.join(os.path.dirname(config.DIALOGUE_DATA_DIR), "temporal")
+os.makedirs(GLOBAL_TEMPORAL_DIR, exist_ok=True)
+
+# 创建会话专属文件夹（位于 history/<timestamp>/）
 SESSION_BASE_PATH = os.path.join(config.DIALOGUE_DATA_DIR, SESSION_TIMESTAMP)
 os.makedirs(os.path.join(SESSION_BASE_PATH, "extract"), exist_ok=True)
-os.makedirs(os.path.join(SESSION_BASE_PATH, "temporal"), exist_ok=True)
 os.makedirs(os.path.join(SESSION_BASE_PATH, "results"), exist_ok=True)
 os.makedirs(os.path.join(SESSION_BASE_PATH, "experiment_designs"), exist_ok=True)
 
 print(f"[会话管理] 应用启动，会话时间戳: {SESSION_TIMESTAMP}")
 print(f"[会话管理] 数据保存路径: {SESSION_BASE_PATH}")
+print(f"[会话管理] 全局 temporal: {GLOBAL_TEMPORAL_DIR}")
 
 # 初始化引导式算法生成（依赖 SESSION_BASE_PATH 做持久化）
 algorithm_guide = AlgorithmGuide(session_path=SESSION_BASE_PATH)
@@ -167,15 +172,20 @@ def _generate_title(messages):
         return None
 
 def _scan_session_outputs():
-    """扫描当前会话子目录，返回 outputs 字典。"""
+    """扫描当前会话子目录和全局 temporal，返回 outputs 字典。"""
     outputs = {}
-    for subdir in ["extract", "temporal", "results", "experiment_designs"]:
+    for subdir in ["extract", "results", "experiment_designs"]:
         dir_path = os.path.join(SESSION_BASE_PATH, subdir)
         if os.path.isdir(dir_path):
             files = sorted(os.listdir(dir_path))
             outputs[subdir] = files
         else:
             outputs[subdir] = []
+    # temporal 是全局共享目录，不在会话文件夹下
+    if os.path.isdir(GLOBAL_TEMPORAL_DIR):
+        outputs["temporal"] = sorted(os.listdir(GLOBAL_TEMPORAL_DIR))
+    else:
+        outputs["temporal"] = []
     return outputs
 
 def _on_shutdown():
@@ -210,10 +220,13 @@ def get_session_path(subdir=""):
 
     Args:
         subdir: 子目录名称，如 "extract", "temporal", "results", "experiment_designs"
+                "temporal" 返回全局共享的 dialogue data/temporal/ 路径
 
     Returns:
         str: 完整路径
     """
+    if subdir == "temporal":
+        return GLOBAL_TEMPORAL_DIR
     if subdir:
         return os.path.join(SESSION_BASE_PATH, subdir)
     return SESSION_BASE_PATH
@@ -242,10 +255,10 @@ def _resolve_pdf_path(doc_name: str) -> str:
 
 
 # 重新初始化需要会话路径的组件
-extraction_engine = ExtractionEngine(task_manager, session_path=SESSION_BASE_PATH)
-csv_writer = CSVWriter(session_path=SESSION_BASE_PATH)
+extraction_engine = ExtractionEngine(task_manager, session_path=SESSION_BASE_PATH, temporal_dir=GLOBAL_TEMPORAL_DIR)
+csv_writer = CSVWriter(session_path=SESSION_BASE_PATH, temporal_dir=GLOBAL_TEMPORAL_DIR)
 software_manager = SoftwareManager(
-    temporal_dir=get_session_path("temporal"),
+    temporal_dir=GLOBAL_TEMPORAL_DIR,
     results_dir=get_session_path("results")
 )
 
@@ -804,6 +817,9 @@ def handle_normal_chat(user_message: str, history: list = None) -> Response:
 
     Returns:
         SSE 流式响应 (text/event-stream)
+
+    TODO: /api/chat_with_tools 路由 — 使用 llm_client.run_with_tools() 处理 tool-use 对话
+    TODO: SSE 事件类型扩展 — 新增 tool_call_start / tool_call_result / tool_call_end
     """
     model = config.MODEL_NAME_TALK
 
@@ -816,7 +832,11 @@ def handle_normal_chat(user_message: str, history: list = None) -> Response:
             if not content:
                 continue
             api_role = "assistant" if role == "ai" else "user"
-            messages.append({"role": api_role, "content": content})
+            msg = {"role": api_role, "content": content}
+            # 保留 reasoning_content 以支持 DeepSeek 多轮对话
+            if role == "ai" and m.get("reasoning_content"):
+                msg["reasoning_content"] = m["reasoning_content"]
+            messages.append(msg)
     messages.append({"role": "user", "content": user_message})
 
     def raw_lines():
@@ -1329,7 +1349,7 @@ def get_recent_files():
 
 @app.route('/api/browse_csv', methods=['GET'])
 def browse_csv():
-    """列出可用的输入 CSV 文件：当前会话 extract/ + const_data/extract/"""
+    """列出可用的输入 CSV 文件：全局 temporal/ + 当前会话 extract/ + const_data/extract/"""
     import glob
     files = []
     paths_to_scan = [

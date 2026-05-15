@@ -22,6 +22,11 @@
     "EXPERIMENT_API_URL": "",
     "EXPERIMENT_MODEL_NAME": "Pro/MiniMaxAI/MiniMax-M2.5",
 
+    "_额外请求体配置": "=== JSON 字符串，merge 到 API 请求 body。用于供应商特有参数，如 DeepSeek thinking 模式：{\"thinking\": {\"type\": \"enabled\"}} ===",
+    "EXTRA_BODY": "",
+    "TALK_EXTRA_BODY": "",
+    "VL_EXTRA_BODY": "",
+    "EXPERIMENT_EXTRA_BODY": "",
 
     "_Embedding配置": "=== RAG 页面预筛选和 Few-Shot 检索使用的 Embedding 服务 ===",
     "EMBEDDING_BACKEND": "api",
@@ -73,6 +78,7 @@
     "MAX_RETRIES": 3,
     "TIMEOUT": 60,
     "STREAM_TIMEOUT": 90,
+    "MAX_TOKENS": null,
 
     "_提取模式": "=== PDF 提取模式: 'vision' | 'text' | 'hybrid' ===",
     "EXTRACTION_MODE": "vision",

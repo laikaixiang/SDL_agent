@@ -16,3 +16,11 @@ export interface SessionsIndex {
 export async function fetchSessions(): Promise<SessionsIndex> {
   return request<SessionsIndex>('/api/history/sessions')
 }
+
+export async function saveHistoryBatch(messages: unknown[]): Promise<{ success: boolean; saved_count: number }> {
+  return request('/api/history/save_batch', {
+    method: 'POST',
+    body: { messages },
+    timeout: 10000,
+  })
+}

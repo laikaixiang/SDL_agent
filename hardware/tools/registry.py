@@ -20,6 +20,7 @@
 from typing import Dict, Any, Callable, List
 import json
 import importlib
+import os
 import pkgutil
 from pathlib import Path
 
@@ -199,6 +200,10 @@ def discover_tools(
             for name in new_names:
                 print(f"[ToolRegistry] [OK] Registered tool: {name} ({full_module_path})")
 
+    # 自动同步 REGISTRY.json
+    registry_json = Path(__file__).parent / "REGISTRY.json"
+    ToolRegistry.export_to_json(str(registry_json))
+
     return loaded_count
 
 
@@ -206,8 +211,7 @@ def reload_tools(base_path: str = None) -> int:
     """
     清空注册表并重新扫描所有工具（热加载新文件 / 更新已有工具）
 
-    先清空所有已注册工具，然后重新扫描每个模块（已加载的 reload，新的 import），
-    确保 @register_tool 装饰器全部重新执行。
+    先备份，清空后重新扫描。若扫描完全失败（0 模块加载），自动恢复备份。
 
     Args:
         base_path: 扫描根目录
@@ -215,11 +219,20 @@ def reload_tools(base_path: str = None) -> int:
     Returns:
         int: 重新注册的工具数量
     """
+    backup = ToolRegistry._tools.copy()
     ToolRegistry.clear()
-    return discover_tools(base_path=base_path)
+    n = discover_tools(base_path=base_path)
+    if n == 0 and backup:
+        ToolRegistry._tools = backup
+        print("[ToolRegistry] [WARN] 扫描失败，已恢复原有注册表")
+    return n
 
 
 if __name__ == "__main__":
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+    # 修复双导入：让子模块的 from .registry import 拿到同一个 ToolRegistry
+    sys.modules['hardware.tools.registry'] = sys.modules['__main__']
     print("=== Scanning tools/ directory ===")
     discover_tools()
     print(f"\nTotal registered: {ToolRegistry.count()} tools")

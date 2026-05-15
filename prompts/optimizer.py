@@ -90,7 +90,7 @@ class PromptOptimizer:
             )
 
         messages = [{"role": "user", "content": optimize_prompt}]
-        response = self._call_llm(messages, temperature=0.3, max_tokens=4096)
+        response = self._call_llm(messages, temperature=0.3, max_tokens=None)
 
         optimized = self._strip_markdown(response)
 
@@ -124,7 +124,7 @@ class PromptOptimizer:
                         {"role": "user", "content": user_content},
                     ]
                     result.llm_response = self._call_llm(
-                        messages, temperature=0.1, max_tokens=2048
+                        messages, temperature=0.1, max_tokens=None
                     )
                 results.append(result)
             except Exception as e:
@@ -195,13 +195,13 @@ class PromptOptimizer:
         )
 
         messages = [{"role": "user", "content": diagnose_prompt}]
-        return self._call_llm(messages, temperature=0.2, max_tokens=2048)
+        return self._call_llm(messages, temperature=0.2, max_tokens=None)
 
     # ═══════════════════════════════════════════════════════════════
     # 内部
     # ═══════════════════════════════════════════════════════════════
 
-    def _call_llm(self, messages: list, temperature: float = 0.3, max_tokens: int = 4096) -> str:
+    def _call_llm(self, messages: list, temperature: float = 0.3, max_tokens: int = None) -> str:
         """调用 LLM，兼容 LLMClient 和直接 requests 风格"""
         try:
             # 尝试 LLMClient 风格
@@ -238,12 +238,24 @@ class PromptOptimizer:
             "model": getattr(self.llm, 'model_name', 'default'),
             "messages": messages,
             "temperature": temperature,
-            "max_tokens": max_tokens,
         }
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
+        # merge TALK extra_body
+        try:
+            _talk_raw = getattr(self.llm.config, 'TALK_EXTRA_BODY', '')
+            if _talk_raw:
+                payload.update(_json.loads(_talk_raw))
+        except Exception:
+            pass
         resp = requests.post(api_url, headers=headers, json=payload, timeout=120)
         if resp.status_code == 200:
             data = resp.json()
-            return data["choices"][0]["message"]["content"]
+            message = data["choices"][0]["message"]
+            content = message.get("content", "")
+            if not content:
+                content = message.get("reasoning_content", "")
+            return content
         return ""
 
     def _format_test_inputs(self, test_inputs: list[dict]) -> str:
@@ -317,7 +329,7 @@ class PromptOptimizer:
                         {"role": "user", "content": user_content},
                     ]
                     result.llm_response = self._call_llm(
-                        messages, temperature=0.1, max_tokens=2048
+                        messages, temperature=0.1, max_tokens=None
                     )
                 results.append(result)
             except Exception as e:

@@ -104,6 +104,27 @@ class Config:
     EXPERIMENT_API_KEY: str = _external.get("EXPERIMENT_API_KEY") or _external.get("API_KEY", "")
     EXPERIMENT_API_URL: str = _external.get("EXPERIMENT_API_URL") or _external.get("API_URL", "https://api.siliconflow.cn/v1/chat/completions")
 
+    # ======================== Extra Body 配置（供应商特有参数）========================
+    # JSON 字符串，会被 merge 到每个 API 请求的 body 中
+    # 例: DeepSeek thinking 模式 → {"thinking": {"type": "enabled"}}
+    EXTRA_BODY: str = _external.get("EXTRA_BODY", "")
+    TALK_EXTRA_BODY: str = _external.get("TALK_EXTRA_BODY") or _external.get("EXTRA_BODY", "")
+    VL_EXTRA_BODY: str = _external.get("VL_EXTRA_BODY") or _external.get("EXTRA_BODY", "")
+    EXPERIMENT_EXTRA_BODY: str = _external.get("EXPERIMENT_EXTRA_BODY") or _external.get("EXTRA_BODY", "")
+
+    @classmethod
+    def get_extra_body(cls, model_type: str) -> dict:
+        """解析指定模型类型的 EXTRA_BODY JSON 字符串为 dict，解析失败返回 {} """
+        attr = f"{model_type.upper()}_EXTRA_BODY"
+        raw = getattr(cls, attr, "")
+        if not raw:
+            return {}
+        try:
+            import json as _extra_json
+            return _extra_json.loads(raw)
+        except Exception:
+            return {}
+
     # ======================== 实验设计智能体模型配置 ========================
     EXPERIMENT_MODEL_NAME: str = _external.get("EXPERIMENT_MODEL_NAME", "Pro/MiniMaxAI/MiniMax-M2.5")
 
@@ -164,6 +185,9 @@ class Config:
     MAX_RETRIES: int = _external.get("MAX_RETRIES", 3)
     TIMEOUT: int = _external.get("TIMEOUT", 60)
     STREAM_TIMEOUT: int = _external.get("STREAM_TIMEOUT", 90)
+    # 全局 max_tokens，None 表示不限制（不传该参数，由 API 自行决定）
+    # 设具体数值则所有模型调用统一生效
+    MAX_TOKENS: Optional[int] = _external.get("MAX_TOKENS", None)
 
     # ======================== PDF提取模式配置 ========================
     EXTRACTION_MODE: str = _external.get("EXTRACTION_MODE", "vision")

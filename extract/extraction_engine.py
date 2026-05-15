@@ -44,13 +44,14 @@ class ExtractionEngine:
     - 任务进度跟踪
     """
 
-    def __init__(self, task_manager: TaskManager, session_path: str = None):
+    def __init__(self, task_manager: TaskManager, session_path: str = None, temporal_dir: str = None):
         """
         初始化提取引擎
 
         Args:
             task_manager: 任务管理器
             session_path: 会话基础路径，如果为None则使用默认路径
+            temporal_dir: 全局 temporal 目录，如果为None则使用默认路径
         """
         self.config = Config()
         self.llm_client = LLMClient()
@@ -58,6 +59,7 @@ class ExtractionEngine:
         self.field_inference = FieldInference()
         self.task_manager = task_manager
         self.session_path = session_path
+        self.temporal_dir = temporal_dir
         # Phase 1: 页面预筛选（延迟初始化，在 process_pdf_library 中按需创建）
         self.page_filter: Optional[PageFilter] = None
         self.page_indexer: Optional[PageIndexer] = None
@@ -647,9 +649,13 @@ class ExtractionEngine:
             "model": self.config.MODEL_NAME_VL,
             "messages": messages,
             "temperature": 0.1,
-            "max_tokens": 1024,
             "stream": True
         }
+        if self.config.MAX_TOKENS is not None:
+            payload["max_tokens"] = self.config.MAX_TOKENS
+        # merge VL extra_body
+        _vl_extra = self.config.get_extra_body("VL")
+        payload.update(_vl_extra)
 
         max_retries = self.config.MAX_RETRIES
 
@@ -676,7 +682,11 @@ class ExtractionEngine:
                                 break
                             try:
                                 chunk_json = json.loads(data_str)
-                                content = chunk_json['choices'][0]['delta'].get('content', '')
+                                delta = chunk_json['choices'][0].get('delta', {})
+                                reasoning = delta.get('reasoning_content', '')
+                                content = delta.get('content', '')
+                                if reasoning:
+                                    result_text += reasoning
                                 if content:
                                     result_text += content
                                     self.task_manager.put_task_message("reading_chunk", content)
@@ -723,12 +733,16 @@ class ExtractionEngine:
         }
 
         payload = {
-            "model": self.config.MODEL_NAME_TALK,  # 使用文本模型
+            "model": self.config.MODEL_NAME_TALK,
             "messages": messages,
             "temperature": 0.1,
-            "max_tokens": 1024,
             "stream": True
         }
+        if self.config.MAX_TOKENS is not None:
+            payload["max_tokens"] = self.config.MAX_TOKENS
+        # merge TALK extra_body
+        _talk_extra = self.config.get_extra_body("TALK")
+        payload.update(_talk_extra)
 
         max_retries = self.config.MAX_RETRIES
 
@@ -755,7 +769,11 @@ class ExtractionEngine:
                                 break
                             try:
                                 chunk_json = json.loads(data_str)
-                                content = chunk_json['choices'][0]['delta'].get('content', '')
+                                delta = chunk_json['choices'][0].get('delta', {})
+                                reasoning = delta.get('reasoning_content', '')
+                                content = delta.get('content', '')
+                                if reasoning:
+                                    result_text += reasoning
                                 if content:
                                     result_text += content
                                     self.task_manager.put_task_message("reading_chunk", content)
@@ -950,10 +968,10 @@ class ExtractionEngine:
         # 保存到extract目录（使用会话路径）
         if self.session_path:
             extract_dir = os.path.join(self.session_path, "extract")
-            temporal_dir = os.path.join(self.session_path, "temporal")
         else:
             extract_dir = self.config.EXTRACT_DIR
-            temporal_dir = self.config.TEMPORAL_DIR
+        # temporal 使用全局共享目录
+        temporal_dir = self.temporal_dir or self.config.TEMPORAL_DIR
 
         os.makedirs(extract_dir, exist_ok=True)
         csv_filename = os.path.join(extract_dir, f"{prefix}_{time.strftime('%Y%m%d-%H%M%S')}.csv")

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useExperimentStore } from '@/stores/experiment'
 import { useLayoutStore } from '@/stores/layout'
 import ElementPanel from '@/components/experiment/ElementPanel.vue'
@@ -7,7 +7,7 @@ import StepCanvas from '@/components/experiment/StepCanvas.vue'
 import CodeArea from '@/components/experiment/CodeArea.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import ConfirmDialog from '@/components/modals/ConfirmDialog.vue'
-import { FlaskConical, Save, Play, Upload, Sparkles, Trash2 } from 'lucide-vue-next'
+import { Brain, FlaskConical, Save, Play, Upload, Sparkles, Trash2 } from 'lucide-vue-next'
 
 const store = useExperimentStore()
 const layout = useLayoutStore()
@@ -15,6 +15,12 @@ const layout = useLayoutStore()
 const showClearConfirm = ref(false)
 const showAIPrompt = ref(false)
 const aiPrompt = ref('')
+const thinkingCollapsed = ref(false)
+
+const thinkingTimerLabel = computed(() => {
+  const d = store.thinkingDuration
+  return d > 0 ? `思考中，用时${d.toFixed(1)}秒` : '思考中...'
+})
 
 watch(() => store.loading, (val) => {
   if (val) {
@@ -67,9 +73,17 @@ function onAIGenerate() {
       <ElementPanel />
       <StepCanvas />
 
-      <!-- Loading overlay -->
+      <!-- Thinking / Loading overlay -->
       <div v-if="store.loading" class="exp-loading">
-        <LoadingSpinner :size="24" label="AI 设计实验中..." />
+        <div v-if="store.thinking" class="thinking-card">
+          <button class="thinking-toggle" @click="thinkingCollapsed = !thinkingCollapsed">
+            <Brain :size="14" />
+            <span>{{ thinkingTimerLabel }}</span>
+            <span class="chevron">{{ thinkingCollapsed ? '▶' : '▼' }}</span>
+          </button>
+          <div class="thinking-content" v-show="!thinkingCollapsed">{{ store.thinking }}</div>
+        </div>
+        <LoadingSpinner v-if="!store.thinking" :size="24" label="AI 设计实验中..." />
       </div>
 
       <!-- Error -->
@@ -170,11 +184,56 @@ function onAIGenerate() {
   position: absolute;
   inset: 0;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: rgba(255,255,255,0.7);
+  gap: var(--space-md);
+  background: rgba(255,255,255,0.85);
   backdrop-filter: blur(4px);
   z-index: 10;
+  padding: var(--space-lg);
+}
+
+.thinking-card {
+  max-width: 560px;
+  width: 100%;
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+}
+
+.thinking-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: none;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.thinking-toggle:hover {
+  background: var(--color-bg-soft);
+}
+
+.chevron {
+  font-size: 10px;
+  margin-left: auto;
+}
+
+.thinking-content {
+  padding: 0 14px 12px 32px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  white-space: pre-wrap;
+  line-height: 1.7;
+  max-height: 260px;
+  overflow-y: auto;
 }
 
 .exp-error {

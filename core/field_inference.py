@@ -63,7 +63,7 @@ class FieldInference:
             messages=messages,
             response_model=DynamicFieldsResponse,
             temperature=0.1,
-            max_tokens=1024
+            max_tokens=None,
         )
 
         if success:
@@ -93,7 +93,7 @@ class FieldInference:
             model=self.config.MODEL_NAME_TALK,
             messages=messages,
             temperature=0.1,
-            max_tokens=100
+            max_tokens=None,
         )
 
         if result:
@@ -191,6 +191,7 @@ class ExperimentDesignAgent:
         self.llm_client = LLMClient(
             api_key=self.config.EXPERIMENT_API_KEY,
             api_url=self.config.EXPERIMENT_API_URL,
+            extra_body=self.config.get_extra_body('EXPERIMENT'),
         )
         self.hardware_registry = self._load_hardware_registry()
         self.software_registry = self._load_software_registry()
@@ -370,7 +371,7 @@ class ExperimentDesignAgent:
             model=self.config.EXPERIMENT_MODEL_NAME,
             messages=messages,
             temperature=0.3,
-            max_tokens=2048
+            max_tokens=None,
         )
 
         if result:
@@ -406,6 +407,9 @@ class ExperimentDesignAgent:
 
         Yields:
             SSE 事件字符串:
+            - thinking_start: 思考开始 {"type": "thinking_start", "data": ""}
+            - thinking_delta: 思考内容增量 {"type": "thinking_delta", "data": "..."}
+            - thinking_end: 思考结束 {"type": "thinking_end", "data": "..."}
             - chunk: LLM输出的文本片段 {"type": "chunk", "data": "..."}
             - complete: 最终结果 {"type": "complete", "data": {...}}
             - error: 错误信息 {"type": "error", "data": "..."}
@@ -420,22 +424,53 @@ class ExperimentDesignAgent:
 
         messages = [{"role": "user", "content": prompt}]
 
-        generator = self.llm_client.call_api(
-            model=self.config.EXPERIMENT_MODEL_NAME,
-            messages=messages,
-            temperature=0.3,
-            max_tokens=2048,
-            stream=True
-        )
-
-        if generator is None:
-            yield self._sse_event("error", "API调用失败")
+        try:
+            typed_stream = self.llm_client.stream_typed(
+                model=self.config.EXPERIMENT_MODEL_NAME,
+                messages=messages,
+                temperature=0.3,
+            )
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            yield self._sse_event("error", f"API调用失败: {str(e)}")
             return
 
+        thinking_started = False
+        thinking_buf = ""
         full_content = ""
-        for chunk in generator:
-            full_content += chunk
-            yield self._sse_event("chunk", chunk)
+
+        try:
+            for chunk_type, chunk_text in typed_stream:
+                if chunk_type == 'reasoning':
+                    if not thinking_started:
+                        thinking_started = True
+                        thinking_buf = ""
+                        print("[实验设计-流式] 思考开始")
+                        yield self._sse_event("thinking_start", "")
+                    thinking_buf += chunk_text
+                    yield self._sse_event("thinking_delta", thinking_buf)
+
+                elif chunk_type == 'content':
+                    if thinking_started:
+                        print(f"[实验设计-流式] 思考结束 ({len(thinking_buf)} 字符)")
+                        yield self._sse_event("thinking_end", thinking_buf)
+                        thinking_started = False
+                    full_content += chunk_text
+                    yield self._sse_event("chunk", chunk_text)
+        except GeneratorExit:
+            raise
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            if thinking_started:
+                yield self._sse_event("thinking_end", thinking_buf)
+            yield self._sse_event("error", f"流式读取失败: {str(e)}")
+            return
+
+        # Flush any remaining thinking (unlikely but safe)
+        if thinking_started:
+            yield self._sse_event("thinking_end", thinking_buf)
 
         content = full_content.strip()
         print(f"[实验设计-流式] LLM原始输出({len(content)}字符): {content[:300]}...")

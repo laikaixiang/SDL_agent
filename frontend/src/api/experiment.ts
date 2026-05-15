@@ -13,9 +13,15 @@ export async function generateExperiment(desc: string): Promise<{
   })
 }
 
+export interface StreamCallbacks {
+  onChunk?: (text: string) => void
+  onThinkingChunk?: (text: string) => void
+  onThinkingComplete?: (text: string) => void
+}
+
 export async function generateExperimentStream(
   desc: string,
-  onChunk: (text: string) => void,
+  callbacks: StreamCallbacks,
   signal?: AbortSignal,
 ): Promise<{
   type: string
@@ -37,26 +43,34 @@ export async function generateExperimentStream(
   const reader = resp.body?.getReader()
   if (!reader) throw new Error('无法读取响应流')
 
-  const decoder = new TextDecoder()
+  const decoder = new TextDecoder('utf-8')
   let buffer = ''
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() || ''
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
 
-    let dataLine = ''
-    for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        dataLine = line.slice(6)
-      } else if (line === '' && dataLine) {
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
         try {
-          const msg = JSON.parse(dataLine)
+          const msg = JSON.parse(line.slice(6))
+
           switch (msg.type) {
+            case 'thinking_start':
+              break
+            case 'thinking_delta':
+              callbacks.onThinkingChunk?.(msg.data as string)
+              break
+            case 'thinking_end':
+              callbacks.onThinkingComplete?.(msg.data as string)
+              break
             case 'chunk':
-              onChunk(msg.data as string)
+              callbacks.onChunk?.(msg.data as string)
               break
             case 'complete':
               return {
@@ -67,14 +81,15 @@ export async function generateExperimentStream(
             case 'error':
               throw new Error(msg.data as string)
           }
-        } catch (e) {
-          if (e instanceof SyntaxError) continue
-          throw e
+        } catch {
+          // skip malformed JSON (same as chat)
         }
-        dataLine = ''
       }
     }
+  } finally {
+    reader.releaseLock()
   }
+
   throw new Error('流式响应意外结束')
 }
 

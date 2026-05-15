@@ -48,6 +48,8 @@ class StreamAdapter:
 
         Yields:
             StreamEvent 字典，包含 type 键，可选 text 键
+
+        TODO: 检测 delta 中的 tool_calls → 产出 tool_call_start / tool_call_delta / tool_call_end 事件
         """
         try:
             for line in raw_lines:
@@ -57,6 +59,11 @@ class StreamAdapter:
 
                 reasoning = delta.get("reasoning_content", "")
                 content = delta.get("content", "")
+
+                # TODO: tool_calls 事件
+                # tool_calls = delta.get("tool_calls")
+                # if tool_calls:
+                #     yield from self._handle_tool_calls(tool_calls)
 
                 if reasoning:
                     yield from self._handle_reasoning(reasoning)

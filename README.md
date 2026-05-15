@@ -112,7 +112,7 @@ flowchart TD
 **设计阶段**（基于 `core/field_inference.py:ExperimentDesignAgent`）：
 1. **动态提示词构建**：自动加载 REGISTRY.json 硬件工具 + software/algorithms/ 软件算法 + 内置辅助操作（WAIT/LOOP/GROUP/CONDITION/END/USER_INPUT），生成~2300字符系统提示词；
 2. **AI生成JSON**：用户输入"实验设计：<描述>"，LLM生成标准JSON实验计划；
-3. **SSE流式推送**（v2.3）：POST `/api/experiment_chat` 支持 `{stream: true}`，通过 `parse_experiment_design_stream()` 生成器逐chunk推送LLM输出，前端实时显示生成进度（"AI正在分析实验需求→生成实验方案→解析完成"），非流式模式仍向后兼容；
+3. **SSE流式推送**（v2.3）：POST `/api/experiment_chat` 支持 `{stream: true}`，通过 `parse_experiment_design_stream()` 生成器逐chunk推送LLM输出。**v2.4 新增思考过程展示**：后端 `LLMClient.stream_typed()` 区分 `reasoning_content` / `content`，前端实时显示思考过程（thinking_start → thinking_delta → thinking_end），实验面板显示思考卡片+实时计时器，聊天面板复用 ThinkingBlock 组件；非流式模式仍向后兼容；
 4. **格式转换**：`experiment/format.py:json_to_visual()`将JSON转为前端可视化格式（节点+边）；
 5. **可视化编辑**：前端Canvas画布支持拖拽节点、编辑参数、调整执行顺序；
 6. **双向同步**：`visual_to_json()`将前端修改转回标准JSON格式；

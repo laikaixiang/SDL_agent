@@ -22,15 +22,17 @@ class CSVWriter:
     - 文件管理和备份
     """
 
-    def __init__(self, session_path: str = None):
+    def __init__(self, session_path: str = None, temporal_dir: str = None):
         """
         初始化CSV写入器
 
         Args:
             session_path: 会话基础路径，如果为None则使用默认路径
+            temporal_dir: 全局 temporal 目录，如果为None则使用默认路径
         """
         self.config = Config()
         self.session_path = session_path
+        self.temporal_dir = temporal_dir
 
     def write_extraction_results(
         self,
@@ -90,10 +92,7 @@ class CSVWriter:
             文件路径
         """
         if temporal_dir is None:
-            if self.session_path:
-                temporal_dir = os.path.join(self.session_path, "temporal")
-            else:
-                temporal_dir = self.config.TEMPORAL_DIR
+            temporal_dir = self.temporal_dir or self.config.TEMPORAL_DIR
 
         os.makedirs(temporal_dir, exist_ok=True)
 

@@ -3,7 +3,7 @@ import { defineStore } from 'pinia'
 import type { ExperimentStep, ExperimentPlan, HelperType } from '@/types/experiment'
 import type { HardwareTool } from '@/types/hardware'
 import {
-  generateExperiment,
+  generateExperimentStream,
   compileExperiment,
   compileAndRun,
   executeExperiment,
@@ -56,6 +56,9 @@ export const useExperimentStore = defineStore('experiment', () => {
   const running = ref(false)
   const error = ref('')
   const logMessages = ref<string[]>([])
+  const thinking = ref('')
+  const thinkingDuration = ref(0)
+  let thinkingTimer: ReturnType<typeof setInterval> | null = null
 
   const plan = computed<ExperimentPlan>(() => ({
     experiment_name: experimentName.value,
@@ -322,12 +325,54 @@ export const useExperimentStore = defineStore('experiment', () => {
 
   // --- AI generation ---
 
+  function _clearThinkingTimer() {
+    if (thinkingTimer) {
+      clearInterval(thinkingTimer)
+      thinkingTimer = null
+    }
+  }
+
+  function _startThinkingTimer() {
+    _clearThinkingTimer()
+    const startTime = Date.now()
+    thinkingDuration.value = 0
+    thinkingTimer = setInterval(() => {
+      thinkingDuration.value = Math.round((Date.now() - startTime) / 10) / 100
+    }, 100)
+  }
+
   async function generateFromAI(desc: string) {
     loading.value = true
     error.value = ''
+    thinking.value = ''
+    thinkingDuration.value = 0
+    let thinkingDone = false
 
     try {
-      const data = await generateExperiment(desc)
+      const data = await generateExperimentStream(desc, {
+        onThinkingChunk(text) {
+          console.log('[exp] thinking chunk:', text.length, 'chars')
+          thinking.value = text
+          if (!thinkingDone && !thinkingTimer) {
+            _startThinkingTimer()
+          }
+        },
+        onThinkingComplete(text) {
+          console.log('[exp] thinking complete:', text.length, 'chars')
+          thinking.value = text
+          thinkingDone = true
+          _clearThinkingTimer()
+        },
+        onChunk(text) {
+          console.log('[exp] content chunk:', text.length, 'chars')
+          if (!thinkingDone && !thinking.value) {
+            // No thinking phase — show content as it streams
+            if (!thinkingTimer) _startThinkingTimer()
+            thinking.value = '正在直接生成实验方案...'
+          }
+        },
+      })
+      console.log('[exp] stream complete, got json:', !!data.experiment_json)
       if (data.experiment_json) {
         let json = data.experiment_json
         if (typeof json === 'string') {
@@ -335,12 +380,14 @@ export const useExperimentStore = defineStore('experiment', () => {
         }
         loadFromJSON(json)
         useLayoutStore().updateTaskStatus('experiment', 'completed')
-      } else if ((data as unknown as { type: string }).type === 'error') {
-        error.value = data.reply || ''
       }
     } catch (err) {
-      error.value = (err as Error).message
+      console.error('[exp] generateFromAI error:', err)
+      if ((err as Error).message) {
+        error.value = (err as Error).message
+      }
     } finally {
+      _clearThinkingTimer()
       loading.value = false
     }
   }
@@ -433,6 +480,9 @@ export const useExperimentStore = defineStore('experiment', () => {
     editingStepIndex.value = null
     codeViewMode.value = 'json'
     collapsedBlocks.value = new Set()
+    thinking.value = ''
+    thinkingDuration.value = 0
+    _clearThinkingTimer()
   }
 
   // --- Execute ---
@@ -486,7 +536,7 @@ export const useExperimentStore = defineStore('experiment', () => {
     experimentName, steps, codeViewMode, pythonCode, editableJsonCode, editablePythonCode,
     compileStatus, editingStepIndex,
     draggedStepIndex, codeAreaMinimized, codeAreaFullscreen,
-    hardwareTools, algorithms, loading, running, error, logMessages,
+    hardwareTools, algorithms, loading, running, error, logMessages, thinking, thinkingDuration,
     plan, jsonCode, nestingInfo, blockErrors,
     collapsedBlocks, toggleCollapse, hiddenStepIndices,
     addStep, removeStep, moveStepUp, moveStepDown, moveStep, updateStep, toggleEdit,

@@ -2,7 +2,8 @@ import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import type { Message } from '@/types/chat'
 import { sendChatMessage } from '@/api/chat'
-import { generateExperiment, generateExperimentStream } from '@/api/experiment'
+import { generateExperimentStream } from '@/api/experiment'
+import { saveHistoryBatch } from '@/api/history'
 import { isTimeoutError } from '@/api/client'
 import { useSSE } from '@/composables/useSSE'
 import { useLayoutStore } from '@/stores/layout'
@@ -73,6 +74,21 @@ export const useChatStore = defineStore('chat', () => {
     })
   }
 
+  // 持久化当前消息列表到服务端会话文件夹
+  async function persistHistory() {
+    try {
+      const payload = messages.value.map(m => ({
+        role: m.role,
+        content: m.content,
+        timestamp: m.timestamp,
+        mode: currentMode.value,
+      }))
+      await saveHistoryBatch(payload)
+    } catch {
+      // 静默失败，不干扰用户操作
+    }
+  }
+
   function connectExtractionSSE() {
     const layout = useLayoutStore()
     extractionRunning.value = true
@@ -115,6 +131,7 @@ export const useChatStore = defineStore('chat', () => {
             const d = msg.data as Record<string, unknown> | undefined
             if (d?.message) addMessage('ai', d.message as string)
             if (d?.error) addMessage('ai', d.error as string)
+            persistHistory()
             disconnect()
             break
           }
@@ -125,6 +142,7 @@ export const useChatStore = defineStore('chat', () => {
             extractionPdfPath.value = null
             extractionFilename.value = null
             addMessage('ai', msg.data as string)
+            persistHistory()
             disconnect()
             break
         }
@@ -274,14 +292,27 @@ export const useChatStore = defineStore('chat', () => {
           try {
             aiMsg.content = '⏳ AI 正在分析实验需求...'
             let streamedText = ''
+            let expThinkingStart = 0
             const expData = await generateExperimentStream(
               cmd,
-              (chunk) => {
-                streamedText += chunk
-                // 每收集50个字符更新一次，避免高频 DOM 更新
-                if (streamedText.length % 50 < chunk.length || streamedText.length < 50) {
-                  aiMsg.content = '⏳ AI 正在生成实验方案...\n\n```json\n' + streamedText + '\n```'
-                }
+              {
+                onThinkingChunk(text) {
+                  if (!expThinkingStart) expThinkingStart = Date.now()
+                  aiMsg.thinking = text
+                  aiMsg.thinking_duration = Math.round((Date.now() - expThinkingStart) / 100) / 10
+                },
+                onThinkingComplete(text) {
+                  aiMsg.thinking = text
+                  aiMsg.thinking_duration = expThinkingStart
+                    ? Math.round((Date.now() - expThinkingStart) / 1000)
+                    : 0
+                },
+                onChunk(chunk) {
+                  streamedText += chunk
+                  if (streamedText.length % 50 < chunk.length || streamedText.length < 50) {
+                    aiMsg.content = '⏳ AI 正在生成实验方案...\n\n```json\n' + streamedText + '\n```'
+                  }
+                },
               },
               controller.signal,
             )
@@ -309,6 +340,7 @@ export const useChatStore = defineStore('chat', () => {
     } finally {
       isStreaming.value = false
       abortController.value = null
+      persistHistory()
     }
   }
 
@@ -329,6 +361,21 @@ export const useChatStore = defineStore('chat', () => {
     extractionPdfPath.value = null
     extractionFilename.value = null
     addMessage('ai', '提取任务已取消。')
+  }
+
+  // 页面关闭/刷新时自动保存（sendBeacon 保证可靠发送）
+  if (typeof window !== 'undefined') {
+    window.addEventListener('beforeunload', () => {
+      if (messages.value.length === 0) return
+      const payload = messages.value.map(m => ({
+        role: m.role,
+        content: m.content,
+        timestamp: m.timestamp,
+        mode: currentMode.value,
+      }))
+      const blob = new Blob([JSON.stringify({ messages: payload })], { type: 'application/json' })
+      navigator.sendBeacon('/api/history/save_batch', blob)
+    })
   }
 
   function clear() {
@@ -367,5 +414,6 @@ export const useChatStore = defineStore('chat', () => {
     removeConfirmField,
     addConfirmField,
     updateConfirmField,
+    persistHistory,
   }
 })

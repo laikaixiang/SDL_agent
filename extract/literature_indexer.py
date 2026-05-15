@@ -705,7 +705,7 @@ class LiteratureIndexer:
                     model=self.config.METADATA_EXTRACTION_MODEL,
                     messages=messages,
                     temperature=0.2,
-                    max_tokens=1024,
+                    max_tokens=None,
                     timeout=self.config.METADATA_EXTRACTION_TIMEOUT
                 )
 

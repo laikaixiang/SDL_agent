@@ -195,7 +195,7 @@ def test_prompt():
                 messages=messages,
                 response_model=None,
                 temperature=0.1,
-                max_tokens=2048,
+                max_tokens=None,
             )
             # call_api fallback
             if result is None:
@@ -203,7 +203,7 @@ def test_prompt():
                     model=config.MODEL_NAME_TALK,
                     messages=messages,
                     temperature=0.1,
-                    max_tokens=2048,
+                    max_tokens=None,
                 )
             response_data["llm_response"] = str(result) if result else ""
 

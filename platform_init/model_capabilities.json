@@ -6,11 +6,18 @@
       "latency_ms": 3184.0,
       "tested_at": "2026-05-14T00:45:47",
       "error": null
+    },
+    "deepseek-v4-flash": {
+      "supports_streaming": true,
+      "chunks_received": 27,
+      "latency_ms": 10566.6,
+      "tested_at": "2026-05-15T17:43:12",
+      "error": null
     }
   },
   "default": {
     "streaming_enabled": true,
-    "last_model": "Pro/moonshotai/Kimi-K2.6",
-    "last_check": "2026-05-14T00:45:47"
+    "last_model": "deepseek-v4-flash",
+    "last_check": "2026-05-15T17:43:12"
   }
 }

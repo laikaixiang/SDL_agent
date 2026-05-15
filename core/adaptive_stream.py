@@ -48,6 +48,15 @@ class AdaptiveStreamHandler:
         self._last_check_time = 0
         self._check_interval = 3600  # 1小时重新检测一次
 
+        # 解析 TALK_EXTRA_BODY 为 dict
+        self._extra_body = {}
+        raw = self.config.TALK_EXTRA_BODY
+        if raw:
+            try:
+                self._extra_body = json.loads(raw)
+            except json.JSONDecodeError:
+                print(f"[adaptive_stream] TALK_EXTRA_BODY JSON 解析失败，已忽略: {raw[:100]}")
+
     def supports_streaming(self) -> bool:
         """
         检测API是否支持流式响应
@@ -72,6 +81,7 @@ class AdaptiveStreamHandler:
                 "stream": True,
                 "max_tokens": 5
             }
+            payload.update(self._extra_body)
 
             response = requests.post(
                 self.config.TALK_API_URL,
@@ -123,7 +133,11 @@ class AdaptiveStreamHandler:
                 if not content:
                     continue
                 api_role = "assistant" if role == "ai" else "user"
-                messages.append({"role": api_role, "content": content})
+                msg = {"role": api_role, "content": content}
+                # 保留 reasoning_content 以支持 DeepSeek 多轮对话
+                if role == "ai" and m.get("reasoning_content"):
+                    msg["reasoning_content"] = m["reasoning_content"]
+                messages.append(msg)
         messages.append({"role": "user", "content": user_message})
         return messages
 
@@ -145,8 +159,11 @@ class AdaptiveStreamHandler:
         payload = {
             "model": actual_model,
             "messages": self._build_messages(user_message, history),
-            "stream": True
+            "stream": True,
         }
+        if self.config.MAX_TOKENS is not None:
+            payload["max_tokens"] = self.config.MAX_TOKENS
+        payload.update(self._extra_body)
 
         try:
             response = requests.post(
@@ -170,7 +187,11 @@ class AdaptiveStreamHandler:
                             break
                         try:
                             chunk = json.loads(data_str)
-                            content = chunk['choices'][0]['delta'].get('content', '')
+                            delta = chunk['choices'][0].get('delta', {})
+                            reasoning = delta.get('reasoning_content', '')
+                            content = delta.get('content', '')
+                            if reasoning:
+                                yield reasoning
                             if content:
                                 yield content
                         except (json.JSONDecodeError, KeyError, IndexError):
@@ -197,8 +218,11 @@ class AdaptiveStreamHandler:
         payload = {
             "model": actual_model,
             "messages": self._build_messages(user_message, history),
-            "stream": False
+            "stream": False,
         }
+        if self.config.MAX_TOKENS is not None:
+            payload["max_tokens"] = self.config.MAX_TOKENS
+        payload.update(self._extra_body)
 
         try:
             response = requests.post(
@@ -212,7 +236,12 @@ class AdaptiveStreamHandler:
                 return f"[API错误: 状态码 {response.status_code}]"
 
             data = response.json()
-            content = data.get('choices', [{}])[0].get('message', {}).get('content', '')
+            message = data.get('choices', [{}])[0].get('message', {})
+            content = message.get('content', '')
+
+            if not content:
+                # fallback to reasoning_content (DeepSeek thinking models)
+                content = message.get('reasoning_content', '')
 
             if not content:
                 return "[API返回空响应]"

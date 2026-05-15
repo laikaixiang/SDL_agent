@@ -324,9 +324,24 @@ def _call_llm(system_prompt: str, user_message: str) -> str:
         ],
         "temperature": 0.2,
     }
+    if config_module.Config.MAX_TOKENS is not None:
+        payload["max_tokens"] = config_module.Config.MAX_TOKENS
+    # merge TALK extra_body
+    try:
+        _talk_raw = config_module.Config.TALK_EXTRA_BODY
+        if _talk_raw:
+            import json as _ej
+            payload.update(_ej.loads(_talk_raw))
+    except Exception:
+        pass
     resp = requests.post(_API_URL, headers=headers, json=payload, timeout=90)
     resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"].strip()
+    data = resp.json()
+    message = data["choices"][0]["message"]
+    content = message.get("content", "")
+    if not content:
+        content = message.get("reasoning_content", "")
+    return content.strip()
 
 
 def _strip_markdown_code_block(text: str) -> str:

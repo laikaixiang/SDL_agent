@@ -163,6 +163,20 @@ def _update_session_index(session_info):
     with open(index_path, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
+FOLDERS_PATH = os.path.join(config.DIALOGUE_DATA_DIR, "folders.json")
+
+def _read_folders():
+    """读取 folders.json，不存在则返回空列表。"""
+    if os.path.exists(FOLDERS_PATH):
+        with open(FOLDERS_PATH, 'r', encoding='utf-8') as f:
+            return json.load(f).get("folders", [])
+    return []
+
+def _write_folders(folders: list):
+    """写入 folders.json。"""
+    with open(FOLDERS_PATH, 'w', encoding='utf-8') as f:
+        json.dump({"folders": folders}, f, ensure_ascii=False, indent=2)
+
 def _generate_title(messages):
     """取前2条用户消息调用 LLM 生成会话标题。"""
     user_msgs = [m["content"] for m in messages if m.get("role") == "user"]
@@ -1836,7 +1850,7 @@ def history_save_batch():
 
     # 标题：已有则复用，否则尝试 LLM 生成
     title = existing_title
-    if not title and len(messages) >= 4:
+    if not title and len(messages) >= 3:
         title = _generate_title(messages)
     if not title:
         title = "未命名会话"
@@ -1858,27 +1872,46 @@ def history_save_batch():
     with open(history_path, 'w', encoding='utf-8') as f:
         json.dump(history_data, f, ensure_ascii=False, indent=2)
 
-    _update_session_index({
-        "timestamp": SESSION_TIMESTAMP,
-        "started_at": session_info["started_at"],
-        "saved_at": session_info["saved_at"],
-        "message_count": len(messages),
-        "title": title,
-        "path": SESSION_TIMESTAMP
-    })
+    # 只索引已拟定标题的会话（未命名会话不显示在历史列表中）
+    if title and title != "未命名会话":
+        _update_session_index({
+            "timestamp": SESSION_TIMESTAMP,
+            "started_at": session_info["started_at"],
+            "saved_at": session_info["saved_at"],
+            "message_count": len(messages),
+            "title": title,
+            "path": SESSION_TIMESTAMP
+        })
 
     return jsonify({"success": True, "saved_count": len(messages)})
 
 
+@app.route('/api/history/clear_cache', methods=['POST'])
+def history_clear_cache():
+    """
+    清除所有未拟定标题的历史对话文件夹。
+
+    返回: { success: true, deleted_count: int, deleted_folders: [...] }
+    """
+    from utils.cache_cleaner import clear_untitled_sessions
+    result = clear_untitled_sessions(config.DIALOGUE_DATA_DIR)
+    return jsonify({"success": True, **result})
+
+
 @app.route('/api/history/sessions', methods=['GET'])
 def history_sessions():
-    """返回所有历史会话的索引列表。"""
+    """返回所有已拟定标题的历史会话索引列表（过滤掉未命名会话）。"""
     index_path = os.path.join(config.DIALOGUE_DATA_DIR, "sessions_index.json")
     if os.path.exists(index_path):
         with open(index_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
     else:
         data = {"sessions": []}
+    # 只返回已拟定标题的会话
+    data["sessions"] = [
+        s for s in data.get("sessions", [])
+        if s.get("title") and s["title"] != "未命名会话"
+    ]
     return jsonify(data)
 
 
@@ -1912,6 +1945,222 @@ def history_load_session(timestamp: str):
             "outputs": data.get("outputs", {}),
         }
     })
+
+
+@app.route('/api/history/session/<timestamp>', methods=['DELETE'])
+def history_delete_session(timestamp: str):
+    """
+    软删除会话：从 sessions_index.json 移除条目，保留文件夹和 chat_history.json。
+
+    返回: { success: true } 或 { success: false, error }
+    """
+    if not re.match(r'^\d{8}_\d{6}$', timestamp):
+        return jsonify({"success": False, "error": "无效的时间戳格式"}), 400
+
+    index_path = os.path.join(config.DIALOGUE_DATA_DIR, "sessions_index.json")
+    if not os.path.exists(index_path):
+        return jsonify({"success": False, "error": "索引文件不存在"}), 404
+
+    with open(index_path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+
+    original_len = len(data.get("sessions", []))
+    data["sessions"] = [s for s in data.get("sessions", []) if s.get("timestamp") != timestamp]
+
+    if len(data["sessions"]) == original_len:
+        return jsonify({"success": False, "error": "会话不存在"}), 404
+
+    try:
+        with open(index_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return jsonify({"success": False, "error": f"写入失败: {str(e)}"}), 500
+
+    return jsonify({"success": True})
+
+
+@app.route('/api/history/session/<timestamp>/title', methods=['PUT'])
+def history_update_title(timestamp: str):
+    """
+    更新会话标题，同步写入 sessions_index.json 和 chat_history.json。
+
+    Body: {"title": "新标题"}
+    返回: { success: true, title }
+    """
+    if not re.match(r'^\d{8}_\d{6}$', timestamp):
+        return jsonify({"success": False, "error": "无效的时间戳格式"}), 400
+
+    data = request.get_json(force=True, silent=True)
+    if not data or "title" not in data:
+        return jsonify({"success": False, "error": "缺少 title 字段"}), 400
+
+    new_title = data["title"].strip()
+    if not new_title or len(new_title) > 100:
+        return jsonify({"success": False, "error": "标题长度需在 1-100 字符之间"}), 400
+
+    # 验证会话存在
+    history_path = os.path.join(config.DIALOGUE_DATA_DIR, timestamp, "chat_history.json")
+    if not os.path.exists(history_path):
+        return jsonify({"success": False, "error": "会话不存在"}), 404
+
+    # 1. 更新 sessions_index.json
+    index_path = os.path.join(config.DIALOGUE_DATA_DIR, "sessions_index.json")
+    if os.path.exists(index_path):
+        try:
+            with open(index_path, 'r', encoding='utf-8') as f:
+                index_data = json.load(f)
+            for s in index_data.get("sessions", []):
+                if s.get("timestamp") == timestamp:
+                    s["title"] = new_title
+                    break
+            with open(index_path, 'w', encoding='utf-8') as f:
+                json.dump(index_data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            return jsonify({"success": False, "error": f"写入索引失败: {str(e)}"}), 500
+
+    # 2. 更新 chat_history.json
+    try:
+        with open(history_path, 'r', encoding='utf-8') as f:
+            hist_data = json.load(f)
+        hist_data["title"] = new_title
+        with open(history_path, 'w', encoding='utf-8') as f:
+            json.dump(hist_data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return jsonify({"success": False, "error": f"写入会话失败: {str(e)}"}), 500
+
+    return jsonify({"success": True, "title": new_title})
+
+
+@app.route('/api/history/folders', methods=['GET'])
+def history_list_folders():
+    """返回所有文件夹列表。"""
+    return jsonify({"success": True, "folders": _read_folders()})
+
+
+@app.route('/api/history/folders', methods=['POST'])
+def history_create_folder():
+    """
+    创建文件夹。
+
+    Body: {"name": "钙钛矿实验"}
+    返回: { success: true, folder: { id, name, created_at } }
+    """
+    data = request.get_json(force=True, silent=True)
+    if not data:
+        return jsonify({"success": False, "error": "请求体为空"}), 400
+
+    name = (data.get("name") or "").strip()
+    if not name or len(name) > 50:
+        return jsonify({"success": False, "error": "文件夹名需在 1-50 字符之间"}), 400
+
+    folders = _read_folders()
+    folder = {
+        "id": str(uuid.uuid4())[:8],
+        "name": name,
+        "created_at": datetime.now().isoformat()
+    }
+    folders.append(folder)
+    _write_folders(folders)
+
+    return jsonify({"success": True, "folder": folder})
+
+
+@app.route('/api/history/folders/<folder_id>', methods=['PUT'])
+def history_rename_folder(folder_id: str):
+    """
+    重命名文件夹。
+
+    Body: {"name": "新名称"}
+    """
+    data = request.get_json(force=True, silent=True)
+    if not data:
+        return jsonify({"success": False, "error": "请求体为空"}), 400
+
+    name = (data.get("name") or "").strip()
+    if not name or len(name) > 50:
+        return jsonify({"success": False, "error": "文件夹名需在 1-50 字符之间"}), 400
+
+    folders = _read_folders()
+    for f in folders:
+        if f["id"] == folder_id:
+            f["name"] = name
+            _write_folders(folders)
+            return jsonify({"success": True, "folder": f})
+
+    return jsonify({"success": False, "error": "文件夹不存在"}), 404
+
+
+@app.route('/api/history/folders/<folder_id>', methods=['DELETE'])
+def history_delete_folder(folder_id: str):
+    """
+    删除文件夹，该文件夹下的所有会话变为未分类（移除 folder_id）。
+    """
+    folders = _read_folders()
+    original_len = len(folders)
+    folders = [f for f in folders if f["id"] != folder_id]
+    if len(folders) == original_len:
+        return jsonify({"success": False, "error": "文件夹不存在"}), 404
+    _write_folders(folders)
+
+    # 清除 sessions_index 中该文件夹的关联
+    index_path = os.path.join(config.DIALOGUE_DATA_DIR, "sessions_index.json")
+    if os.path.exists(index_path):
+        with open(index_path, 'r', encoding='utf-8') as f:
+            index_data = json.load(f)
+        for s in index_data.get("sessions", []):
+            if s.get("folder_id") == folder_id:
+                s.pop("folder_id", None)
+        with open(index_path, 'w', encoding='utf-8') as f:
+            json.dump(index_data, f, ensure_ascii=False, indent=2)
+
+    return jsonify({"success": True})
+
+
+@app.route('/api/history/session/<timestamp>/move', methods=['PUT'])
+def history_move_session(timestamp: str):
+    """
+    移动会话到指定文件夹（或移除文件夹关联）。
+
+    Body: {"folder_id": "a1b2c3d4"}  或  {"folder_id": null}  移除关联
+    返回: { success: true }
+    """
+    if not re.match(r'^\d{8}_\d{6}$', timestamp):
+        return jsonify({"success": False, "error": "无效的时间戳格式"}), 400
+
+    data = request.get_json(force=True, silent=True)
+    if not data or "folder_id" not in data:
+        return jsonify({"success": False, "error": "缺少 folder_id 字段"}), 400
+
+    folder_id = data["folder_id"]  # None / null means remove from folder
+
+    # 如果指定了 folder_id，验证文件夹存在
+    if folder_id is not None:
+        folders = _read_folders()
+        if not any(f["id"] == folder_id for f in folders):
+            return jsonify({"success": False, "error": "文件夹不存在"}), 404
+
+    # 更新 sessions_index.json
+    index_path = os.path.join(config.DIALOGUE_DATA_DIR, "sessions_index.json")
+    if not os.path.exists(index_path):
+        return jsonify({"success": False, "error": "索引文件不存在"}), 404
+
+    with open(index_path, 'r', encoding='utf-8') as f:
+        index_data = json.load(f)
+    found = False
+    for s in index_data.get("sessions", []):
+        if s.get("timestamp") == timestamp:
+            found = True
+            if folder_id is None:
+                s.pop("folder_id", None)
+            else:
+                s["folder_id"] = folder_id
+            break
+    if not found:
+        return jsonify({"success": False, "error": "会话不存在"}), 404
+    with open(index_path, 'w', encoding='utf-8') as f:
+        json.dump(index_data, f, ensure_ascii=False, indent=2)
+
+    return jsonify({"success": True})
 
 
 # =============================================================================

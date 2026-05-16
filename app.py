@@ -121,7 +121,7 @@ print(f"[会话管理] 全局 temporal: {GLOBAL_TEMPORAL_DIR}")
 algorithm_guide = AlgorithmGuide(session_path=SESSION_BASE_PATH)
 
 # =============================================================================
-# 平台启动检测：模型流式能力
+# 平台启动检测：流式能力 + 统一诊断
 # =============================================================================
 from platform_init.check_stream_capability import ensure_capability_check
 
@@ -130,6 +130,18 @@ try:
     _stream_capabilities = ensure_capability_check(config)
 except Exception as e:
     print(f"[platform_init] 流式检测失败（不影响正常功能）: {e}")
+
+# 统一平台诊断（仅本地检查，< 1.5s）
+from platform_init.platform_init import run_checks as _run_platform_checks
+
+_platform_status = {"summary": {"total": 0, "pass": 0, "fail": 0, "warn": 0, "skip": 0}}
+try:
+    _platform_status = _run_platform_checks(scope="local")
+    s = _platform_status["summary"]
+    print(f"[platform_init] 平台检查完成: {s['pass']} pass, {s['fail']} fail, "
+          f"{s['warn']} warn, {s['skip']} skip (共{s['total']}项)")
+except Exception as e:
+    print(f"[platform_init] 平台检查失败（不影响正常功能）: {e}")
 
 def _update_session_index(session_info):
     """更新 sessions_index.json，upsert 当前会话条目。"""
@@ -997,6 +1009,23 @@ def streaming_recheck():
         "supports_streaming": result,
         "message": "流式支持已重新检测" if result else "API不支持流式响应"
     })
+
+
+@app.route('/api/platform_check', methods=['GET'])
+def platform_check():
+    """平台诊断 — 本地快速检查（无网络，< 1.5s）"""
+    global _platform_status
+    return jsonify(_platform_status)
+
+
+@app.route('/api/platform_check/full', methods=['POST'])
+def platform_check_full():
+    """平台诊断 — 全量检查（含网络，15-30s）"""
+    try:
+        result = _run_platform_checks(scope="full")
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.errorhandler(404)

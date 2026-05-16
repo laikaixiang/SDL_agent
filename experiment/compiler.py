@@ -5,12 +5,14 @@
 - 编译JSON为Python代码
 - 执行编译后的代码
 - 控制流转换（LOOP→for, CONDITION→if等）
+- 变量解析（编译时将变量名替换为默认值）
 """
 import subprocess
 import tempfile
 import os
 import json
 from pathlib import Path
+from core.variable_resolver import VariableResolver
 
 
 class ExperimentCompiler:
@@ -49,12 +51,33 @@ class ExperimentCompiler:
         return f"from hardware import {', '.join(func_names)}"
 
     @classmethod
-    def _build_tool_call(cls, tool_name, params_dict, registry):
-        """根据registry param顺序生成位置参数调用字符串"""
+    def _build_tool_call(cls, tool_name, params_dict, registry, variables=None):
+        """
+        根据registry param顺序生成位置参数调用字符串
+
+        Args:
+            tool_name: 工具名
+            params_dict: 参数字典（可能包含变量名引用）
+            registry: 工具注册表
+            variables: 变量定义字典（用于解析变量名），如 {"speed1": {"type": "int", "default_value": 3000}}
+
+        Returns:
+            str: 位置参数调用字符串，如 "execute_spin_coating(3000, \"Perovskite\")"
+
+        Raises:
+            ValueError: 未知工具或参数类型错误
+        """
         if tool_name not in registry:
             raise ValueError(f"未知工具 '{tool_name}'，未在REGISTRY.json中注册")
 
         entry = registry[tool_name]
+
+        # 构建变量值字典（默认值）
+        var_values = {}
+        if variables:
+            for var_name, var_def in variables.items():
+                var_values[var_name] = var_def.get("default_value")
+
         args = []
         for pname, pinfo in entry["params"].items():
             if pname in params_dict:
@@ -65,6 +88,14 @@ class ExperimentCompiler:
                 raise ValueError(f"工具 '{tool_name}' 缺少必需参数 '{pname}'")
             else:
                 raw_value = None
+
+            # 变量解析：如果raw_value是字符串且variables存在，尝试解析变量/表达式
+            if variables and isinstance(raw_value, str) and raw_value.strip():
+                try:
+                    resolved = VariableResolver._resolve_param_value(raw_value, var_values)
+                    raw_value = resolved
+                except (ValueError, SyntaxError):
+                    pass  # 解析失败，保持原值
 
             ptype = pinfo.get("type", "str")
             try:
@@ -181,7 +212,8 @@ class ExperimentCompiler:
                 code_lines.append(f"{indent}print('执行硬件操作: {step_name}')")
                 if step_name in registry:
                     try:
-                        call_str = self._build_tool_call(step_name, params, registry)
+                        variables = experiment_json.get("variables", {})
+                        call_str = self._build_tool_call(step_name, params, registry, variables=variables)
                         code_lines.append(f"{indent}result = {call_str}")
                         code_lines.append(f"{indent}print(f'结果: {{result}}')")
                     except ValueError as e:

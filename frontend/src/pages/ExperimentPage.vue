@@ -4,6 +4,7 @@ import { useExperimentStore } from '@/stores/experiment'
 import { useLayoutStore } from '@/stores/layout'
 import ElementPanel from '@/components/experiment/ElementPanel.vue'
 import StepCanvas from '@/components/experiment/StepCanvas.vue'
+import VariableBar from '@/components/experiment/VariableBar.vue'
 import CodeArea from '@/components/experiment/CodeArea.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import ConfirmDialog from '@/components/modals/ConfirmDialog.vue'
@@ -89,6 +90,9 @@ function onAIGenerate() {
       <!-- Error -->
       <div v-if="store.error && !store.loading" class="exp-error">{{ store.error }}</div>
     </div>
+
+    <!-- Variable bar -->
+    <VariableBar />
 
     <!-- Code area -->
     <CodeArea />

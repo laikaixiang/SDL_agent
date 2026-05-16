@@ -1,5 +1,19 @@
 import { request } from './client'
-import type { ExperimentPlan } from '@/types/experiment'
+import type { ExperimentPlan, VariableDefinition } from '@/types/experiment'
+
+export interface ImportCSVResult {
+  type: string
+  variables: Record<string, VariableDefinition>
+  batch_data: Record<string, unknown>[]
+  reply: string
+}
+
+export async function importCSV(csvContent: string): Promise<ImportCSVResult> {
+  return request('/api/variables/import_csv', {
+    method: 'POST',
+    body: { csv_content: csvContent },
+  })
+}
 
 export async function generateExperiment(desc: string): Promise<{
   type: string

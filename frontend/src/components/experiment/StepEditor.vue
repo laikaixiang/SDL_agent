@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, reactive, watch } from 'vue'
 import { useExperimentStore } from '@/stores/experiment'
 import type { ExperimentStep } from '@/types/experiment'
 
@@ -16,6 +16,123 @@ const desc = ref(props.step.description || '')
 const params = ref(JSON.stringify(props.step.params, null, 2))
 const inputFile = ref(props.step.input_file || '')
 const outputFile = ref(props.step.output_file || '')
+
+const paramState = reactive<Record<string, 'normal' | 'undeclared' | 'linked' | 'invalid'>>({})
+const variablesHint = reactive<Record<string, string>>({})
+// 缓存用户输入值，避免 blur/re-render 丢失
+const draftValues = reactive<Record<string, string>>({})
+
+// 当 step 切换时重新初始化 draftValues
+watch(() => props.step, (s) => {
+  desc.value = s.description || ''
+  params.value = JSON.stringify(s.params, null, 2)
+  inputFile.value = s.input_file || ''
+  outputFile.value = s.output_file || ''
+  // 清空旧 draftValues
+  for (const k of Object.keys(draftValues)) { delete draftValues[k] }
+  // 初始化 draftValues
+  for (const [k, v] of Object.entries(s.params || {})) {
+    draftValues[k] = String(v ?? '')
+    paramState[k] = 'normal'
+    variablesHint[k] = ''
+  }
+}, { immediate: true })
+
+function syncParamsFromDraft() {
+  const p: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(draftValues)) {
+    const trimmed = v.trim()
+    if (!trimmed) {
+      p[k] = v  // 保留空字符串
+      continue
+    }
+    // 优先数字解析
+    const num = Number(trimmed)
+    if (!isNaN(num) && String(num) === trimmed) {
+      p[k] = num
+    } else {
+      p[k] = v
+    }
+  }
+  params.value = JSON.stringify(p, null, 2)
+}
+
+function onParamInput(paramKey: string, raw: string) {
+  draftValues[paramKey] = raw
+  // 输入变化时清除旧状态，等 blur 再判定
+  if (paramState[paramKey] === 'undeclared' || paramState[paramKey] === 'linked' || paramState[paramKey] === 'invalid') {
+    paramState[paramKey] = 'normal'
+    variablesHint[paramKey] = ''
+  }
+  syncParamsFromDraft()
+}
+
+function onParamBlur(paramKey: string) {
+  const value = draftValues[paramKey] ?? ''
+  const trimmed = value.trim()
+  if (!trimmed) { paramState[paramKey] = 'normal'; return }
+
+  // 纯数字 / 浮点数 → 正常字面量
+  const num = Number(trimmed)
+  if (!isNaN(num) && String(num) === trimmed) {
+    paramState[paramKey] = 'normal'
+    syncParamsFromDraft()
+    return
+  }
+
+  // 纯数字不允许作为变量名
+  if (/^\d+$/.test(trimmed)) {
+    paramState[paramKey] = 'invalid'
+    variablesHint[paramKey] = '纯数字不能作为变量名'
+    return
+  }
+
+  // 检查是否为合法变量名格式
+  const isVarName = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(trimmed)
+
+  if (isVarName) {
+    if (store.isVariableDeclared(trimmed)) {
+      paramState[paramKey] = 'linked'
+      const v = store.variables[trimmed]
+      variablesHint[paramKey] = `→ ${v?.default_value ?? '?'}`
+    } else {
+      paramState[paramKey] = 'undeclared'
+    }
+  } else {
+    // 含运算符或其他 → 交由后端表达式引擎处理
+    paramState[paramKey] = 'normal'
+  }
+}
+
+function onParamKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    // 找到当前输入框在 param-grid 中的所有 input，聚焦下一个
+    const inputs = (e.currentTarget as HTMLElement)?.closest('.param-grid')?.querySelectorAll('input.param-input') as NodeListOf<HTMLInputElement> | undefined
+    if (!inputs || inputs.length === 0) return
+    const current = e.target as HTMLInputElement
+    const idx = Array.from(inputs).indexOf(current)
+    if (idx >= 0 && idx < inputs.length - 1) {
+      inputs[idx + 1].focus()
+    } else {
+      current.blur()
+    }
+  }
+}
+
+function onDeclareVariable(paramKey: string, varName: string) {
+  if (!varName.trim()) return
+  let varType: 'int' | 'float' | 'str' | 'bool' = 'int'
+  if (toolDef) {
+    const paramDef = toolDef.params?.[paramKey]
+    if (paramDef?.type === 'str') varType = 'str'
+    else if (paramDef?.type === 'float') varType = 'float'
+    else if (paramDef?.type === 'bool') varType = 'bool'
+  }
+  store.addVariable(varName.trim(), varType)
+  paramState[paramKey] = 'linked'
+  variablesHint[paramKey] = `→ 需填写默认值`
+}
 
 function onSave() {
   let parsedParams: Record<string, unknown> = {}
@@ -55,17 +172,28 @@ const toolDef = props.step.type === 'tool'
               <span v-else class="param-opt">可选</span>
             </span>
             <span class="param-type">{{ v.type }}</span>
-            <input
-              class="editor-input param-input"
-              :placeholder="v.description || k"
-              :value="String(step.params[k] ?? v.default ?? '')"
-              @input="(e) => {
-                const val = (e.target as HTMLInputElement).value
-                const p = { ...step.params }
-                p[k] = v.type === 'number' || v.type === 'int' ? Number(val) : val
-                params = JSON.stringify(p, null, 2)
-              }"
-            />
+            <div class="param-input-row">
+              <input
+                class="editor-input param-input"
+                :class="{
+                  'param-undeclared': paramState[k] === 'undeclared',
+                  'param-linked': paramState[k] === 'linked',
+                  'param-invalid': paramState[k] === 'invalid',
+                }"
+                :placeholder="v.description || k"
+                :value="draftValues[k] ?? String(step.params[k] ?? v.default ?? '')"
+                @input="(e) => onParamInput(k, (e.target as HTMLInputElement).value)"
+                @blur="() => onParamBlur(k)"
+                @keydown="onParamKeydown"
+              />
+              <button
+                v-if="paramState[k] === 'undeclared'"
+                class="btn-declare"
+                @click="onDeclareVariable(k, draftValues[k] ?? '')"
+              >声明</button>
+              <span v-if="paramState[k] === 'linked'" class="param-linked-hint">→ {{ variablesHint[k] }}</span>
+              <span v-if="paramState[k] === 'invalid'" class="param-invalid-hint">{{ variablesHint[k] }}</span>
+            </div>
           </div>
         </div>
       </template>
@@ -157,4 +285,13 @@ const toolDef = props.step.type === 'tool'
 .btn-save { background: var(--color-primary); color: #fff; }
 .btn-save:hover { opacity: 0.9; }
 .btn-cancel { background: var(--color-bg-mute); color: var(--color-text); }
+
+.param-input-row { display: flex; align-items: center; gap: 4px; }
+.param-input.param-undeclared { border-color: var(--color-error); background: rgba(220, 38, 38, 0.05); }
+.param-input.param-linked { border-color: #10b981; background: rgba(16, 185, 129, 0.05); }
+.param-input.param-invalid { border-color: #f59e0b; background: rgba(245, 158, 11, 0.05); }
+.param-linked-hint { font-size: 11px; color: #10b981; white-space: nowrap; min-width: 40px; }
+.param-invalid-hint { font-size: 11px; color: #f59e0b; white-space: nowrap; }
+.btn-declare { padding: 2px 8px; border: 1px solid var(--color-error); border-radius: 4px; background: var(--color-error); color: #fff; font-size: 11px; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+.btn-declare:hover { opacity: 0.85; }
 </style>

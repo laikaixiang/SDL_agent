@@ -75,8 +75,12 @@ class ExperimentFormatConverter:
 
             # 生成节点标签
             if step_type == "helper" and step_name == "WAIT":
-                duration_s = step.get("params", {}).get("duration", 1000) / 1000.0
-                label = f"等待{duration_s}秒"
+                duration_raw = step.get("params", {}).get("duration", 1000)
+                if isinstance(duration_raw, (int, float)):
+                    duration_s = duration_raw / 1000.0
+                    label = f"等待{duration_s}秒"
+                else:
+                    label = f"等待({duration_raw})秒"
             elif step_type == "software":
                 label = f"算法:{step_name}"
             else:
@@ -97,7 +101,7 @@ class ExperimentFormatConverter:
                     "to": node_id
                 })
 
-        return {
+        result = {
             "experiment_name": experiment_json.get("experiment_name", "未命名实验"),
             "created_at": experiment_json.get("created_at", ""),
             "description": experiment_json.get("description", ""),
@@ -105,6 +109,10 @@ class ExperimentFormatConverter:
             "edges": edges,
             "notes": experiment_json.get("notes", "")
         }
+        # 透传 variables 字段（如果存在）
+        if "variables" in experiment_json:
+            result["variables"] = experiment_json["variables"]
+        return result
 
     def visual_to_json(self, visual_data: dict) -> dict:
         """

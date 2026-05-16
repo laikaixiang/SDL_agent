@@ -31,11 +31,38 @@ template: |
   - 如果数据文件尚不存在，使用描述性路径如"data/result.csv"并在 notes 中说明。
 
   ## 输出格式
+
+  ### 变量使用规则
+
+  **何时使用变量：**
+  - 单次实验（固定参数）→ 直接使用数字/字符串字面量
+  - 多轮实验（梯度变化、筛选优化）→ 变化的参数使用变量名代替数字
+  - 用户明确指定某参数用变量时，优先使用变量
+  - 不确定或疑似有误时，在 reply 中询问用户，不要自行决定
+
+  **变量声明格式（在 experiment JSON 顶层）：**
+  在 JSON 顶层添加 "variables" 字段，键为变量名（英文+数字，如 speed1、temp_a），值为包含 default_value 和 constraints 的对象。
+  default_value：必须为整数（不允许小数），类型由值自动推断（3000→int, 150.0→float, "Perovskite"→str）
+  constraints 为可选字段：
+    - min / max：数值范围，如 {"min": 1000, "max": 6000}
+    - required：是否必填，如 {"required": true}
+    - options：枚举选项，如 {"options": ["A液", "B液"]}
+
+  **步骤中引用变量（params 内）：**
+  直接在 params 中将参数值设为变量名字符串，如 "spin_speed": "speed1"
+  固定值仍使用数字字面量，如 "spin_acc": 500
+  变量名规则：英文+数字，语义化命名，不重复（允许 speed1, speed2 等编号）
+
+  **JSON 输出格式（含 variables）：**
   🚨 必须输出纯JSON，不要有Markdown标记（如```json）、代码块或解释文字。
   🚨 JSON格式：
   {
     "experiment_name": "实验名称（简洁描述）",
     "description": "实验目的和方法的简要描述",
+    "variables": {
+      "speed1": {"default_value": 3000, "constraints": {"min": 1000, "max": 6000}},
+      "reagent_a": {"default_value": "Perovskite", "constraints": {"required": true}}
+    },
     "steps": [
       {"type": "tool", "name": "工具名", "params": {"参数": 值}, "description": "此步骤的目的"},
       {"type": "helper", "name": "WAIT", "params": {"duration": 毫秒}, "description": "等待原因"},
@@ -51,3 +78,4 @@ template: |
   - 数据分析的 input_file 是否引用了前面步骤的产出？
   - LOOP/GROUP/CONDITION/END 是否成对？
   - 实验名称是否准确反映设计内容？
+  - 若输出 variables，变量名是否为英文+数字、default_value 是否为整数？

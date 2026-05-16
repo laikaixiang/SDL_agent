@@ -1,6 +1,6 @@
 import { ref, computed, watch } from 'vue'
 import { defineStore } from 'pinia'
-import type { ExperimentStep, ExperimentPlan, HelperType } from '@/types/experiment'
+import type { ExperimentStep, ExperimentPlan, HelperType, VariableDefinition } from '@/types/experiment'
 import type { HardwareTool } from '@/types/hardware'
 import {
   generateExperimentStream,
@@ -8,6 +8,7 @@ import {
   compileAndRun,
   executeExperiment,
   saveExperiment,
+  importCSV,
 } from '@/api/experiment'
 import { getHardwareTools } from '@/api/hardware'
 import { useSSE } from '@/composables/useSSE'
@@ -50,6 +51,10 @@ export const useExperimentStore = defineStore('experiment', () => {
   const draggedStepIndex = ref<number | null>(null)
   const codeAreaMinimized = ref(false)
   const codeAreaFullscreen = ref(false)
+  const variables = ref<Record<string, VariableDefinition>>({})
+  const batchData = ref<Record<string, unknown>[]>([])
+  const batchMode = ref(false)
+  const selectedVariable = ref<string | null>(null)
   const hardwareTools = ref<HardwareTool[]>([])
   const algorithms = ref<AlgorithmDef[]>([])
   const loading = ref(false)
@@ -64,6 +69,9 @@ export const useExperimentStore = defineStore('experiment', () => {
     experiment_name: experimentName.value,
     steps: steps.value,
     created_at: new Date().toISOString(),
+    variables: variables.value,
+    batch_data: batchData.value,
+    batch_mode: batchMode.value,
   }))
 
   const jsonCode = computed(() => JSON.stringify(plan.value, null, 2))
@@ -458,6 +466,9 @@ export const useExperimentStore = defineStore('experiment', () => {
       type: s.type || 'tool',
       params: s.params || {},
     }))
+    variables.value = json.variables || {}
+    batchData.value = json.batch_data || []
+    batchMode.value = json.batch_mode || false
     editingStepIndex.value = null
     addLog(`已加载实验: ${experimentName.value}，共 ${steps.value.length} 步`)
   }
@@ -472,6 +483,77 @@ export const useExperimentStore = defineStore('experiment', () => {
     }
   }
 
+  // --- Variable management ---
+
+  function addVariable(name: string, varType: 'int' | 'float' | 'str' | 'bool' = 'int') {
+    if (variables.value[name]) return // auto-dedup
+    const def: VariableDefinition = {
+      name,
+      type: varType,
+      default_value: varType === 'int' ? 0 : varType === 'float' ? 0.0 : varType === 'bool' ? false : '',
+    }
+    variables.value = { ...variables.value, [name]: def }
+    selectedVariable.value = name
+  }
+
+  function removeVariable(name: string) {
+    const next = { ...variables.value }
+    delete next[name]
+    variables.value = next
+    if (selectedVariable.value === name) {
+      selectedVariable.value = null
+    }
+  }
+
+  function updateVariable(name: string, updates: Partial<VariableDefinition>) {
+    if (!variables.value[name]) return
+    variables.value = {
+      ...variables.value,
+      [name]: { ...variables.value[name], ...updates, name },
+    }
+  }
+
+  function selectVariable(name: string | null) {
+    selectedVariable.value = name
+  }
+
+  function isVariableDeclared(name: string): boolean {
+    return name in variables.value
+  }
+
+  async function importCSVFile(file: File) {
+    try {
+      const text = await file.text()
+      const result = await importCSV(text)
+      // Merge variables
+      if (result.variables) {
+        const merged = { ...variables.value }
+        for (const [k, v] of Object.entries(result.variables)) {
+          merged[k] = v
+        }
+        variables.value = merged
+      }
+      if (result.batch_data) {
+        batchData.value = result.batch_data
+      }
+      addLog(result.reply || 'CSV 导入完成')
+    } catch (err) {
+      addLog(`CSV 导入失败: ${(err as Error).message}`)
+    }
+  }
+
+  function getVariableReferences(name: string): string[] {
+    const refs: string[] = []
+    steps.value.forEach((step, i) => {
+      for (const [k, v] of Object.entries(step.params)) {
+        if (String(v).trim() === name) {
+          refs.push(`步骤${i + 1}: ${k}`)
+        }
+      }
+    })
+    return refs
+  }
+
   function clear() {
     experimentName.value = '未命名实验'
     steps.value = []
@@ -482,6 +564,10 @@ export const useExperimentStore = defineStore('experiment', () => {
     collapsedBlocks.value = new Set()
     thinking.value = ''
     thinkingDuration.value = 0
+    variables.value = {}
+    batchData.value = []
+    batchMode.value = false
+    selectedVariable.value = null
     _clearThinkingTimer()
   }
 
@@ -536,6 +622,7 @@ export const useExperimentStore = defineStore('experiment', () => {
     experimentName, steps, codeViewMode, pythonCode, editableJsonCode, editablePythonCode,
     compileStatus, editingStepIndex,
     draggedStepIndex, codeAreaMinimized, codeAreaFullscreen,
+    variables, batchData, batchMode, selectedVariable,
     hardwareTools, algorithms, loading, running, error, logMessages, thinking, thinkingDuration,
     plan, jsonCode, nestingInfo, blockErrors,
     collapsedBlocks, toggleCollapse, hiddenStepIndices,
@@ -544,6 +631,8 @@ export const useExperimentStore = defineStore('experiment', () => {
     loadHardwareTools, loadAlgorithms,
     generateFromAI, compile, compileAndRunExperiment, syncFromCode,
     onJsonFocus, onJsonBlur, onPyFocus, onPyBlur,
+    addVariable, removeVariable, updateVariable, selectVariable, isVariableDeclared,
+    importCSVFile, getVariableReferences,
     save, loadFromJSON, importFile, clear, execute, addLog,
   }
 })

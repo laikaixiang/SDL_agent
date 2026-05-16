@@ -384,6 +384,9 @@ class ExperimentDesignAgent:
                 if experiment_json is None:
                     return False, f"JSON解析失败: 无法从LLM响应提取JSON。原始输出: {content[:200]}"
 
+                # 规范化变量：为缺少 type 的变量从 default_value 推断类型
+                self._normalize_variables(experiment_json)
+
                 if self.validate_experiment_json(experiment_json):
                     return True, experiment_json
                 else:
@@ -484,6 +487,9 @@ class ExperimentDesignAgent:
             )
             return
 
+        # 规范化变量：为缺少 type 的变量从 default_value 推断类型
+        self._normalize_variables(experiment_json)
+
         if not self.validate_experiment_json(experiment_json):
             yield self._sse_event("error", "生成的JSON格式不符合要求")
             return
@@ -502,8 +508,32 @@ class ExperimentDesignAgent:
                 f"✅ 已生成实验设计方案：{experiment_json.get('experiment_name', '未命名实验')}\n\n"
                 f"{experiment_json.get('description', '')}\n\n"
                 f"共 {len(experiment_json.get('steps', []))} 个步骤，已推送到实验流程画布。"
+                + (f"\n\n📊 包含 {len(experiment_json.get('variables', {}))} 个可配置变量，可在变量栏中修改默认值或导入CSV批量执行。"
+                   if experiment_json.get('variables') else "")
             )
         })
+
+    @staticmethod
+    def _normalize_variables(experiment_json: dict) -> dict:
+        """
+        规范化 variables 字段：为缺少 type 的变量从 default_value 推断类型
+
+        AI 的 prompt 不要求输出 type，因此需要在后端补全。
+        直接修改传入的 dict（浅层），同时返回该 dict。
+        """
+        variables = experiment_json.get("variables")
+        if not variables or not isinstance(variables, dict):
+            return experiment_json
+
+        from core.variable_resolver import VariableResolver
+        for var_name, var_def in list(variables.items()):
+            if isinstance(var_def, dict) and "type" not in var_def:
+                dv = var_def.get("default_value")
+                var_def["type"] = VariableResolver._infer_type(dv)
+                if "constraints" not in var_def:
+                    var_def["constraints"] = {}
+
+        return experiment_json
 
     def _parse_experiment_json(self, content: str):
         """多策略解析实验设计JSON"""

@@ -7,11 +7,13 @@
 - 调用数据分析算法
 - 实验方案验证
 - 实时进度反馈
+- 变量解析与批量执行
 """
 import json
 import os
 import time
 from typing import Callable, Optional
+from core.variable_resolver import VariableResolver
 
 
 class ExperimentExecutor:
@@ -46,19 +48,22 @@ class ExperimentExecutor:
 
     def execute_plan(self, plan_json: dict, progress_callback: Optional[Callable] = None) -> dict:
         """
-        执行实验方案
+        执行实验方案（支持变量解析和批量模式）
 
         Args:
             plan_json: 实验方案JSON
                 格式: {
                     "experiment_name": "...",
                     "description": "...",
+                    "variables": {...},       # 可选，变量定义
+                    "batch_data": [...],      # 可选，批量数据
+                    "batch_mode": false,      # 可选，是否批量模式
                     "steps": [
                         {
                             "step_number": 1,
                             "description": "...",
                             "action": "spin_coating",
-                            "params": {...}
+                            "params": {...}   # params中可使用变量名引用
                         },
                         ...
                     ],
@@ -66,7 +71,7 @@ class ExperimentExecutor:
                 }
             progress_callback: 进度回调函数
                 签名: callback(step_number, status, message)
-                status: "running" | "completed" | "error"
+                status: "running" | "completed" | "error" | "info"
 
         Returns:
             dict: 执行结果
@@ -84,8 +89,6 @@ class ExperimentExecutor:
                     "error": str | None
                 }
         """
-        results = []
-
         try:
             steps = plan_json.get("steps", [])
 
@@ -96,8 +99,102 @@ class ExperimentExecutor:
                     "error": "实验方案中没有步骤"
                 }
 
-            print(f"[执行器] 开始执行实验: {plan_json.get('experiment_name', '未命名')}")
-            print(f"[执行器] 共 {len(steps)} 个步骤")
+            # ---- 变量校验 ----
+            variables = plan_json.get("variables", {})
+            ok, err_msg = VariableResolver.validate_variables(variables, steps)
+            if not ok:
+                print(f"[执行器] 变量校验失败: {err_msg}")
+                return {
+                    "success": False,
+                    "results": [],
+                    "error": err_msg
+                }
+
+            # ---- 判断批量/单次 ----
+            batch_mode = plan_json.get("batch_mode", False)
+            batch_data = plan_json.get("batch_data", [])
+
+            if batch_mode and batch_data:
+                # 批量模式
+                print(f"[执行器] 批量模式，共 {len(batch_data)} 行")
+                try:
+                    resolved_list = VariableResolver.resolve_batch(plan_json)
+                except ValueError as e:
+                    return {
+                        "success": False,
+                        "results": [],
+                        "error": f"批量解析失败: {str(e)}"
+                    }
+
+                all_results = []
+                for bidx, resolved_plan in enumerate(resolved_list):
+                    row = resolved_plan.get("_batch_row", {})
+                    row_label = f"批次 {bidx + 1}/{len(resolved_list)} ("
+                    row_label += ", ".join(f"{k}={v}" for k, v in row.items())
+                    row_label += ")"
+
+                    if progress_callback:
+                        progress_callback(0, "info", row_label)
+
+                    print(f"[执行器] {row_label}")
+                    result = self._execute_single_plan(
+                        resolved_plan,
+                        progress_callback=progress_callback,
+                        row_label=row_label
+                    )
+                    all_results.extend(result["results"])
+
+                    # 如果某批失败且有严重错误，可提前中止
+                    if not result["success"] and result.get("error"):
+                        print(f"[执行器] 批次 {bidx + 1} 失败: {result['error']}")
+
+                all_success = all(r.get("success", False) for r in all_results)
+                return {
+                    "success": all_success,
+                    "results": all_results,
+                    "error": None if all_success else "部分批次执行失败"
+                }
+            else:
+                # 单次模式：解析变量
+                resolved_plan = VariableResolver.resolve(plan_json)
+                return self._execute_single_plan(resolved_plan, progress_callback=progress_callback)
+
+        except Exception as e:
+            import traceback
+            error_detail = traceback.format_exc()
+            print(f"[执行器] 执行异常:")
+            print(error_detail)
+
+            return {
+                "success": False,
+                "results": [],
+                "error": str(e)
+            }
+
+    def _execute_single_plan(self, plan_json: dict,
+                              progress_callback: Optional[Callable] = None,
+                              row_label: Optional[str] = None) -> dict:
+        """
+        执行单个实验方案（内部方法，供单次和批量模式共用）
+
+        包含完整的步骤执行循环：tool/helper/software 分派 + 自动 start_experiment
+
+        Args:
+            plan_json: 已解析变量的实验方案JSON
+            progress_callback: 进度回调函数
+            row_label: 批量模式的标签（单次模式为None）
+
+        Returns:
+            dict: 执行结果 {"success": bool, "results": [...], "error": str|None}
+        """
+        results = []
+
+        try:
+            steps = plan_json.get("steps", [])
+
+            label_prefix = f"[{row_label}] " if row_label else ""
+            print(f"{label_prefix}[执行器] 开始执行实验: {plan_json.get('experiment_name', '未命名')}")
+            print(f"{label_prefix}[执行器] 共 {len(steps)} 个步骤")
 
             # 逐步执行
             for idx, step in enumerate(steps):
@@ -109,7 +206,7 @@ class ExperimentExecutor:
                 params = step.get("params", {})
                 description = step.get("description", "")
 
-                print(f"[执行器] 步骤 {step_num}: {description} ({action})")
+                print(f"{label_prefix}[执行器] 步骤 {step_num}: {description} ({action})")
 
                 if progress_callback:
                     progress_callback(step_num, "running", f"正在执行: {description}")
@@ -129,7 +226,7 @@ class ExperimentExecutor:
                     })
                     if progress_callback:
                         progress_callback(step_num, "completed" if is_success else "error", result_msg)
-                    print(f"[执行器] 步骤 {step_num} {'成功' if is_success else '失败'}: {result_msg}")
+                    print(f"{label_prefix}[执行器] 步骤 {step_num} {'成功' if is_success else '失败'}: {result_msg}")
                     continue
 
                 # 处理辅助操作（如WAIT）
@@ -146,7 +243,7 @@ class ExperimentExecutor:
                             })
                             if progress_callback:
                                 progress_callback(step_num, "completed", result)
-                            print(f"[执行器] 步骤 {step_num} 成功: {result}")
+                            print(f"{label_prefix}[执行器] 步骤 {step_num} 成功: {result}")
                         except Exception as e:
                             error_msg = f"执行失败: {str(e)}"
                             results.append({
@@ -158,7 +255,7 @@ class ExperimentExecutor:
                             })
                             if progress_callback:
                                 progress_callback(step_num, "error", error_msg)
-                            print(f"[执行器] 步骤 {step_num} 异常: {e}")
+                            print(f"{label_prefix}[执行器] 步骤 {step_num} 异常: {e}")
                     continue
 
                 # 执行工具操作 - 通过 HardwareAgent 统一入口
@@ -183,7 +280,7 @@ class ExperimentExecutor:
                             status = "completed" if is_success else "error"
                             progress_callback(step_num, status, result)
 
-                        print(f"[执行器] 步骤 {step_num} {'成功' if is_success else '失败'}: {result}")
+                        print(f"{label_prefix}[执行器] 步骤 {step_num} {'成功' if is_success else '失败'}: {result}")
 
                     except Exception as e:
                         error_msg = f"执行失败: {str(e)}"
@@ -198,7 +295,7 @@ class ExperimentExecutor:
                         if progress_callback:
                             progress_callback(step_num, "error", error_msg)
 
-                        print(f"[执行器] 步骤 {step_num} 异常: {e}")
+                        print(f"{label_prefix}[执行器] 步骤 {step_num} 异常: {e}")
                 else:
                     error_msg = f"未知操作类型: {action}"
                     results.append({
@@ -212,12 +309,12 @@ class ExperimentExecutor:
                     if progress_callback:
                         progress_callback(step_num, "error", error_msg)
 
-                    print(f"[执行器] 步骤 {step_num} 错误: {error_msg}")
+                    print(f"{label_prefix}[执行器] 步骤 {step_num} 错误: {error_msg}")
 
             # 如果有旋涂步骤，发送启动指令
             has_spin_coating = any(r["action"] == "spin_coating" for r in results)
             if has_spin_coating:
-                print("[执行器] 检测到旋涂步骤，发送启动指令...")
+                print(f"{label_prefix}[执行器] 检测到旋涂步骤，发送启动指令...")
                 start_agent_result = self._hardware_agent.execute_tool_call({
                     "name": "start_experiment",
                     "params": {}
@@ -234,7 +331,7 @@ class ExperimentExecutor:
                 if progress_callback:
                     progress_callback(0, "info", start_result)
 
-                print(f"[执行器] 启动指令: {start_result}")
+                print(f"{label_prefix}[执行器] 启动指令: {start_result}")
 
             # 判断整体是否成功
             all_success = all(r["success"] for r in results)
@@ -248,7 +345,7 @@ class ExperimentExecutor:
         except Exception as e:
             import traceback
             error_detail = traceback.format_exc()
-            print(f"[执行器] 执行异常:")
+            print(f"{label_prefix}[执行器] 执行异常:")
             print(error_detail)
 
             return {

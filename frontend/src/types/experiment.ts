@@ -10,10 +10,28 @@ export interface ExperimentStep {
   output_file?: string
 }
 
+export interface VariableConstraint {
+  min?: number
+  max?: number
+  required?: boolean
+  options?: string[]
+}
+
+export interface VariableDefinition {
+  name: string
+  type: 'int' | 'float' | 'str' | 'bool'
+  default_value: number | string | boolean
+  constraints?: VariableConstraint
+  used_in_steps?: string[]
+}
+
 export interface ExperimentPlan {
   experiment_name: string
   description?: string
   steps: ExperimentStep[]
   created_at?: string
   notes?: string
+  variables?: Record<string, VariableDefinition>
+  batch_data?: Record<string, unknown>[]
+  batch_mode?: boolean
 }

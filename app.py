@@ -1107,6 +1107,10 @@ def experiment_chat():
             import datetime
             result['created_at'] = datetime.datetime.now().isoformat()
             visual_data = converter.json_to_visual(result)
+            var_count = len(result.get('variables', {}))
+            var_hint = ""
+            if var_count:
+                var_hint = f"\n\n📊 包含 {var_count} 个可配置变量，可在变量栏中修改默认值或导入CSV批量执行。"
             return jsonify({
                 'type': 'experiment_design',
                 'experiment_json': result,
@@ -1115,6 +1119,7 @@ def experiment_chat():
                     f"✅ 已生成实验设计方案：{result.get('experiment_name', '未命名实验')}\n\n"
                     f"{result.get('description', '')}\n\n"
                     f"共 {len(result.get('steps', []))} 个步骤，已推送到实验流程画布。"
+                    f"{var_hint}"
                 )
             })
         else:
@@ -1656,6 +1661,61 @@ def execute_experiment_design():
         'type': 'task_trigger',
         'reply': f'🚀 开始执行实验设计: {experiment_name}\n共 {len(steps)} 个步骤，实时进度见下方...'
     })
+
+
+@app.route('/api/variables/import_csv', methods=['POST'])
+def import_variables_csv():
+    """
+    导入CSV生成变量定义和批量数据
+
+    请求体：
+    {
+        "csv_content": "name,value\\nspeed,3000\\n..."
+    }
+
+    返回：
+    {
+        "type": "variables_csv",
+        "variables": {"speed": {"type": "int", "default_value": 3000, "constraints": {}}},
+        "batch_data": [{"speed": 3000}, ...],
+        "reply": "✅ CSV 解析完成..."
+    }
+    """
+    data = request.json
+    if data is None:
+        return jsonify({'type': 'error', 'reply': '请求体为空或JSON格式错误'}), 400
+
+    csv_content = data.get('csv_content', '')
+    if not csv_content or not csv_content.strip():
+        return jsonify({'type': 'error', 'reply': 'CSV内容不能为空'}), 400
+
+    try:
+        from core.variable_resolver import VariableResolver
+        variables, batch_data, error = VariableResolver.parse_csv(csv_content)
+        if error:
+            return jsonify({'type': 'error', 'reply': f'CSV解析失败: {error}'}), 400
+
+        var_count = len(variables)
+        row_count = len(batch_data)
+        var_names = ", ".join(variables.keys())
+        reply = (
+            f"✅ CSV 解析完成\n\n"
+            f"变量数量: {var_count}\n"
+            f"数据行数: {row_count}\n"
+            f"变量列表: {var_names}\n\n"
+            f"变量已导入到变量栏，可在实验中使用变量名引用参数。"
+        )
+
+        return jsonify({
+            'type': 'variables_csv',
+            'variables': variables,
+            'batch_data': batch_data,
+            'reply': reply
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'type': 'error', 'reply': f'导入CSV失败: {str(e)}'}), 500
 
 
 @app.route('/api/export_experiment_json', methods=['POST'])

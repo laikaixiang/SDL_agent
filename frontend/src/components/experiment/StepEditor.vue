@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { ref, reactive, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useExperimentStore } from '@/stores/experiment'
 import type { ExperimentStep } from '@/types/experiment'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   step: ExperimentStep
@@ -83,7 +86,7 @@ function onParamBlur(paramKey: string) {
   // 纯数字不允许作为变量名
   if (/^\d+$/.test(trimmed)) {
     paramState[paramKey] = 'invalid'
-    variablesHint[paramKey] = '纯数字不能作为变量名'
+    variablesHint[paramKey] = t('experiment.invalidVarName')
     return
   }
 
@@ -131,7 +134,7 @@ function onDeclareVariable(paramKey: string, varName: string) {
   }
   store.addVariable(varName.trim(), varType)
   paramState[paramKey] = 'linked'
-  variablesHint[paramKey] = `→ 需填写默认值`
+  variablesHint[paramKey] = `→ ${t('experiment.fillDefaultValue')}`
 }
 
 function onSave() {
@@ -159,17 +162,17 @@ const toolDef = props.step.type === 'tool'
 <template>
   <div class="step-editor">
     <div class="editor-fields">
-      <label>描述</label>
-      <input v-model="desc" class="editor-input" placeholder="步骤描述" />
+      <label>{{ $t('experiment.description') }}</label>
+      <input v-model="desc" class="editor-input" :placeholder="$t('experiment.stepDesc')" />
 
       <!-- Tool params: use tool definition to render fields -->
       <template v-if="step.type === 'tool' && toolDef">
-        <label>参数</label>
+        <label>{{ $t('experiment.params') }}</label>
         <div class="param-grid">
           <div v-for="(v, k) in toolDef.params" :key="k" class="param-field">
             <span class="param-label">{{ k }}
               <span v-if="v.required" class="param-req">*</span>
-              <span v-else class="param-opt">可选</span>
+              <span v-else class="param-opt">{{ $t('experiment.optional') }}</span>
             </span>
             <span class="param-type">{{ v.type }}</span>
             <div class="param-input-row">
@@ -190,7 +193,7 @@ const toolDef = props.step.type === 'tool'
                 v-if="paramState[k] === 'undeclared'"
                 class="btn-declare"
                 @click="onDeclareVariable(k, draftValues[k] ?? '')"
-              >声明</button>
+              >{{ $t('experiment.declare') }}</button>
               <span v-if="paramState[k] === 'linked'" class="param-linked-hint">→ {{ variablesHint[k] }}</span>
               <span v-if="paramState[k] === 'invalid'" class="param-invalid-hint">{{ variablesHint[k] }}</span>
             </div>
@@ -200,22 +203,22 @@ const toolDef = props.step.type === 'tool'
 
       <!-- Software params -->
       <template v-if="step.type === 'software'">
-        <label>输入文件</label>
-        <input v-model="inputFile" class="editor-input" placeholder="CSV 文件路径" />
-        <label>输出目录</label>
-        <input v-model="outputFile" class="editor-input" placeholder="输出目录（可选）" />
+        <label>{{ $t('experiment.inputFile') }}</label>
+        <input v-model="inputFile" class="editor-input" :placeholder="$t('experiment.csvPath')" />
+        <label>{{ $t('experiment.outputDir') }}</label>
+        <input v-model="outputFile" class="editor-input" :placeholder="$t('experiment.outputDirOptional')" />
       </template>
 
       <!-- Helper / generic params: raw JSON editor -->
       <template v-if="step.type === 'helper' || (step.type === 'tool' && !toolDef)">
-        <label>参数 (JSON)</label>
+        <label>{{ $t('experiment.paramsJson') }}</label>
         <textarea v-model="params" class="editor-textarea" rows="4" spellcheck="false" />
       </template>
     </div>
 
     <div class="editor-actions">
-      <button class="btn-save" @click="onSave">保存</button>
-      <button class="btn-cancel" @click="$emit('close')">取消</button>
+      <button class="btn-save" @click="onSave">{{ $t('common.save') }}</button>
+      <button class="btn-cancel" @click="$emit('close')">{{ $t('common.cancel') }}</button>
     </div>
   </div>
 </template>

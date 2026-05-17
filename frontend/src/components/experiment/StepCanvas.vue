@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useExperimentStore } from '@/stores/experiment'
 import StepCard from './StepCard.vue'
 import { AlertTriangle } from 'lucide-vue-next'
 
+const { t } = useI18n()
 const INDENT = 20
 
 const store = useExperimentStore()
@@ -40,8 +42,8 @@ function onDragEnd() {
 
 function getHelperLabel(name: string): string {
   const labels: Record<string, string> = {
-    LOOP: '循环', GROUP: '分组', CONDITION: '条件',
-    WAIT: '等待', END: '结束', USER_INPUT: '输入',
+    LOOP: t('experiment.loop'), GROUP: t('experiment.group'), CONDITION: t('experiment.condition'),
+    WAIT: t('experiment.wait'), END: t('experiment.end'), USER_INPUT: t('experiment.input'),
   }
   return labels[name] || name
 }
@@ -56,8 +58,8 @@ function isCollapsed(index: number): boolean {
     <!-- Empty state -->
     <div v-if="!store.steps.length" class="canvas-empty">
       <div class="empty-icon">🧪</div>
-      <p>从左侧双击工具/算法添加步骤</p>
-      <p class="empty-hint">或点击工具栏 [AI 生成] 自动设计</p>
+      <p>{{ $t('experiment.emptyHint') }}</p>
+      <p class="empty-hint">{{ $t('experiment.emptyHint2') }}</p>
     </div>
 
     <!-- Step rows with gutter -->
@@ -89,7 +91,7 @@ function isCollapsed(index: number): boolean {
             <button
               v-if="store.nestingInfo[i].isBlockStart"
               class="block-marker-btn"
-              :title="isCollapsed(i) ? '展开' + getHelperLabel(step.name) : '收起' + getHelperLabel(step.name)"
+              :title="isCollapsed(i) ? t('experiment.expandBlock', { name: getHelperLabel(step.name) }) : t('experiment.collapseBlock', { name: getHelperLabel(step.name) })"
               @click="store.toggleCollapse(i)"
             >
               <span v-if="isCollapsed(i)">▶</span>
@@ -98,7 +100,7 @@ function isCollapsed(index: number): boolean {
             <span
               v-else-if="store.nestingInfo[i].isBlockEnd"
               class="block-marker block-end"
-              title="结束"
+              :title="$t('experiment.end')"
             >▲</span>
 
             <!-- Step number -->
@@ -138,13 +140,13 @@ function isCollapsed(index: number): boolean {
       <!-- Warning for unclosed blocks -->
       <div v-if="store.blockErrors.unclosed" class="block-warning">
         <AlertTriangle :size="14" />
-        <span>{{ getHelperLabel(store.blockErrors.unclosed) }} 缺少对应的 END</span>
+        <span>{{ $t('experiment.missingEnd', { name: getHelperLabel(store.blockErrors.unclosed) }) }}</span>
       </div>
 
       <!-- Warning for orphaned END -->
       <div v-if="store.blockErrors.orphanedEnd !== null && !store.blockErrors.unclosed" class="block-warning">
         <AlertTriangle :size="14" />
-        <span>多余的 END，前面没有对应的 循环/分组/条件</span>
+        <span>{{ $t('experiment.orphanedEnd') }}</span>
       </div>
     </div>
   </div>

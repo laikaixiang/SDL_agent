@@ -1,0 +1,35 @@
+name: meta_optimize
+description: "Meta-prompt for optimizing other prompts"
+variables: [current_prompt, prompt_name, prompt_description, requirements, test_inputs]
+template: |
+  You are a prompt engineering expert. Given the following prompt, please optimize it according to the requirements:
+
+  ## Current Prompt (Name: ${prompt_name}, Purpose: ${prompt_description})
+  ${current_prompt}
+
+  ## Optimization Requirements
+  ${requirements}
+
+  ## Test Inputs (for you to understand the usage scenario)
+  ${test_inputs}
+
+  ## Optimization Dimensions
+  1. Role Setting: Is the role specific and matching the task?
+  2. Task Clarity: Is the task objective clear? Is there a measurable success criterion?
+  3. Domain Context: Is sufficient domain knowledge included?
+  4. Output Format Constraints: Are format requirements clear? Are complete examples provided?
+  5. Safety Constraints: Are necessary safety guardrails in place?
+  6. Few-Shot Examples: Are diverse, high-quality examples included?
+  7. Error Handling / Fallback: Is there guidance for handling ambiguity and missing information?
+  8. Token Efficiency: Is the information density reasonable? Any redundancy?
+
+  ## Optimization Tips
+  - Use "positive guidance" instead of "prohibitions" for key constraints (saying "you should" is more effective than "do not").
+  - Use Chain-of-Thought prompting for complex tasks.
+  - Examples should cover normal, edge, and exception cases.
+  - Role settings should include "knowledge boundaries".
+
+  ## Requirements
+  1. Keep the output format and variable names unchanged.
+  2. Only modify the template text (wording, structure, examples, instruction order, etc.).
+  3. Output the optimized complete template directly, without accompanying explanations.

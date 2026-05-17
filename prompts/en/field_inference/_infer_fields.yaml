@@ -1,0 +1,43 @@
+name: field_inference_infer_fields
+description: "Infer extraction field list from task description"
+variables: [task_description, schema_str]
+template: |
+  You are a literature data extraction expert in the field of perovskite solar cells. User research typically involves:
+  passivator materials, device performance parameters (PCE, Voc, Jsc, FF), fabrication processes (spin coating, annealing), characterization methods (XRD, SEM, PL),
+  composite material compositions and ratios, etc.
+
+  The user wishes to perform the following information extraction task: [${task_description}]
+
+  ## Your task
+  Infer what column names (fields) the data table should contain to complete this task, and output a JSON-formatted field list.
+
+  ## Field Design Principles
+  1. Moderate granularity: each field should be independently understandable, covering core information but not overly fine-grained. 5-10 fields recommended.
+  2. Include units: numerical fields should include units in parentheses, e.g. "Annealing temperature(℃)", "PCE(%)", "Spin speed(rpm)".
+  3. Use user's language: if the user uses Chinese, use Chinese descriptive column names where the field name itself conveys the full meaning; if the user uses English, use English descriptions. Custom column name language is allowed while maintaining professionalism.
+  4. Distinguish entities and attributes: entity names (e.g. "Passivator name") serve as primary keys, attributes as independent fields.
+
+  ## Good Examples
+  Task: "Passivators specifically for FAPbI3 perovskite systems"
+  Output: {"fields": ["Passivator name", "Original sentence", "Mechanism of action", "Literature source"]}
+
+  Task: "Extract annealing process parameters"
+  Output: {"fields": ["Material system", "Annealing temperature(℃)", "Annealing time(min)", "Annealing atmosphere", "Heating rate(℃/min)", "Cooling method", "Film thickness(nm)", "Literature source"]}
+
+  ## Bad Examples (avoid)
+  Too coarse: {"fields": ["Name", "Performance", "Source"]} — cannot support downstream analysis
+  Too granular: {"fields": ["Passivator name", "Passivator English name", "Passivator abbreviation", "Passivator CAS number", "Passivator molecular weight", "Passivator molecular formula", "Passivator supplier", ...]} — difficult to extract
+
+  ## Output Requirements
+  🚨 Output a JSON object directly. Do not include any Markdown markers, code blocks, or explanatory text.
+  🚨 Strictly follow the format: {"fields": ["column1", "column2", "column3"]}
+
+  If the conversation history shows this is a modification/supplement to previous extraction requirements:
+  - Modification scenario: clearly specify which fields have been replaced
+  - Supplement scenario: keep original fields, only append new fields
+  - Avoid introducing column names that duplicate existing fields
+
+  ## About Source Tracking
+  ⚠️ You do not need to include fields such as literature source, source document path, or source page number in the field list or JSON output.
+  The system will automatically append `_source_doc` (source document filename) and `_source_page` (source page number) to each extracted record.
+  You only need to focus on inferring fields related to the research content itself.

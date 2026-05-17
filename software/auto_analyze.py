@@ -334,7 +334,7 @@ def run_pipeline(
     algos_desc = _build_algorithms_desc(algorithms)
 
     from prompts import create_prompt_manager
-    pm = create_prompt_manager()
+    pm = create_prompt_manager(lang='zh')
 
     user_msg = pm.get(
         "data_analysis_user",

@@ -8,9 +8,12 @@ import { isTimeoutError } from '@/api/client'
 import { useSSE } from '@/composables/useSSE'
 import { useLayoutStore } from '@/stores/layout'
 import { useExperimentStore } from '@/stores/experiment'
+import i18n from '@/i18n'
 
 export type ChatMode = 'normal' | 'extraction' | 'hardware' | 'experiment' | 'analysis'
 
+// NOTE: MODE_PREFIX values are protocol strings matched by the backend (app.py).
+// Do NOT localize these — changing them would break mode detection on the server.
 export const MODE_PREFIX: Record<ChatMode, string> = {
   normal: '',
   extraction: '帮我搜寻：',
@@ -21,10 +24,10 @@ export const MODE_PREFIX: Record<ChatMode, string> = {
 
 export const MODE_LABEL: Record<ChatMode, string> = {
   normal: '',
-  extraction: '📄 文献提取',
-  hardware: '⚙️ 硬件控制',
-  experiment: '🧪 实验设计',
-  analysis: '📈 数据分析',
+  extraction: '📄 ' + i18n.global.t('modes.literatureExtraction'),
+  hardware: '⚙️ ' + i18n.global.t('modes.hardwareControl'),
+  experiment: '🧪 ' + i18n.global.t('modes.experimentDesign'),
+  analysis: '📈 ' + i18n.global.t('modes.dataAnalysis'),
 }
 
 export interface PageReading {
@@ -114,7 +117,7 @@ export const useChatStore = defineStore('chat', () => {
           }
           case 'finding': {
             const f = msg.data as { page: number; filename: string; details: Record<string, string> }
-            let text = `🎯 新发现 (第${f.page}页 · ${f.filename})\n`
+            let text = i18n.global.t('chat.extractionFinding', { page: f.page, filename: f.filename })
             for (const [k, v] of Object.entries(f.details)) {
               if (k !== '_source_doc') text += `  ${k}: ${v}\n`
             }
@@ -164,7 +167,7 @@ export const useChatStore = defineStore('chat', () => {
     if (!pending) return
 
     fieldConfirm.value = null
-    addMessage('user', '✅ 确认使用上述字段提取')
+    addMessage('user', i18n.global.t('chat.confirmFields'))
 
     const controller = new AbortController()
     abortController.value = controller
@@ -172,7 +175,7 @@ export const useChatStore = defineStore('chat', () => {
     try {
       const result = await sendChatMessage(
         {
-          message: '确认提取',
+          message: i18n.global.t('chat.confirmExtraction'),
           action: 'start_extraction',
           task_desc: pending.task_desc,
           fields: pending.fields,
@@ -290,7 +293,7 @@ export const useChatStore = defineStore('chat', () => {
         if (result.type === 'experiment_design_mode') {
           const cmd = result.command || text
           try {
-            aiMsg.content = '⏳ AI 正在分析实验需求...'
+            aiMsg.content = i18n.global.t('chat.analyzingExperiment')
             let streamedText = ''
             let expThinkingStart = 0
             const expData = await generateExperimentStream(
@@ -310,7 +313,7 @@ export const useChatStore = defineStore('chat', () => {
                 onChunk(chunk) {
                   streamedText += chunk
                   if (streamedText.length % 50 < chunk.length || streamedText.length < 50) {
-                    aiMsg.content = '⏳ AI 正在生成实验方案...\n\n```json\n' + streamedText + '\n```'
+                    aiMsg.content = i18n.global.t('chat.generatingExperiment', { text: streamedText })
                   }
                 },
               },
@@ -324,8 +327,8 @@ export const useChatStore = defineStore('chat', () => {
             aiMsg.content = expData.reply || ''
           } catch (err: unknown) {
             const msg = isTimeoutError(err)
-              ? '实验设计生成超时，请重试或简化需求描述'
-              : (err as Error).message || '网络请求失败'
+              ? i18n.global.t('chat.experimentTimeout')
+              : (err as Error).message || i18n.global.t('chat.networkError')
             aiMsg.content = msg
           }
         }
@@ -360,7 +363,7 @@ export const useChatStore = defineStore('chat', () => {
     currentPage.value = null
     extractionPdfPath.value = null
     extractionFilename.value = null
-    addMessage('ai', '提取任务已取消。')
+    addMessage('ai', i18n.global.t('chat.extractionCancelled'))
   }
 
   // 页面关闭/刷新时自动保存（sendBeacon 保证可靠发送）

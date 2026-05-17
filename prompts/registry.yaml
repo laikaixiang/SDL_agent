@@ -2,81 +2,81 @@ version: 1
 
 prompts:
   extraction_system_vision:
-    file: extraction/_system_vision.yaml
+    file: zh/extraction/_system_vision.yaml
     category: extraction
     enabled: true
 
   extraction_system_text:
-    file: extraction/_system_text.yaml
+    file: zh/extraction/_system_text.yaml
     category: extraction
     enabled: true
 
   extraction_few_shot_block:
-    file: extraction/_few_shot_block.yaml
+    file: zh/extraction/_few_shot_block.yaml
     category: extraction
     enabled: true
 
   field_inference_infer_fields:
-    file: field_inference/_infer_fields.yaml
+    file: zh/field_inference/_infer_fields.yaml
     category: field_inference
     enabled: true
 
   field_inference_filename_prefix:
-    file: field_inference/_filename_prefix.yaml
+    file: zh/field_inference/_filename_prefix.yaml
     category: field_inference
     enabled: true
 
   experiment_design_system:
-    file: experiment_design/_system.yaml
+    file: zh/experiment_design/_system.yaml
     category: experiment_design
     enabled: true
 
   experiment_design_user:
-    file: experiment_design/_user.yaml
+    file: zh/experiment_design/_user.yaml
     category: experiment_design
     enabled: true
 
   hardware_command_parse:
-    file: hardware/_command_parse.yaml
+    file: zh/hardware/_command_parse.yaml
     category: hardware
     enabled: true
 
   algorithm_gen_user_guidance:
-    file: algorithm_gen/_user_guidance.yaml
+    file: zh/algorithm_gen/_user_guidance.yaml
     category: algorithm_gen
     enabled: true
 
   algorithm_gen_spec_extraction:
-    file: algorithm_gen/_spec_extraction.yaml
+    file: zh/algorithm_gen/_spec_extraction.yaml
     category: algorithm_gen
     enabled: true
 
   algorithm_gen_code_gen_system:
-    file: algorithm_gen/_code_gen_system.yaml
+    file: zh/algorithm_gen/_code_gen_system.yaml
     category: algorithm_gen
     enabled: true
 
   algorithm_gen_code_gen_template:
-    file: algorithm_gen/_code_gen_template.yaml
+    file: zh/algorithm_gen/_code_gen_template.yaml
     category: algorithm_gen
     enabled: true
 
   data_analysis_system:
-    file: data_analysis/_system.yaml
+    file: zh/data_analysis/_system.yaml
     category: data_analysis
     enabled: true
 
   data_analysis_user:
-    file: data_analysis/_user.yaml
+    file: zh/data_analysis/_user.yaml
     category: data_analysis
     enabled: true
 
   misc_session_title:
-    file: misc/_session_title.yaml
+    file: zh/misc/_session_title.yaml
     category: misc
     enabled: true
 
   meta_optimize:
-    file: optimizer/_meta_optimize.yaml
+    file: zh/optimizer/_meta_optimize.yaml
     category: optimizer
     enabled: true

@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useExperimentStore } from '@/stores/experiment'
 import { Plus, Upload, Trash2, Download } from 'lucide-vue-next'
 
+const { t } = useI18n()
 const store = useExperimentStore()
 
 const showAddForm = ref(false)
@@ -22,7 +24,7 @@ function onAdd() {
   const name = newVarName.value.trim()
   if (!name) return
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
-    store.addLog('变量名只能包含字母、数字和下划线，且必须以字母或下划线开头')
+    store.addLog(t('experiment.invalidVarNameFormat'))
     return
   }
   store.addVariable(name, newVarType.value)
@@ -89,7 +91,7 @@ function onConstraintInput(name: string, raw: string) {
     store.updateVariable(name, { constraints: undefined })
     return
   }
-  if (trimmed === '必填') {
+  if (trimmed === t('experiment.required')) {
     store.updateVariable(name, { constraints: { required: true } })
     return
   }
@@ -108,7 +110,7 @@ function onConstraintInput(name: string, raw: string) {
 function getConstraintDisplay(v: typeof varList.value[0]): string {
   if (!v?.constraints) return ''
   const c = v.constraints
-  if (c.required && c.min === undefined && c.max === undefined) return '必填'
+  if (c.required && c.min === undefined && c.max === undefined) return t('experiment.required')
   if (c.min !== undefined && c.max !== undefined) return `${c.min}-${c.max}`
   if (c.min !== undefined) return `≥${c.min}`
   if (c.max !== undefined) return `≤${c.max}`
@@ -126,28 +128,28 @@ function getDefaultDisplay(v: typeof varList.value[0]): string {
   <div class="variable-bar">
     <!-- Header -->
     <div class="vb-header">
-      <span class="vb-title">变量</span>
+      <span class="vb-title">{{ $t('experiment.variables') }}</span>
       <div class="vb-actions">
-        <button class="vb-btn" @click="showAddForm = !showAddForm" title="添加变量">
-          <Plus :size="13" /> 添加
+        <button class="vb-btn" @click="showAddForm = !showAddForm" :title="$t('experiment.addVariable')">
+          <Plus :size="13" /> {{ $t('common.add') }}
         </button>
-        <button class="vb-btn" @click="onImportCSV" title="CSV 导入">
-          <Upload :size="13" /> CSV导入
+        <button class="vb-btn" @click="onImportCSV" :title="$t('experiment.csvImport')">
+          <Upload :size="13" /> {{ $t('experiment.csvImport') }}
         </button>
         <button
           class="vb-btn vb-btn-danger"
           :disabled="!store.selectedVariable"
           @click="store.selectedVariable && store.removeVariable(store.selectedVariable)"
-          title="删除选中变量"
+          :title="$t('experiment.deleteSelectedVar')"
         >
-          <Trash2 :size="13" /> 删除
+          <Trash2 :size="13" /> {{ $t('common.delete') }}
         </button>
-        <button class="vb-btn" @click="onExportCSV" title="CSV 导出">
-          <Download :size="13" /> CSV导出
+        <button class="vb-btn" @click="onExportCSV" :title="$t('experiment.csvExport')">
+          <Download :size="13" /> {{ $t('experiment.csvExport') }}
         </button>
         <label class="vb-checkbox">
           <input type="checkbox" v-model="store.batchMode" />
-          <span>批量模式</span>
+          <span>{{ $t('experiment.batchMode') }}</span>
         </label>
       </div>
     </div>
@@ -157,7 +159,7 @@ function getDefaultDisplay(v: typeof varList.value[0]): string {
       <input
         v-model="newVarName"
         class="vb-input"
-        placeholder="变量名 (如 speed)"
+        :placeholder="$t('experiment.varNamePlaceholder')"
         @keyup.enter="onAdd"
         autofocus
       />
@@ -167,8 +169,8 @@ function getDefaultDisplay(v: typeof varList.value[0]): string {
         <option value="str">str</option>
         <option value="bool">bool</option>
       </select>
-      <button class="vb-btn vb-btn-primary" @click="onAdd">确认</button>
-      <button class="vb-btn" @click="showAddForm = false">取消</button>
+      <button class="vb-btn vb-btn-primary" @click="onAdd">{{ $t('common.confirm') }}</button>
+      <button class="vb-btn" @click="showAddForm = false">{{ $t('common.cancel') }}</button>
     </div>
 
     <!-- Table -->
@@ -176,10 +178,10 @@ function getDefaultDisplay(v: typeof varList.value[0]): string {
       <table class="vb-table">
         <thead>
           <tr>
-            <th class="col-name">名称</th>
-            <th class="col-default">默认值</th>
-            <th class="col-constraint">约束</th>
-            <th class="col-refs">引用步骤</th>
+            <th class="col-name">{{ $t('experiment.varName') }}</th>
+            <th class="col-default">{{ $t('experiment.defaultValue') }}</th>
+            <th class="col-constraint">{{ $t('experiment.constraint') }}</th>
+            <th class="col-refs">{{ $t('experiment.refSteps') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -204,7 +206,7 @@ function getDefaultDisplay(v: typeof varList.value[0]): string {
               <input
                 class="vb-inline-input"
                 :value="getConstraintDisplay(v)"
-                placeholder="如 1000-6000"
+                :placeholder="$t('experiment.constraintPlaceholder')"
                 @input="(e) => onConstraintInput(v.name, (e.target as HTMLInputElement).value)"
               />
             </td>
@@ -221,12 +223,12 @@ function getDefaultDisplay(v: typeof varList.value[0]): string {
 
     <!-- Empty state -->
     <div v-else class="vb-empty">
-      暂无变量。在步骤参数中输入非数字值，或将 CSV 导入。
+      {{ $t('experiment.emptyVariables') }}
     </div>
 
     <!-- Batch data count -->
     <div v-if="store.batchData.length > 0" class="vb-batch-info">
-      批量数据: {{ store.batchData.length }} 行
+      {{ $t('experiment.batchData') }}: {{ store.batchData.length }}{{ $t('experiment.rows') }}
     </div>
   </div>
 </template>

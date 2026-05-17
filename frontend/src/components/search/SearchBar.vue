@@ -24,15 +24,15 @@ function clear() {
         @keydown="onKeydown"
         type="text"
         class="search-input"
-        placeholder="搜索全文献库..."
+        :placeholder="$t('search.libraryPlaceholder')"
       />
       <button v-if="modelValue" class="clear-btn" @click="clear"><X :size="16" /></button>
       <button class="search-btn" :disabled="loading || !modelValue.trim()" @click="$emit('search')">
         <Search :size="16" />
-        <span>搜索</span>
+        <span>{{ $t('search.search') }}</span>
       </button>
     </div>
-    <p class="search-hint">搜索钙钛矿钝化剂效率对比、perovskite passivation 等关键词</p>
+    <p class="search-hint">{{ $t('search.hint') }}</p>
   </div>
 </template>
 

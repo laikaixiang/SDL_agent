@@ -433,7 +433,7 @@ class ExtractionEngine:
         example_json = json.dumps({"data": [example_item]}, ensure_ascii=False)
 
         # 构建系统提示词 (migrated from inline f-string, source: lines 397-411)
-        prompt_manager = create_prompt_manager()
+        prompt_manager = create_prompt_manager(lang='zh')
         sys_prompt = prompt_manager.get(
             "extraction_system_vision",
             task_description=task_description,
@@ -501,7 +501,7 @@ class ExtractionEngine:
         example_json = json.dumps({"data": [example_item]}, ensure_ascii=False)
 
         # 构建系统提示词 (migrated from inline f-string, source: lines 471-485)
-        prompt_manager = create_prompt_manager()
+        prompt_manager = create_prompt_manager(lang='zh')
         sys_prompt = prompt_manager.get(
             "extraction_system_text",
             task_description=task_description,
@@ -577,7 +577,7 @@ class ExtractionEngine:
             for i, ex in enumerate(examples)
         )
         # 构建 few-shot 块 (migrated from inline concatenation, source: lines 553-557)
-        prompt_manager = create_prompt_manager()
+        prompt_manager = create_prompt_manager(lang='zh')
         few_shot_block = prompt_manager.get(
             "extraction_few_shot_block",
             examples_text=examples_text,

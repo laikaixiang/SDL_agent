@@ -10,11 +10,11 @@ defineEmits<{ close: [] }>()
   <Transition name="slide-right">
     <div v-if="imageBase64 || loading" class="preview-panel">
       <div class="preview-header">
-        <span>页面预览 — p.{{ pageNum }}</span>
+        <span>{{ $t('search.pagePreview', { n: pageNum }) }}</span>
         <button class="close-btn" @click="$emit('close')"><X :size="18" /></button>
       </div>
       <div class="preview-body">
-        <LoadingSpinner v-if="loading" :size="32" label="加载页面..." />
+        <LoadingSpinner v-if="loading" :size="32" :label="$t('search.loadingPage')" />
         <img v-else-if="imageBase64" :src="'data:image/jpeg;base64,' + imageBase64" alt="PDF page" class="preview-img" />
       </div>
     </div>

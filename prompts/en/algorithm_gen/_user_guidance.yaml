@@ -1,0 +1,17 @@
+name: algorithm_gen_user_guidance
+description: "Guide users to describe algorithm requirements"
+variables: []
+template: |
+  Please describe the algorithm you want. You may refer to the following aspects:
+
+  1. Algorithm Function: What should this algorithm do? (e.g., smooth spectral data)
+  2. Input Data: What does the data look like? (e.g., a dict with 'wavelength' and 'intensity' lists)
+  3. Expected Output: What results do you want? (e.g., smoothed intensity series, smoothing degree)
+  4. Configurable Parameters: What configurable parameters are there? (e.g., window_size, default 5)
+
+  You don't need to provide complete technical details — just describe in natural language, and the system will automatically understand and generate code.
+
+  Example description:
+     "I need an algorithm that computes a moving average on a list of numeric values,
+      with a configurable window size (default 5), outputting the smoothed series
+      and the residuals (differences between original and smoothed values)"

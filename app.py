@@ -45,6 +45,7 @@ from core import (
     AdaptiveStreamHandler,
 )
 from utils.sse import sse_response
+from utils.i18n import i18n
 from utils.stream_adapter import StreamAdapter
 from core.extract_manager import PDFProcessor, ExtractionEngine, AlgorithmGuide
 from extract.embedding_service import create_embedding_service
@@ -177,14 +178,14 @@ def _write_folders(folders: list):
     with open(FOLDERS_PATH, 'w', encoding='utf-8') as f:
         json.dump({"folders": folders}, f, ensure_ascii=False, indent=2)
 
-def _generate_title(messages):
+def _generate_title(messages, lang: str = 'zh'):
     """取前2条用户消息调用 LLM 生成会话标题。"""
     user_msgs = [m["content"] for m in messages if m.get("role") == "user"]
     if len(user_msgs) < 2:
         return None
     lines = "\n".join(f"{i+1}. {user_msgs[i]}" for i in range(min(3, len(user_msgs))))
     from prompts import create_prompt_manager
-    pm = create_prompt_manager()
+    pm = create_prompt_manager(lang=lang)
     prompt = pm.get("misc_session_title", lines=lines)
     try:
         result = adaptive_handler.generate_non_streaming_response(
@@ -335,7 +336,8 @@ def upload_file():
     处理PDF文件上传，保存到配置的PDF文件夹
     """
     if 'files' not in request.files:
-        return jsonify({'error': '没有收到文件'}), 400
+        lang = i18n.get_lang(request)
+        return jsonify({'error': i18n.get('errors.noFileReceived', lang)}), 400
 
     files = request.files.getlist('files')
 
@@ -381,7 +383,8 @@ def cancel_task():
     中断当前正在执行的提取任务（硬件执行中不可中断）
     """
     if hardware_controller.is_hardware_running():
-        return jsonify({"status": "rejected", "reason": "硬件正在执行中，无法中断"})
+        lang = i18n.get_lang(request)
+        return jsonify({"status": "rejected", "reason": i18n.get('errors.hardwareRunningCannotInterrupt', lang)})
     task_manager.cancel_task()
     return jsonify({"status": "stopping"})
 
@@ -441,6 +444,7 @@ def handle_extraction_start(data: dict) -> Response:
     """
     task_desc = data.get('task_desc')
     fields = data.get('fields')
+    lang = i18n.get_lang(request)
 
     # 清空任务队列
     while not task_manager.is_queue_empty():
@@ -457,7 +461,7 @@ def handle_extraction_start(data: dict) -> Response:
 
     return jsonify({
         'type': 'task_trigger',
-        'reply': "指令确认！正在调度解析引擎，实时进度见下方..."
+        'reply': i18n.get('status.taskDispatched', lang)
     })
 
 
@@ -472,11 +476,13 @@ def handle_extraction_request(user_message: str, history: list = None) -> Respon
     Returns:
         JSON响应
     """
+    lang = i18n.get_lang(request)
+
     # 检查是否有任务正在运行
     if task_manager.task_running:
         return jsonify({
             'type': 'system',
-            'reply': "⚠️ 当前已有一个提取任务正在运行。"
+            'reply': i18n.get('status.extractionTaskRunning', lang)
         })
 
     # 提取任务描述
@@ -502,7 +508,7 @@ def handle_extraction_request(user_message: str, history: list = None) -> Respon
 
         return jsonify({
             'type': 'task_trigger',
-            'reply': f"已启动 FAPbI3 钝化剂解析..."
+            'reply': i18n.get('status.extractionStarted', lang)
         })
 
     # 场景2：自定义输入，去LLM询问字段
@@ -513,10 +519,10 @@ def handle_extraction_request(user_message: str, history: list = None) -> Respon
             # 若失败，返回错误
             return jsonify({
                 'type': 'system',
-                'reply': f"❌ **动态字段推断失败**\n\n系统已重试3次但均未成功。\n**底层原因**：{fields}\n\n建议您重新发送指令，或检查 API 网络状态。"
+                'reply': i18n.get('errors.fieldInferenceFailed', lang).format(error=fields)
             })
 
-        confirm_msg = f"我分析了你的需求，为了完美完成【{task_desc}】的提取，我为你规划了以下输出表格列名：\n\n`{', '.join(fields)}`\n\n请问是否确认使用这些字段进行解析？"
+        confirm_msg = i18n.get('status.fieldConfirmPrompt', lang).format(task=task_desc, fields=', '.join(fields))
 
         return jsonify({
             'type': 'field_confirm',
@@ -536,6 +542,8 @@ def handle_hardware_request(user_message: str) -> Response:
     Returns:
         JSON响应
     """
+    lang = i18n.get_lang(request)
+
     # 判断模式
     if user_message.startswith("实验设计："):
         mode = "design"
@@ -547,10 +555,7 @@ def handle_hardware_request(user_message: str) -> Response:
     if not cmd_text:
         return jsonify({
             'type': 'system',
-            'reply': '请描述你的需求，例如：\n'
-                     '  • "设计一个旋涂实验，转速3000rpm"\n'
-                     '  • "移动到位置A并测量光谱"\n'
-                     '  • "设置加热台温度为150度"'
+            'reply': i18n.get('info.hardwarePromptHint', lang)
         })
 
     # 实验设计模式
@@ -558,11 +563,7 @@ def handle_hardware_request(user_message: str) -> Response:
         return jsonify({
             'type': 'experiment_design_mode',
             'command': cmd_text,
-            'reply': f'🔬 **实验设计模式**\n\n'
-                     f'我将使用 AI 自主规划实验流程来完成你的需求：\n'
-                     f'"{cmd_text}"\n\n'
-                     f'AI 将自动选择合适的工具和参数，规划完整的实验步骤。\n'
-                     f'实验流程规划完成后，我会推送给你确认。'
+            'reply': i18n.get('status.experimentDesignMode', lang).format(command=cmd_text)
         })
 
     # 单步控制模式
@@ -572,14 +573,12 @@ def handle_hardware_request(user_message: str) -> Response:
         if not success or not tool_calls:
             return jsonify({
                 'type': 'system',
-                'reply': f'❌ 硬件指令解析失败\n\n'
-                         f'无法理解命令："{cmd_text}"\n\n'
-                         f'请检查指令格式，或使用"实验设计：<需求描述>"让 AI 自动规划。'
+                'reply': i18n.get('errors.hardwareCommandParseFailed', lang).format(command=cmd_text)
             })
 
         # 生成确认信息
         confirmation_msg = hardware_controller.ask_for_experiment_confirmation(tool_calls)
-        confirmation_msg = f'⚙️ **单步控制模式**\n\n' + confirmation_msg
+        confirmation_msg = i18n.get('status.singleStepControlMode', lang).format(confirmation=confirmation_msg)
 
         return jsonify({
             'type': 'hardware_confirm',
@@ -605,9 +604,10 @@ def handle_hardware_control(user_message: str) -> Response:
     success, tool_calls = hardware_controller.agent.parse_complex_command(cmd_text)
 
     if not success or not tool_calls:
+        lang = i18n.get_lang(request)
         return jsonify({
             'type': 'system',
-            'reply': "❌ 硬件指令解析失败，请检查指令格式"
+            'reply': i18n.get('errors.hardwareCommandParseFailedShort', lang)
         })
 
     # 生成确认信息
@@ -631,19 +631,20 @@ def handle_hardware_execute(data: dict) -> Response:
     Returns:
         JSON响应
     """
+    lang = i18n.get_lang(request)
     tool_calls = data.get('tool_calls', [])
     if not tool_calls:
-        return jsonify({'status': 'error', 'reply': '没有可执行的硬件操作'})
+        return jsonify({'status': 'error', 'reply': i18n.get('errors.noExecutableHardwareOps', lang)})
 
     try:
         success, result = hardware_controller.execute_tool_calls(tool_calls)
         if success:
-            return jsonify({'status': 'success', 'reply': '所有硬件操作已成功执行', 'result': result})
+            return jsonify({'status': 'success', 'reply': i18n.get('success.allHardwareOpsExecuted', lang), 'result': result})
         else:
             msg = result.get('message', '') if isinstance(result, dict) else str(result)
-            return jsonify({'status': 'error', 'reply': f'部分操作失败: {msg}', 'result': result})
+            return jsonify({'status': 'error', 'reply': i18n.get('errors.partialOpFailed', lang).format(msg=msg), 'result': result})
     except Exception as e:
-        return jsonify({'status': 'error', 'reply': f'硬件执行异常: {str(e)}'})
+        return jsonify({'status': 'error', 'reply': i18n.get('errors.hardwareExecutionError', lang).format(error=str(e))})
 
 
 def handle_data_analysis(user_message: str) -> Response:
@@ -661,6 +662,7 @@ def handle_data_analysis(user_message: str) -> Response:
     Returns:
         JSON响应
     """
+    lang = i18n.get_lang(request)
     content = user_message.replace("数据分析：", "").replace("数据分析", "").strip()
 
     # 场景1：用户只输入"数据分析"，触发交互式选择器
@@ -675,19 +677,14 @@ def handle_data_analysis(user_message: str) -> Response:
                     if file.endswith('.csv'):
                         csv_files.append(os.path.join(folder, file))
 
+        algo_list = '\n'.join([f'  • {algo["name"]}: {algo["description"]}' for algo in available_algorithms])
+        file_list = ('\n'.join([f'  • {f}' for f in csv_files]) if csv_files else i18n.get('status.dataAnalysisModeNoFiles', lang))
+
         return jsonify({
             'type': 'data_analysis_selector',
             'algorithms': available_algorithms,
             'csv_files': csv_files,
-            'reply': '📊 **数据分析模式**\n\n'
-                     '请选择要使用的算法和目标CSV文件：\n\n'
-                     '**可用算法：**\n' +
-                     '\n'.join([f'  • {algo["name"]}: {algo["description"]}' for algo in available_algorithms]) +
-                     '\n\n**可用数据文件：**\n' +
-                     ('\n'.join([f'  • {f}' for f in csv_files]) if csv_files else '  （暂无CSV文件）') +
-                     '\n\n💡 你也可以直接输入：\n'
-                     '  "数据分析：算法名称 文件路径"\n'
-                     '  例如："数据分析：data_statistics temporal/extraction.csv"'
+            'reply': i18n.get('status.dataAnalysisMode', lang).format(algorithms=algo_list, files=file_list)
         })
 
     # 场景2和3：解析算法名称和CSV路径
@@ -698,7 +695,7 @@ def handle_data_analysis(user_message: str) -> Response:
     if not algorithm_name:
         return jsonify({
             'type': 'system',
-            'reply': f'❌ 请指定要使用的算法名称，例如：\n"数据分析：data_statistics {os.path.join(get_session_path("temporal"), "extraction.csv")}"'
+            'reply': i18n.get('errors.specifyAlgorithmName', lang)
         })
 
     # 检查算法是否存在
@@ -707,27 +704,23 @@ def handle_data_analysis(user_message: str) -> Response:
 
     if not algorithm_exists:
         # 算法不存在，询问用户是否需要生成
+        algo_list = '\n'.join([f'  • {algo["name"]}: {algo["description"]}' for algo in available_algorithms])
         return jsonify({
             'type': 'algorithm_not_found',
             'algorithm_name': algorithm_name,
-            'reply': f'❌ 算法 "{algorithm_name}" 不存在。\n\n'
-                     f'**当前可用的算法：**\n' +
-                     '\n'.join([f'  • {algo["name"]}: {algo["description"]}' for algo in available_algorithms]) +
-                     f'\n\n💡 是否需要生成新算法 "{algorithm_name}"？\n'
-                     f'请使用：生成算法：<算法描述>'
+            'reply': i18n.get('errors.algorithmNotFound', lang).format(name=algorithm_name, list=algo_list)
         })
 
     # 检查CSV文件是否存在
     if not os.path.exists(csv_path):
         return jsonify({
             'type': 'system',
-            'reply': f'❌ 文件 "{csv_path}" 不存在。\n\n'
-                     f'请检查文件路径是否正确，或使用"数据分析"命令查看可用文件。'
+            'reply': i18n.get('errors.csvFileNotFound', lang).format(path=csv_path)
         })
 
     # 算法和文件都存在，执行分析
     if task_manager.task_running:
-        return jsonify({'type': 'system', 'reply': '⚠️ 当前已有任务正在运行，请等待完成后再试。'})
+        return jsonify({'type': 'system', 'reply': i18n.get('errors.taskAlreadyRunning', lang)})
 
     # 清空任务队列
     while not task_manager.is_queue_empty():
@@ -746,7 +739,7 @@ def handle_data_analysis(user_message: str) -> Response:
 
     return jsonify({
         'type': 'task_trigger',
-        'reply': f'✅ 正在使用算法 **{algorithm_name}** 分析文件 `{csv_path}`\n\n实时进度见下方...'
+        'reply': i18n.get('status.algorithmAnalyzing', lang).format(name=algorithm_name, path=csv_path)
     })
 
 
@@ -760,17 +753,18 @@ def handle_data_analysis_execute(data: dict) -> Response:
     Returns:
         JSON响应
     """
+    lang = i18n.get_lang(request)
     algorithm_name = data.get('algorithm_name', '').strip()
     csv_path = data.get('csv_path', os.path.join(get_session_path("temporal"), "extraction.csv")).strip()
 
     if not algorithm_name:
-        return jsonify({'status': 'error', 'reply': '缺少算法名称'})
+        return jsonify({'status': 'error', 'reply': i18n.get('errors.missingAlgorithmName', lang)})
 
     if not os.path.exists(csv_path):
-        return jsonify({'status': 'error', 'reply': f'文件 "{csv_path}" 不存在'})
+        return jsonify({'status': 'error', 'reply': i18n.get('errors.fileNotExist', lang).format(path=csv_path)})
 
     if task_manager.task_running:
-        return jsonify({'status': 'error', 'reply': '当前已有任务正在运行'})
+        return jsonify({'status': 'error', 'reply': i18n.get('errors.taskRunning', lang)})
 
     # 清空任务队列
     while not task_manager.is_queue_empty():
@@ -789,7 +783,7 @@ def handle_data_analysis_execute(data: dict) -> Response:
 
     return jsonify({
         'type': 'task_trigger',
-        'reply': f'✅ 正在使用算法 **{algorithm_name}** 分析文件 `{csv_path}`\n\n实时进度见下方...'
+        'reply': i18n.get('status.algorithmAnalyzing', lang).format(name=algorithm_name, path=csv_path)
     })
 
 
@@ -806,8 +800,9 @@ def handle_auto_analyze(user_message: str) -> Response:
     Returns:
         JSON响应（task_trigger 类型，触发前端 SSE 监听）
     """
+    lang = i18n.get_lang(request)
     if task_manager.task_running:
-        return jsonify({'type': 'system', 'reply': '⚠️ 当前已有任务正在运行，请等待完成后再试。'})
+        return jsonify({'type': 'system', 'reply': i18n.get('errors.taskAlreadyRunning', lang)})
 
     csv_path = user_message.replace("数据分析：", "").strip()
     if not csv_path:
@@ -830,7 +825,7 @@ def handle_auto_analyze(user_message: str) -> Response:
 
     return jsonify({
         'type' : 'task_trigger',
-        'reply': f'正在分析 `{csv_path}`，实时进度见下方...'
+        'reply': i18n.get('status.analyzing', lang).format(path=csv_path)
     })
 
 
@@ -891,32 +886,35 @@ def handle_generate_algorithm(user_message: str) -> Response:
     Returns:
         JSON响应
     """
+    lang = i18n.get_lang(request)
     description = user_message.replace("生成算法：", "").strip()
 
     if not description:
         return jsonify({
             'type': 'system',
-            'reply': '请描述你需要的算法功能，例如：\n"对数值列表做移动平均，窗口大小可配置"'
+            'reply': i18n.get('info.algorithmDescriptionHint', lang)
         })
 
     try:
         result = software_manager.generate_algorithm(description)
 
         if result.get("success"):
-            reply = f"✅ 算法生成成功！\n\n"
-            reply += f"算法名称: {result['name']}\n"
-            reply += f"文件路径: {result['filepath']}\n\n"
-            reply += result.get('message', '')
-            reply += "\n\n你现在可以在数据分析模式中使用这个算法了。"
+            reply = i18n.get('success.algorithmGenerated', lang).format(
+                name=result['name'],
+                filepath=result['filepath'],
+                message=result.get('message', '')
+            )
         else:
-            reply = f"❌ 算法生成失败\n\n{result.get('message', '未知错误')}"
+            reply = i18n.get('errors.algorithmGenerationFailed', lang).format(
+                message=result.get('message', i18n.get('errors.unknownError', lang))
+            )
 
         return jsonify({'type': 'system', 'reply': reply})
 
     except Exception as e:
         return jsonify({
             'type': 'system',
-            'reply': f'❌ 算法生成异常: {str(e)}'
+            'reply': i18n.get('errors.algorithmGenerationException', lang).format(error=str(e))
         })
 
 
@@ -973,12 +971,13 @@ def get_extraction_mode():
     """
     获取当前PDF提取模式
     """
+    lang = i18n.get_lang(request)
     return jsonify({
         "mode": config.EXTRACTION_MODE,
         "available_modes": {
-            "vision": "纯视觉模式（准确但贵）",
-            "text": "纯文本模式（快速便宜）",
-            "hybrid": "混合模式（推荐）"
+            "vision": i18n.get('info.modeVisionDesc', lang),
+            "text": i18n.get('info.modeTextDesc', lang),
+            "hybrid": i18n.get('info.modeHybridDesc', lang)
         }
     })
 
@@ -993,23 +992,25 @@ def set_extraction_mode():
 
     valid_modes = ['vision', 'text', 'hybrid']
     if mode not in valid_modes:
+        lang = i18n.get_lang(request)
         return jsonify({
             'success': False,
-            'message': f'无效的模式，请选择: {", ".join(valid_modes)}'
+            'message': i18n.get('errors.invalidExtractionMode', lang).format(modes=", ".join(valid_modes))
         }), 400
 
     config.EXTRACTION_MODE = mode
 
+    lang = i18n.get_lang(request)
     mode_names = {
-        'vision': '纯视觉模式',
-        'text': '纯文本模式',
-        'hybrid': '混合模式'
+        'vision': i18n.get('info.modeVision', lang),
+        'text': i18n.get('info.modeText', lang),
+        'hybrid': i18n.get('info.modeHybrid', lang)
     }
 
     return jsonify({
         'success': True,
         'mode': mode,
-        'message': f'已切换到 {mode_names[mode]}'
+        'message': i18n.get('success.extractionModeChanged', lang).format(mode=mode_names[mode])
     })
 
 
@@ -1019,9 +1020,10 @@ def streaming_recheck():
     强制重新检测流式支持
     """
     result = adaptive_handler.force_recheck()
+    lang = i18n.get_lang(request)
     return jsonify({
         "supports_streaming": result,
-        "message": "流式支持已重新检测" if result else "API不支持流式响应"
+        "message": i18n.get('status.streamingRechecked', lang) if result else i18n.get('errors.streamingNotSupported', lang)
     })
 
 
@@ -1047,7 +1049,8 @@ def not_found(error):
     """
     404错误处理
     """
-    return jsonify({'error': '接口不存在'}), 404
+    lang = i18n.get_lang(request)
+    return jsonify({'error': i18n.get('errors.endpointNotFound', lang)}), 404
 
 
 @app.errorhandler(500)
@@ -1057,7 +1060,8 @@ def internal_error(error):
     """
     import traceback
     traceback.print_exc()
-    return jsonify({'error': '服务器内部错误'}), 500
+    lang = i18n.get_lang(request)
+    return jsonify({'error': i18n.get('errors.internalServerError', lang)}), 500
 
 
 # =============================================================================
@@ -1075,13 +1079,14 @@ def experiment_chat():
     - 流式：POST body 含 stream=true
       返回 SSE 流: chunk 事件 → complete 事件
     """
+    lang = i18n.get_lang(request)
     data = request.json
     if data is None:
-        return jsonify({'type': 'error', 'reply': '请求体为空或JSON格式错误'}), 400
+        return jsonify({'type': 'error', 'reply': i18n.get('errors.emptyOrInvalidJson', lang)}), 400
 
     user_message = data.get('message', '').strip()
     if not user_message:
-        return jsonify({'type': 'error', 'reply': '消息不能为空'})
+        return jsonify({'type': 'error', 'reply': i18n.get('errors.messageEmpty', lang)})
 
     use_stream = data.get('stream', False)
 
@@ -1109,30 +1114,30 @@ def experiment_chat():
             visual_data = converter.json_to_visual(result)
             var_count = len(result.get('variables', {}))
             var_hint = ""
+            exp_name = result.get('experiment_name', i18n.get('experiment.unnamed', lang))
+            exp_desc = result.get('description', '')
+            steps_count = len(result.get('steps', []))
             if var_count:
-                var_hint = f"\n\n📊 包含 {var_count} 个可配置变量，可在变量栏中修改默认值或导入CSV批量执行。"
+                var_hint = "\n\n" + i18n.get('info.variableCountHint', lang).format(count=var_count)
             return jsonify({
                 'type': 'experiment_design',
                 'experiment_json': result,
                 'visual_data': visual_data,
-                'reply': (
-                    f"✅ 已生成实验设计方案：{result.get('experiment_name', '未命名实验')}\n\n"
-                    f"{result.get('description', '')}\n\n"
-                    f"共 {len(result.get('steps', []))} 个步骤，已推送到实验流程画布。"
-                    f"{var_hint}"
+                'reply': i18n.get('success.experimentDesignGenerated', lang).format(
+                    name=exp_name, description=exp_desc, steps=steps_count, var_hint=var_hint
                 )
             })
         else:
             return jsonify({
                 'type': 'error',
-                'reply': f"❌ 实验设计生成失败：{result}"
+                'reply': i18n.get('errors.experimentDesignFailed', lang).format(error=result)
             })
     except Exception as e:
         import traceback
         traceback.print_exc()
         return jsonify({
             'type': 'error',
-            'reply': f"服务器内部错误: {str(e)}"
+            'reply': i18n.get('errors.internalServerErrorWithMsg', lang).format(msg=str(e))
         }), 500
 
 
@@ -1141,7 +1146,8 @@ def experiment_chat_stream_get():
     """GET 方式流式实验设计（供 platform_init 测试脚本和直接调试使用）"""
     user_message = request.args.get('message', '').strip()
     if not user_message:
-        return jsonify({'type': 'error', 'reply': 'message 参数不能为空'}), 400
+        lang = i18n.get_lang(request)
+        return jsonify({'type': 'error', 'reply': i18n.get('errors.messageParamEmpty', lang)}), 400
 
     from core.field_inference import ExperimentDesignAgent
     agent = ExperimentDesignAgent()
@@ -1166,11 +1172,13 @@ def experiment_upload():
     """
     session_id = request.form.get('session_id', 'default')
     if 'file' not in request.files:
-        return jsonify({'error': '没有收到文件'}), 400
+        lang = i18n.get_lang(request)
+        return jsonify({'error': i18n.get('errors.noFileReceived', lang)}), 400
 
     file = request.files['file']
     if not file.filename.lower().endswith('.pdf'):
-        return jsonify({'error': '仅支持 PDF 文件'}), 400
+        lang = i18n.get_lang(request)
+        return jsonify({'error': i18n.get('errors.onlyPdfAllowed', lang)}), 400
 
     os.makedirs('./pdf_cache', exist_ok=True)
     safe_name = f"{session_id}_{uuid.uuid4().hex}.pdf"
@@ -1214,7 +1222,8 @@ def experiment_confirm():
     # }
     # experiment_agent.submit_response(request_id, response)
 
-    return jsonify({'status': 'success', 'message': '方案2暂不支持交互式确认'})
+    lang = i18n.get_lang(request)
+    return jsonify({'status': 'success', 'message': i18n.get('info.scheme2NotSupportInteractive', lang)})
 
 
 # =============================================================================
@@ -1248,10 +1257,11 @@ def software_run():
     input_data     = data.get('data')
     params         = data.get('params', {})
 
+    lang = i18n.get_lang(request)
     if not algorithm_name:
-        return jsonify({'success': False, 'message': '缺少 algorithm 字段'}), 400
+        return jsonify({'success': False, 'message': i18n.get('errors.missingAlgorithmField', lang)}), 400
     if input_data is None:
-        return jsonify({'success': False, 'message': '缺少 data 字段'}), 400
+        return jsonify({'success': False, 'message': i18n.get('errors.missingDataField', lang)}), 400
 
     result = software_manager.run_algorithm(algorithm_name, input_data, params)
     return jsonify(result)
@@ -1273,7 +1283,8 @@ def software_run_on_csv():
     params         = data.get('params', {})
 
     if not algorithm_name:
-        return jsonify({'success': False, 'message': '缺少 algorithm 字段'}), 400
+        lang = i18n.get_lang(request)
+        return jsonify({'success': False, 'message': i18n.get('errors.missingAlgorithmField', lang)}), 400
 
     result = software_manager.run_on_csv(algorithm_name, params)
     return jsonify(result)
@@ -1295,7 +1306,8 @@ def software_generate_algorithm():
     description = data.get('description', '').strip()
 
     if not description:
-        return jsonify({'success': False, 'message': '缺少 description 字段'}), 400
+        lang = i18n.get_lang(request)
+        return jsonify({'success': False, 'message': i18n.get('errors.missingDescriptionField', lang)}), 400
 
     result = software_manager.generate_algorithm(description)
     return jsonify(result)
@@ -1307,11 +1319,12 @@ def software_reload():
     重新扫描并注册算法（生成新算法后调用，使其立即可用）
     """
     algorithms = software_manager.reload_algorithms()
+    lang = i18n.get_lang(request)
     return jsonify({
         'success'   : True,
         'count'     : len(algorithms),
         'algorithms': algorithms,
-        'message'   : f'已重新加载，共注册 {len(algorithms)} 个算法',
+        'message'   : i18n.get('success.algorithmsReloaded', lang).format(count=len(algorithms)),
     })
 
 
@@ -1421,7 +1434,8 @@ def browse_output_dirs():
     """列出可用的输出目录：当前会话 results/ 以及 const_data/result/ 下的子文件夹"""
     dirs = []
     session_results = get_session_path("results")
-    dirs.append({'path': session_results.replace('\\', '/'), 'label': '当前会话 results（默认）', 'is_default': True})
+    lang = i18n.get_lang(request)
+    dirs.append({'path': session_results.replace('\\', '/'), 'label': i18n.get('info.currentSessionResults', lang), 'is_default': True})
     const_result = os.path.join(config.DIALOGUE_DATA_DIR, "const_data", "result")
     if os.path.isdir(const_result):
         for name in sorted(os.listdir(const_result)):
@@ -1445,7 +1459,8 @@ def generate_algorithm_alias():
     description = data.get('description', '').strip()
 
     if not description:
-        return jsonify({'success': False, 'message': '缺少算法描述'}), 400
+        lang = i18n.get_lang(request)
+        return jsonify({'success': False, 'message': i18n.get('errors.missingAlgorithmDescription', lang)}), 400
 
     # 调用软件管理器生成算法
     result = software_manager.generate_algorithm(description)
@@ -1498,30 +1513,31 @@ def run_algorithm_with_file():
     file_path = data.get('file_path', '').strip()
     params = data.get('params', {})
 
+    lang = i18n.get_lang(request)
     if not algo_name:
         return jsonify({
             "success": False,
-            "message": "缺少算法名称"
+            "message": i18n.get('errors.missingAlgorithmName', lang)
         }), 400
 
     if not file_path:
         return jsonify({
             "success": False,
-            "message": "缺少文件路径"
+            "message": i18n.get('errors.missingFilePath', lang)
         }), 400
 
     # 验证文件存在
     if not os.path.exists(file_path):
         return jsonify({
             "success": False,
-            "message": f"文件不存在: {file_path}"
+            "message": i18n.get('errors.fileNotExist', lang).format(path=file_path)
         }), 404
 
     # 检查是否有任务正在运行
     if task_manager.task_running:
         return jsonify({
             "success": False,
-            "message": "当前已有任务正在运行，请等待完成后再试"
+            "message": i18n.get('errors.taskAlreadyRunning', lang)
         }), 409
 
     # 清空任务队列
@@ -1542,7 +1558,7 @@ def run_algorithm_with_file():
     return jsonify({
         "success": True,
         "task_id": task_id,
-        "message": f"正在执行算法 {algo_name}..."
+        "message": i18n.get('status.algorithmExecuting', lang).format(name=algo_name)
     })
 
 
@@ -1564,7 +1580,8 @@ def save_experiment_design():
     }
     """
     data = request.json
-    experiment_name = data.get('experiment_name', '未命名实验')
+    lang = i18n.get_lang(request)
+    experiment_name = data.get('experiment_name', i18n.get('experiment.unnamed', lang))
     custom_path = data.get('save_path')
 
     # 如果提供了自定义路径，使用自定义路径
@@ -1590,12 +1607,12 @@ def save_experiment_design():
         return jsonify({
             'success': True,
             'filepath': filepath,
-            'message': f'实验设计已保存到 {filepath}'
+            'message': i18n.get('success.experimentDesignSaved', lang).format(filepath=filepath)
         })
     except Exception as e:
         return jsonify({
             'success': False,
-            'message': f'保存失败: {str(e)}'
+            'message': i18n.get('errors.saveFailed', lang).format(error=str(e))
         }), 500
 
 
@@ -1617,14 +1634,15 @@ def execute_experiment_design():
     from experiment.executor import ExperimentExecutor
 
     data = request.json
-    experiment_name = data.get('experiment_name', '未命名实验')
+    lang = i18n.get_lang(request)
+    experiment_name = data.get('experiment_name', i18n.get('experiment.unnamed', lang))
     steps = data.get('steps', [])
 
     if not steps:
-        return jsonify({'type': 'error', 'reply': '实验设计中没有步骤'}), 400
+        return jsonify({'type': 'error', 'reply': i18n.get('errors.experimentDesignNoSteps', lang)}), 400
 
     if task_manager.task_running:
-        return jsonify({'type': 'error', 'reply': '当前已有任务正在运行，请等待完成后再试'}), 409
+        return jsonify({'type': 'error', 'reply': i18n.get('errors.taskAlreadyRunning', lang)}), 409
 
     while not task_manager.is_queue_empty():
         task_manager.get_task_message()
@@ -1642,16 +1660,16 @@ def execute_experiment_design():
                 msg_type = "info" if status in ("running", "completed") else "error"
                 task_manager.put_task_message({"type": msg_type, "data": message})
 
-            task_manager.put_task_message({"type": "info", "data": f"开始执行实验: {experiment_name}，共 {total} 步"})
+            task_manager.put_task_message({"type": "info", "data": i18n.get('status.experimentExecutionStarted', lang).format(name=experiment_name, total=total)})
             result = executor.execute_plan(data, progress_callback=on_progress)
 
             if result["success"]:
-                task_manager.put_task_message({"type": "complete", "data": {"message": f"✅ 实验 {experiment_name} 执行完成！"}})
+                task_manager.put_task_message({"type": "complete", "data": {"message": i18n.get('success.experimentExecutionCompleted', lang).format(name=experiment_name)}})
             else:
-                err = result.get("error") or "部分步骤失败"
+                err = result.get("error") or i18n.get('errors.unknownError', lang)
                 task_manager.put_task_message({"type": "complete", "data": {"error": err}})
         except Exception as e:
-            task_manager.put_task_message({"type": "complete", "data": {"error": f"实验执行异常: {str(e)}"}})
+            task_manager.put_task_message({"type": "complete", "data": {"error": i18n.get('errors.hardwareExecutionError', lang).format(error=str(e))}})
         finally:
             task_manager.task_running = False
 
@@ -1659,7 +1677,7 @@ def execute_experiment_design():
 
     return jsonify({
         'type': 'task_trigger',
-        'reply': f'🚀 开始执行实验设计: {experiment_name}\n共 {len(steps)} 个步骤，实时进度见下方...'
+        'reply': i18n.get('status.experimentExecutingDesign', lang).format(name=experiment_name, steps=len(steps))
     })
 
 
@@ -1681,30 +1699,25 @@ def import_variables_csv():
         "reply": "✅ CSV 解析完成..."
     }
     """
+    lang = i18n.get_lang(request)
     data = request.json
     if data is None:
-        return jsonify({'type': 'error', 'reply': '请求体为空或JSON格式错误'}), 400
+        return jsonify({'type': 'error', 'reply': i18n.get('errors.emptyOrInvalidJson', lang)}), 400
 
     csv_content = data.get('csv_content', '')
     if not csv_content or not csv_content.strip():
-        return jsonify({'type': 'error', 'reply': 'CSV内容不能为空'}), 400
+        return jsonify({'type': 'error', 'reply': i18n.get('errors.csvContentEmpty', lang)}), 400
 
     try:
         from core.variable_resolver import VariableResolver
         variables, batch_data, error = VariableResolver.parse_csv(csv_content)
         if error:
-            return jsonify({'type': 'error', 'reply': f'CSV解析失败: {error}'}), 400
+            return jsonify({'type': 'error', 'reply': i18n.get('errors.csvParseFailed', lang).format(error=error)}), 400
 
         var_count = len(variables)
         row_count = len(batch_data)
         var_names = ", ".join(variables.keys())
-        reply = (
-            f"✅ CSV 解析完成\n\n"
-            f"变量数量: {var_count}\n"
-            f"数据行数: {row_count}\n"
-            f"变量列表: {var_names}\n\n"
-            f"变量已导入到变量栏，可在实验中使用变量名引用参数。"
-        )
+        reply = i18n.get('success.csvParsed', lang).format(var_count=var_count, row_count=row_count, var_names=var_names)
 
         return jsonify({
             'type': 'variables_csv',
@@ -1715,7 +1728,7 @@ def import_variables_csv():
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({'type': 'error', 'reply': f'导入CSV失败: {str(e)}'}), 500
+        return jsonify({'type': 'error', 'reply': i18n.get('errors.csvImportFailed', lang).format(error=str(e))}), 500
 
 
 @app.route('/api/export_experiment_json', methods=['POST'])
@@ -1730,19 +1743,20 @@ def export_experiment_json():
     }
     """
     data = request.json
+    lang = i18n.get_lang(request)
     json_data = data.get('json_data')
     filepath = data.get('filepath', '').strip()
 
     if not json_data:
         return jsonify({
             'success': False,
-            'message': '缺少JSON数据'
+            'message': i18n.get('errors.missingJsonData', lang)
         }), 400
 
     if not filepath:
         return jsonify({
             'success': False,
-            'message': '缺少文件路径'
+            'message': i18n.get('errors.missingFilePath', lang)
         }), 400
 
     try:
@@ -1758,12 +1772,12 @@ def export_experiment_json():
         return jsonify({
             'success': True,
             'filepath': filepath,
-            'message': f'实验设计已导出到 {filepath}'
+            'message': i18n.get('success.experimentDesignExported', lang).format(filepath=filepath)
         })
     except Exception as e:
         return jsonify({
             'success': False,
-            'message': f'导出失败: {str(e)}'
+            'message': i18n.get('errors.exportFailed', lang).format(error=str(e))
         }), 500
 
 
@@ -1787,9 +1801,10 @@ def compile_experiment():
     experiment_json = data.get('experiment_json')
 
     if not experiment_json:
+        lang = i18n.get_lang(request)
         return jsonify({
             'success': False,
-            'message': '缺少实验JSON数据'
+            'message': i18n.get('errors.missingExperimentJson', lang)
         }), 400
 
     try:
@@ -1802,9 +1817,10 @@ def compile_experiment():
             'code': python_code
         })
     except Exception as e:
+        lang = i18n.get_lang(request)
         return jsonify({
             'success': False,
-            'message': f'编译失败: {str(e)}'
+            'message': i18n.get('errors.compileFailed', lang).format(error=str(e))
         }), 500
 
 
@@ -1830,9 +1846,10 @@ def compile_and_run_experiment():
     experiment_json = data.get('experiment_json')
 
     if not experiment_json:
+        lang = i18n.get_lang(request)
         return jsonify({
             'success': False,
-            'message': '缺少实验JSON数据'
+            'message': i18n.get('errors.missingExperimentJson', lang)
         }), 400
 
     try:
@@ -1842,9 +1859,10 @@ def compile_and_run_experiment():
 
         return jsonify(result)
     except Exception as e:
+        lang = i18n.get_lang(request)
         return jsonify({
             'success': False,
-            'message': f'编译或执行失败: {str(e)}'
+            'message': i18n.get('errors.compileOrRunFailed', lang).format(error=str(e))
         }), 500
 
 
@@ -1893,7 +1911,8 @@ def history_save_batch():
     """
     data = request.get_json(force=True, silent=True)
     if not data:
-        return jsonify({"success": False, "message": "请求体为空"}), 400
+        lang = i18n.get_lang(request)
+        return jsonify({"success": False, "message": i18n.get('errors.requestBodyEmpty', lang)}), 400
 
     messages = data.get('messages', [])
 
@@ -1911,7 +1930,7 @@ def history_save_batch():
     # 标题：已有则复用，否则尝试 LLM 生成
     title = existing_title
     if not title and len(messages) >= 3:
-        title = _generate_title(messages)
+        title = _generate_title(messages, lang=i18n.get_lang(request))
     if not title:
         title = "未命名会话"
 
@@ -1985,17 +2004,20 @@ def history_load_session(timestamp: str):
     """
     # 安全检查：timestamp 只能包含数字和下划线
     if not re.match(r'^\d{8}_\d{6}$', timestamp):
-        return jsonify({"success": False, "error": "无效的时间戳格式"}), 400
+        lang = i18n.get_lang(request)
+        return jsonify({"success": False, "error": i18n.get('errors.invalidTimestampFormat', lang)}), 400
 
     history_path = os.path.join(config.DIALOGUE_DATA_DIR, timestamp, "chat_history.json")
     if not os.path.exists(history_path):
-        return jsonify({"success": False, "error": "会话记录不存在"}), 404
+        lang = i18n.get_lang(request)
+        return jsonify({"success": False, "error": i18n.get('errors.sessionNotFound', lang)}), 404
 
     try:
         with open(history_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
     except Exception as e:
-        return jsonify({"success": False, "error": f"读取失败: {str(e)}"}), 500
+        lang = i18n.get_lang(request)
+        return jsonify({"success": False, "error": i18n.get('errors.readFailed', lang).format(error=str(e))}), 500
 
     return jsonify({
         "success": True,
@@ -2015,11 +2037,13 @@ def history_delete_session(timestamp: str):
     返回: { success: true } 或 { success: false, error }
     """
     if not re.match(r'^\d{8}_\d{6}$', timestamp):
-        return jsonify({"success": False, "error": "无效的时间戳格式"}), 400
+        lang = i18n.get_lang(request)
+        return jsonify({"success": False, "error": i18n.get('errors.invalidTimestampFormat', lang)}), 400
 
     index_path = os.path.join(config.DIALOGUE_DATA_DIR, "sessions_index.json")
     if not os.path.exists(index_path):
-        return jsonify({"success": False, "error": "索引文件不存在"}), 404
+        lang = i18n.get_lang(request)
+        return jsonify({"success": False, "error": i18n.get('errors.indexFileNotFound', lang)}), 404
 
     with open(index_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
@@ -2028,13 +2052,15 @@ def history_delete_session(timestamp: str):
     data["sessions"] = [s for s in data.get("sessions", []) if s.get("timestamp") != timestamp]
 
     if len(data["sessions"]) == original_len:
-        return jsonify({"success": False, "error": "会话不存在"}), 404
+        lang = i18n.get_lang(request)
+        return jsonify({"success": False, "error": i18n.get('errors.sessionNotFound', lang)}), 404
 
     try:
         with open(index_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        return jsonify({"success": False, "error": f"写入失败: {str(e)}"}), 500
+        lang = i18n.get_lang(request)
+        return jsonify({"success": False, "error": i18n.get('errors.writeFailed', lang).format(error=str(e))}), 500
 
     return jsonify({"success": True})
 
@@ -2048,20 +2074,24 @@ def history_update_title(timestamp: str):
     返回: { success: true, title }
     """
     if not re.match(r'^\d{8}_\d{6}$', timestamp):
-        return jsonify({"success": False, "error": "无效的时间戳格式"}), 400
+        lang = i18n.get_lang(request)
+        return jsonify({"success": False, "error": i18n.get('errors.invalidTimestampFormat', lang)}), 400
 
     data = request.get_json(force=True, silent=True)
     if not data or "title" not in data:
-        return jsonify({"success": False, "error": "缺少 title 字段"}), 400
+        lang = i18n.get_lang(request)
+        return jsonify({"success": False, "error": i18n.get('errors.missingTitleField', lang)}), 400
 
     new_title = data["title"].strip()
     if not new_title or len(new_title) > 100:
-        return jsonify({"success": False, "error": "标题长度需在 1-100 字符之间"}), 400
+        lang = i18n.get_lang(request)
+        return jsonify({"success": False, "error": i18n.get('errors.titleLengthInvalid', lang)}), 400
 
     # 验证会话存在
     history_path = os.path.join(config.DIALOGUE_DATA_DIR, timestamp, "chat_history.json")
     if not os.path.exists(history_path):
-        return jsonify({"success": False, "error": "会话不存在"}), 404
+        lang = i18n.get_lang(request)
+        return jsonify({"success": False, "error": i18n.get('errors.sessionNotFound', lang)}), 404
 
     # 1. 更新 sessions_index.json
     index_path = os.path.join(config.DIALOGUE_DATA_DIR, "sessions_index.json")
@@ -2076,7 +2106,8 @@ def history_update_title(timestamp: str):
             with open(index_path, 'w', encoding='utf-8') as f:
                 json.dump(index_data, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            return jsonify({"success": False, "error": f"写入索引失败: {str(e)}"}), 500
+            lang = i18n.get_lang(request)
+            return jsonify({"success": False, "error": i18n.get('errors.writeIndexFailed', lang).format(error=str(e))}), 500
 
     # 2. 更新 chat_history.json
     try:
@@ -2086,7 +2117,8 @@ def history_update_title(timestamp: str):
         with open(history_path, 'w', encoding='utf-8') as f:
             json.dump(hist_data, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        return jsonify({"success": False, "error": f"写入会话失败: {str(e)}"}), 500
+        lang = i18n.get_lang(request)
+        return jsonify({"success": False, "error": i18n.get('errors.writeSessionFailed', lang).format(error=str(e))}), 500
 
     return jsonify({"success": True, "title": new_title})
 
@@ -2107,11 +2139,13 @@ def history_create_folder():
     """
     data = request.get_json(force=True, silent=True)
     if not data:
-        return jsonify({"success": False, "error": "请求体为空"}), 400
+        lang = i18n.get_lang(request)
+        return jsonify({"success": False, "error": i18n.get('errors.requestBodyEmpty', lang)}), 400
 
     name = (data.get("name") or "").strip()
     if not name or len(name) > 50:
-        return jsonify({"success": False, "error": "文件夹名需在 1-50 字符之间"}), 400
+        lang = i18n.get_lang(request)
+        return jsonify({"success": False, "error": i18n.get('errors.folderNameLengthInvalid', lang)}), 400
 
     folders = _read_folders()
     folder = {
@@ -2134,11 +2168,13 @@ def history_rename_folder(folder_id: str):
     """
     data = request.get_json(force=True, silent=True)
     if not data:
-        return jsonify({"success": False, "error": "请求体为空"}), 400
+        lang = i18n.get_lang(request)
+        return jsonify({"success": False, "error": i18n.get('errors.requestBodyEmpty', lang)}), 400
 
     name = (data.get("name") or "").strip()
     if not name or len(name) > 50:
-        return jsonify({"success": False, "error": "文件夹名需在 1-50 字符之间"}), 400
+        lang = i18n.get_lang(request)
+        return jsonify({"success": False, "error": i18n.get('errors.folderNameLengthInvalid', lang)}), 400
 
     folders = _read_folders()
     for f in folders:
@@ -2147,7 +2183,8 @@ def history_rename_folder(folder_id: str):
             _write_folders(folders)
             return jsonify({"success": True, "folder": f})
 
-    return jsonify({"success": False, "error": "文件夹不存在"}), 404
+    lang = i18n.get_lang(request)
+    return jsonify({"success": False, "error": i18n.get('errors.folderNotFound', lang)}), 404
 
 
 @app.route('/api/history/folders/<folder_id>', methods=['DELETE'])
@@ -2159,7 +2196,8 @@ def history_delete_folder(folder_id: str):
     original_len = len(folders)
     folders = [f for f in folders if f["id"] != folder_id]
     if len(folders) == original_len:
-        return jsonify({"success": False, "error": "文件夹不存在"}), 404
+        lang = i18n.get_lang(request)
+        return jsonify({"success": False, "error": i18n.get('errors.folderNotFound', lang)}), 404
     _write_folders(folders)
 
     # 清除 sessions_index 中该文件夹的关联
@@ -2185,11 +2223,13 @@ def history_move_session(timestamp: str):
     返回: { success: true }
     """
     if not re.match(r'^\d{8}_\d{6}$', timestamp):
-        return jsonify({"success": False, "error": "无效的时间戳格式"}), 400
+        lang = i18n.get_lang(request)
+        return jsonify({"success": False, "error": i18n.get('errors.invalidTimestampFormat', lang)}), 400
 
     data = request.get_json(force=True, silent=True)
     if not data or "folder_id" not in data:
-        return jsonify({"success": False, "error": "缺少 folder_id 字段"}), 400
+        lang = i18n.get_lang(request)
+        return jsonify({"success": False, "error": i18n.get('errors.missingFolderIdField', lang)}), 400
 
     folder_id = data["folder_id"]  # None / null means remove from folder
 
@@ -2197,12 +2237,14 @@ def history_move_session(timestamp: str):
     if folder_id is not None:
         folders = _read_folders()
         if not any(f["id"] == folder_id for f in folders):
-            return jsonify({"success": False, "error": "文件夹不存在"}), 404
+            lang = i18n.get_lang(request)
+            return jsonify({"success": False, "error": i18n.get('errors.folderNotFound', lang)}), 404
 
     # 更新 sessions_index.json
     index_path = os.path.join(config.DIALOGUE_DATA_DIR, "sessions_index.json")
     if not os.path.exists(index_path):
-        return jsonify({"success": False, "error": "索引文件不存在"}), 404
+        lang = i18n.get_lang(request)
+        return jsonify({"success": False, "error": i18n.get('errors.indexFileNotFound', lang)}), 404
 
     with open(index_path, 'r', encoding='utf-8') as f:
         index_data = json.load(f)
@@ -2216,7 +2258,8 @@ def history_move_session(timestamp: str):
                 s["folder_id"] = folder_id
             break
     if not found:
-        return jsonify({"success": False, "error": "会话不存在"}), 404
+        lang = i18n.get_lang(request)
+        return jsonify({"success": False, "error": i18n.get('errors.sessionNotFound', lang)}), 404
     with open(index_path, 'w', encoding='utf-8') as f:
         json.dump(index_data, f, ensure_ascii=False, indent=2)
 
@@ -2237,14 +2280,16 @@ def semantic_search():
     """
     global _semantic_search_instance
     if _semantic_search_instance is None:
-        return jsonify({"success": False, "error": "语义搜索服务未初始化，请检查 EMBEDDING_API_KEY 配置"}), 503
+        lang = i18n.get_lang(request)
+        return jsonify({"success": False, "error": i18n.get('errors.semanticSearchNotInitialized', lang)}), 503
 
     data = request.get_json(silent=True) or {}
     query = (data.get("query") or "").strip()
     top_k = data.get("top_k", 10)
 
     if not query:
-        return jsonify({"success": False, "error": "query 不能为空"}), 400
+        lang = i18n.get_lang(request)
+        return jsonify({"success": False, "error": i18n.get('errors.queryEmpty', lang)}), 400
 
     if top_k < 1 or top_k > 100:
         top_k = 10
@@ -2274,18 +2319,22 @@ def page_image():
     page_num = data.get("page_num", -1)
 
     if not pdf_path:
-        return jsonify({"success": False, "error": "pdf_path 不能为空"}), 400
+        lang = i18n.get_lang(request)
+        return jsonify({"success": False, "error": i18n.get('errors.pdfPathEmpty', lang)}), 400
 
     if page_num < 0:
-        return jsonify({"success": False, "error": "page_num 必须 >= 0"}), 400
+        lang = i18n.get_lang(request)
+        return jsonify({"success": False, "error": i18n.get('errors.pageNumInvalid', lang)}), 400
 
     if not os.path.isfile(pdf_path):
-        return jsonify({"success": False, "error": f"PDF 文件不存在: {pdf_path}"}), 404
+        lang = i18n.get_lang(request)
+        return jsonify({"success": False, "error": i18n.get('errors.pdfFileNotFound', lang).format(path=pdf_path)}), 404
 
     try:
         img_base64 = pdf_processor.pdf_page_to_image(pdf_path, page_num)
         if not img_base64:
-            return jsonify({"success": False, "error": f"无法转换第 {page_num + 1} 页"}), 500
+            lang = i18n.get_lang(request)
+            return jsonify({"success": False, "error": i18n.get('errors.pageConversionFailed', lang).format(page=page_num + 1)}), 500
 
         return jsonify({
             "success": True,
@@ -2449,7 +2498,8 @@ def api_literature_detail(unique_id):
     try:
         detail = literature_indexer.get_detail(unique_id)
         if detail is None:
-            return jsonify({"success": False, "error": "记录不存在"}), 404
+            lang = i18n.get_lang(request)
+            return jsonify({"success": False, "error": i18n.get('errors.recordNotFound', lang)}), 404
         pdf_dir = config.PDF_FOLDER if hasattr(config, 'PDF_FOLDER') else os.path.join(config.DIALOGUE_DATA_DIR, '..', 'PDF_TARGET')
         detail['pdf_path'] = os.path.join(pdf_dir, detail.get('current_filename', '')).replace('\\', '/')
         return jsonify({"success": True, "entry": detail})
@@ -2458,6 +2508,17 @@ def api_literature_detail(unique_id):
 
 
 if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser(description='SDL Agent - AI-driven lab automation')
+    parser.add_argument('--default-language', choices=['zh', 'en'], default='zh',
+                        help='Default language for the UI (default: zh)')
+    parser.add_argument('--port', type=int, default=5000, help='Server port (default: 5000)')
+    args = parser.parse_args()
+
+    from utils.i18n import init_i18n
+    init_i18n(default_lang=args.default_language)
+    print(f"[i18n] Default language: {args.default_language}")
+
     print("服务即将启动...")
     Timer(1.5, open_browser).start()
-    app.run(debug=False, port=5000, threaded=True)
+    app.run(debug=False, port=args.port, threaded=True)

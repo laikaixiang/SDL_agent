@@ -1,3 +1,5 @@
+import i18n from '@/i18n'
+
 const BASE = '' // All /api routes are on same origin or proxied by Vite
 
 interface RequestOptions {
@@ -34,7 +36,7 @@ async function request<T = unknown>(url: string, opts: RequestOptions = {}): Pro
     // 将内部超时 AbortError 转换为有意义的 ApiError
     if (controller.signal.aborted && controller.signal.reason instanceof DOMException
         && controller.signal.reason.name === 'TimeoutError') {
-      throw new ApiError(408, '请求超时，请稍后重试')
+      throw new ApiError(408, i18n.global.t('api.requestTimeout'))
     }
     // 外部信号触发的 abort，透传原始错误
     if (linked?.aborted) {

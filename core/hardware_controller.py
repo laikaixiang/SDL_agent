@@ -113,7 +113,7 @@ class HardwareAgent:
         tools_schema = self.get_tools_schema()
         # 已迁移至 prompts/hardware/_command_parse.yaml
         from prompts import create_prompt_manager
-        pm = create_prompt_manager()
+        pm = create_prompt_manager(lang='zh')
         prompt = pm.get(
             "hardware_command_parse",
             tools_schema=tools_schema,

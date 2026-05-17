@@ -1,5 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import ModalContainer from './ModalContainer.vue'
+
+const { t } = useI18n()
 
 defineProps<{
   open: boolean
@@ -20,8 +23,8 @@ defineEmits<{
   <ModalContainer :open="open" :title="title" width="400px" @update:open="$emit('update:open', $event)">
     <p class="msg">{{ message }}</p>
     <div class="actions">
-      <button class="btn-cancel" @click="$emit('cancel'); $emit('update:open', false)">{{ cancelText || '取消' }}</button>
-      <button class="btn-confirm" :class="{ danger }" @click="$emit('confirm'); $emit('update:open', false)">{{ confirmText || '确认' }}</button>
+      <button class="btn-cancel" @click="$emit('cancel'); $emit('update:open', false)">{{ cancelText || $t('common.cancel') }}</button>
+      <button class="btn-confirm" :class="{ danger }" @click="$emit('confirm'); $emit('update:open', false)">{{ confirmText || $t('common.confirm') }}</button>
     </div>
   </ModalContainer>
 </template>

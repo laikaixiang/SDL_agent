@@ -55,16 +55,16 @@ function openDirPicker(algoName: string) {
 <template>
   <div class="analysis-page">
     <div class="page-header">
-      <h2><BarChart3 :size="18" /> 数据分析</h2>
+      <h2><BarChart3 :size="18" /> {{ $t('modes.dataAnalysis') }}</h2>
       <button class="gen-btn" @click="store.startGuide()" :disabled="store.generating">
-        <Sparkles :size="14" /> {{ store.generating && store.showGuide ? '引导中...' : '生成新算法' }}
+        <Sparkles :size="14" /> {{ store.generating && store.showGuide ? $t('analysis.guidedMode') : $t('analysis.generateNewAlgorithm') }}
       </button>
     </div>
 
     <div class="page-body">
       <!-- Algorithms -->
       <section>
-        <h3>可用算法 ({{ store.algorithms.length }})</h3>
+        <h3>{{ $t('analysis.availableAlgorithms') }} ({{ store.algorithms.length }})</h3>
         <div class="algo-list">
           <div
             v-for="a in store.algorithms"
@@ -85,7 +85,7 @@ function openDirPicker(algoName: string) {
               <div class="algo-actions">
                 <button
                   class="algo-act-btn"
-                  title="添加到实验设计"
+                  :title="$t('analysis.addToExperiment')"
                   @click.stop="store.addToExperiment(a)"
                 >
                   <Plus :size="14" />
@@ -93,7 +93,7 @@ function openDirPicker(algoName: string) {
                 <button
                   class="algo-run-btn"
                   :class="{ active: store.selectedAlgo?.name === a.name }"
-                  title="选中此算法"
+                  :title="$t('analysis.selectAlgorithm')"
                   @click.stop="store.selectedAlgo = a"
                 >
                   <Play :size="12" />
@@ -108,32 +108,32 @@ function openDirPicker(algoName: string) {
               </div>
               <div class="algo-pickers">
                 <div class="picker-row">
-                  <span class="picker-label">输入文件</span>
+                  <span class="picker-label">{{ $t('analysis.inputFile') }}</span>
                   <span class="picker-value" :class="{ set: store.algoInputFiles[a.name] }">
-                    {{ store.algoInputFiles[a.name] ? store.algoInputFiles[a.name].split(/[/\\]/).pop() : '未选择' }}
+                    {{ store.algoInputFiles[a.name] ? store.algoInputFiles[a.name].split(/[/\\]/).pop() : $t('analysis.notSelected') }}
                   </span>
-                  <button class="picker-btn" @click="openFilePicker(a.name)">选择</button>
+                  <button class="picker-btn" @click="openFilePicker(a.name)">{{ $t('analysis.select') }}</button>
                 </div>
                 <div class="picker-row">
-                  <span class="picker-label">输出目录</span>
+                  <span class="picker-label">{{ $t('analysis.outputDir') }}</span>
                   <span class="picker-value" :class="{ set: store.algoOutputDirs[a.name] }">
-                    {{ store.algoOutputDirs[a.name] || '默认' }}
+                    {{ store.algoOutputDirs[a.name] || $t('analysis.defaultOutput') }}
                   </span>
-                  <button class="picker-btn" @click="openDirPicker(a.name)">选择</button>
+                  <button class="picker-btn" @click="openDirPicker(a.name)">{{ $t('analysis.select') }}</button>
                 </div>
               </div>
             </div>
           </div>
           <div v-if="!store.algorithms.length" class="algo-empty">
-            <LoadingSpinner v-if="store.generating" :size="16" label="加载算法..." />
-            <span v-else>暂无可用算法</span>
+            <LoadingSpinner v-if="store.generating" :size="16" :label="$t('analysis.loadingAlgorithms')" />
+            <span v-else>{{ $t('analysis.noAlgorithmsAvailable') }}</span>
           </div>
         </div>
       </section>
 
       <!-- Files + Run -->
       <section>
-        <h3>CSV 文件</h3>
+        <h3>{{ $t('analysis.csvFiles') }}</h3>
         <div class="file-list">
           <button
             v-for="f in store.csvFiles"
@@ -153,14 +153,14 @@ function openDirPicker(algoName: string) {
             @click="store.run()"
           >
             <Play :size="16" />
-            <span>运行 {{ store.selectedAlgo?.chinese_name || '分析' }}</span>
+            <span>{{ store.selectedAlgo?.chinese_name ? $t('analysis.runNamed', { name: store.selectedAlgo.chinese_name }) : $t('analysis.runAnalysis') }}</span>
           </button>
         </div>
       </section>
 
       <!-- Progress -->
       <div v-if="store.loading" class="loading-area">
-        <LoadingSpinner :size="24" label="分析中..." />
+        <LoadingSpinner :size="24" :label="$t('analysis.analyzing')" />
       </div>
 
       <!-- Error -->
@@ -168,20 +168,20 @@ function openDirPicker(algoName: string) {
 
       <!-- Result -->
       <div v-if="store.result">
-        <ResultCard title="分析完成" :subtitle="'输出: ' + store.result.output_path">
+        <ResultCard :title="$t('analysis.analysisComplete')" :subtitle="$t('analysis.outputPrefix') + store.result.output_path">
           <pre class="result-msg">{{ store.result.message }}</pre>
         </ResultCard>
       </div>
 
       <div v-if="!store.algorithms.length && !store.result" class="body-center">
-        <EmptyState title="数据分析" description="选择算法和 CSV 文件，运行分析" />
+        <EmptyState :title="$t('modes.dataAnalysis')" :description="$t('analysis.analysisHint')" />
       </div>
     </div>
 
     <!-- File selector modal -->
     <FileSelectorModal
       :open="showFileSelector"
-      title="选择输入文件"
+      :title="$t('analysis.selectInputFile')"
       @update:open="showFileSelector = $event"
       @selected="onFileSelected"
     />
@@ -189,7 +189,7 @@ function openDirPicker(algoName: string) {
     <!-- Dir selector modal -->
     <FileSelectorModal
       :open="showDirSelector"
-      title="选择输出目录"
+      :title="$t('analysis.selectOutputDir')"
       dir-mode
       @update:open="showDirSelector = $event"
       @selected="onDirSelected"

@@ -16,10 +16,10 @@ const panelIcons: Record<string, string> = {
 }
 
 const panelLabels: Record<string, string> = {
-  extraction: '文献提取',
-  hardware: '硬件控制',
-  experiment: '实验设计',
-  analysis: '数据分析',
+  extraction: 'modes.literatureExtraction',
+  hardware: 'modes.hardwareControl',
+  experiment: 'modes.experimentDesign',
+  analysis: 'modes.dataAnalysis',
 }
 
 function onTaskClick(task: TaskEntry) {
@@ -62,7 +62,7 @@ function onMouseLeave() {
         <button
           class="nav-item"
           :class="{ active: layout.activeTaskPanel === task.type }"
-          :title="panelLabels[task.type]"
+          :title="$t(panelLabels[task.type])"
           @click="onTaskClick(task)"
           @mouseenter="onMouseEnter(task.type)"
           @mouseleave="onMouseLeave"

@@ -118,6 +118,15 @@ flowchart TD
 6. **双向同步**：`visual_to_json()`将前端修改转回标准JSON格式；
 7. **代码编译**：`experiment/compiler.py` 将JSON编译为Python代码，支持直接编译执行（`compile_and_run()`）。
 
+**变量系统**（v2.5，基于 `core/variable_resolver.py:VariableResolver`）：
+1. **变量声明**：步骤参数可使用变量名代替硬编码数字，如 `"spin_speed": "speed1"`；
+2. **变量栏 UI**：`VariableBar.vue` 位于 CodeArea 上方全宽，支持 [+添加] [CSV导入] [删除] [CSV导出] 和批量模式开关；
+3. **blur 检测**：StepEditor 参数框输入非数字值 → 未声明则标红+[声明]按钮，已声明则绿标+引用指示；
+4. **CSV 导入**：列名=变量名，类型自动推断，数据行转为 `batch_data`，开启批量模式后逐行执行；
+5. **表达式引擎**：ast safe_eval，支持算术+比较+逻辑运算（`+ - * / // % ** > < >= <= == != and or not`）；
+6. **执行前校验**：变量未声明/类型不匹配/约束越界 → 错误推送前端 `reply` 字段；
+7. **JSON 顶层字段**：`variables` / `batch_data` / `batch_mode`。
+
 **执行阶段**（基于 `experiment/executor.py:ExperimentExecutor`）：
 1. **计划验证**：检查JSON结构、参数完整性、试剂可用性；
 2. **拓扑排序**：根据节点依赖关系确定执行顺序；
@@ -305,6 +314,7 @@ SDL_agent/
 | `config.example.json` | 配置模板 | 含中文注释和占位值，git追踪 |
 | `core/config.py` | 配置类 | 从config.json加载配置，硬编码值为fallback |
 | `core/field_inference.py` | 字段推断与实验设计 | 动态CSV列名生成、算法解析、ExperimentDesignAgent |
+| `core/variable_resolver.py` | 变量解析器 | 变量校验/解析/批量/表达式求值/CSV解析 |
 | `core/extraction_engine.py` | 提取引擎 | 逐页提取、会话路径管理、结果解析 |
 | `core/hardware_controller.py` | 硬件控制 | 读取REGISTRY.json发现工具、指令分发 |
 | `core/software_manager.py` | 算法管理器 | 算法注册、热加载、generate_algorithm() |

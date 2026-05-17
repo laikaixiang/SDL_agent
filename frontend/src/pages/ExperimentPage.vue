@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useExperimentStore } from '@/stores/experiment'
 import { useLayoutStore } from '@/stores/layout'
 import ElementPanel from '@/components/experiment/ElementPanel.vue'
@@ -9,6 +10,8 @@ import CodeArea from '@/components/experiment/CodeArea.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import ConfirmDialog from '@/components/modals/ConfirmDialog.vue'
 import { Brain, FlaskConical, Save, Play, Upload, Sparkles, Trash2 } from 'lucide-vue-next'
+
+const { t } = useI18n()
 
 const store = useExperimentStore()
 const layout = useLayoutStore()
@@ -20,7 +23,7 @@ const thinkingCollapsed = ref(false)
 
 const thinkingTimerLabel = computed(() => {
   const d = store.thinkingDuration
-  return d > 0 ? `思考中，用时${d.toFixed(1)}秒` : '思考中...'
+  return d > 0 ? t('experiment.thinkingLabel', { n: d.toFixed(1) }) : t('experiment.thinkingFallback')
 })
 
 watch(() => store.loading, (val) => {
@@ -64,8 +67,8 @@ function onAIGenerate() {
         <span>{{ store.experimentName }}</span>
       </div>
       <div class="exp-status">
-        <span v-if="store.loading" class="status-loading">AI 设计中...</span>
-        <span v-if="store.running" class="status-running">执行中...</span>
+        <span v-if="store.loading" class="status-loading">{{ $t('experiment.aiDesigning') }}</span>
+        <span v-if="store.running" class="status-running">{{ $t('experiment.executing') }}</span>
       </div>
     </div>
 
@@ -84,7 +87,7 @@ function onAIGenerate() {
           </button>
           <div class="thinking-content" v-show="!thinkingCollapsed">{{ store.thinking }}</div>
         </div>
-        <LoadingSpinner v-if="!store.thinking" :size="24" label="AI 设计实验中..." />
+        <LoadingSpinner v-if="!store.thinking" :size="24" :label="$t('experiment.aiDesigningExperiment')" />
       </div>
 
       <!-- Error -->
@@ -100,28 +103,28 @@ function onAIGenerate() {
     <!-- Toolbar -->
     <div class="exp-toolbar">
       <button class="tb-btn" @click="store.save()">
-        <Save :size="14" /> 保存
+        <Save :size="14" /> {{ $t('common.save') }}
       </button>
       <button class="tb-btn" @click="store.execute()" :disabled="!store.steps.length || store.running">
-        <Play :size="14" /> 执行
+        <Play :size="14" /> {{ $t('experiment.execute') }}
       </button>
       <button class="tb-btn" @click="onImport">
-        <Upload :size="14" /> 导入
+        <Upload :size="14" /> {{ $t('experiment.importFile') }}
       </button>
       <button class="tb-btn" @click="showAIPrompt = true">
-        <Sparkles :size="14" /> AI 生成
+        <Sparkles :size="14" /> {{ $t('experiment.aiGenerate') }}
       </button>
       <button class="tb-btn tb-btn-secondary" @click="showClearConfirm = true">
-        <Trash2 :size="14" /> 清空
+        <Trash2 :size="14" /> {{ $t('experiment.clear') }}
       </button>
     </div>
 
     <!-- Clear confirm -->
     <ConfirmDialog
       :open="showClearConfirm"
-      title="清空实验设计"
-      message="确认清空所有步骤？此操作不可撤销。"
-      confirmText="清空"
+      :title="$t('experiment.clearExperimentTitle')"
+      :message="$t('experiment.clearExperimentMsg')"
+      :confirm-text="$t('experiment.clear')"
       @confirm="store.clear(); showClearConfirm = false"
       @cancel="showClearConfirm = false"
     />
@@ -129,17 +132,17 @@ function onAIGenerate() {
     <!-- AI prompt modal -->
     <div v-if="showAIPrompt" class="ai-prompt-overlay" @click.self="showAIPrompt = false">
       <div class="ai-prompt-card">
-        <h3>AI 生成实验</h3>
+        <h3>{{ $t('experiment.aiGenerateExperiment') }}</h3>
         <textarea
           v-model="aiPrompt"
           class="ai-prompt-input"
-          placeholder="描述你的实验，例如：设计一个旋涂实验，转速3000rpm，退火150度30分钟"
+          :placeholder="$t('experiment.aiPromptPlaceholder')"
           rows="4"
           autofocus
         />
         <div class="ai-prompt-actions">
-          <button class="btn-cancel" @click="showAIPrompt = false">取消</button>
-          <button class="btn-save" @click="onAIGenerate">生成</button>
+          <button class="btn-cancel" @click="showAIPrompt = false">{{ $t('common.cancel') }}</button>
+          <button class="btn-save" @click="onAIGenerate">{{ $t('experiment.generate') }}</button>
         </div>
       </div>
     </div>

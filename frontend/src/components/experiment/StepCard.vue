@@ -1,8 +1,11 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import type { ExperimentStep } from '@/types/experiment'
 import Badge from '@/components/common/Badge.vue'
 import StepEditor from './StepEditor.vue'
 import { ArrowUp, ArrowDown, Pencil, Trash2 } from 'lucide-vue-next'
+
+const { t } = useI18n()
 
 defineProps<{
   step: ExperimentStep
@@ -27,8 +30,8 @@ function typeVariant(t: string) {
 
 function getHelperLabel(name: string): string {
   const labels: Record<string, string> = {
-    LOOP: '循环', GROUP: '分组', CONDITION: '条件',
-    WAIT: '等待', END: '结束', USER_INPUT: '输入',
+    LOOP: t('experiment.loop'), GROUP: t('experiment.group'), CONDITION: t('experiment.condition'),
+    WAIT: t('experiment.wait'), END: t('experiment.end'), USER_INPUT: t('experiment.input'),
   }
   return labels[name] || name
 }
@@ -52,7 +55,7 @@ function getHelperLabel(name: string): string {
             <template v-else>{{ step.name }}</template>
           </span>
           <span v-if="isBlockStart && step.params" class="block-hint">
-            <template v-if="step.name === 'LOOP' && step.params.iterations">({{ step.params.iterations }}次)</template>
+            <template v-if="step.name === 'LOOP' && step.params.iterations">({{ step.params.iterations }}{{ $t('experiment.times') }})</template>
             <template v-else-if="step.name === 'CONDITION' && step.params.condition">({{ step.params.condition }})</template>
             <template v-else-if="step.name === 'GROUP' && step.params.name">({{ step.params.name }})</template>
           </span>
@@ -62,10 +65,10 @@ function getHelperLabel(name: string): string {
         </div>
       </div>
       <div class="step-actions">
-        <button class="step-btn" title="上移" :disabled="index === 0" @click="emit('moveUp')"><ArrowUp :size="12" /></button>
-        <button class="step-btn" title="下移" :disabled="index === total - 1" @click="emit('moveDown')"><ArrowDown :size="12" /></button>
-        <button class="step-btn" title="编辑" @click="emit('edit')"><Pencil :size="12" /></button>
-        <button class="step-btn step-btn-danger" title="删除" @click="emit('remove')"><Trash2 :size="12" /></button>
+        <button class="step-btn" :title="$t('experiment.moveUp')" :disabled="index === 0" @click="emit('moveUp')"><ArrowUp :size="12" /></button>
+        <button class="step-btn" :title="$t('experiment.moveDown')" :disabled="index === total - 1" @click="emit('moveDown')"><ArrowDown :size="12" /></button>
+        <button class="step-btn" :title="$t('experiment.edit')" @click="emit('edit')"><Pencil :size="12" /></button>
+        <button class="step-btn step-btn-danger" :title="$t('common.delete')" @click="emit('remove')"><Trash2 :size="12" /></button>
       </div>
     </div>
 

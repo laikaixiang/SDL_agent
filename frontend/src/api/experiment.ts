@@ -1,5 +1,6 @@
 import { request } from './client'
 import type { ExperimentPlan, VariableDefinition } from '@/types/experiment'
+import i18n from '@/i18n'
 
 export interface ImportCSVResult {
   type: string
@@ -55,7 +56,7 @@ export async function generateExperimentStream(
   }
 
   const reader = resp.body?.getReader()
-  if (!reader) throw new Error('无法读取响应流')
+  if (!reader) throw new Error(i18n.global.t('api.cannotReadStream'))
 
   const decoder = new TextDecoder('utf-8')
   let buffer = ''
@@ -104,7 +105,7 @@ export async function generateExperimentStream(
     reader.releaseLock()
   }
 
-  throw new Error('流式响应意外结束')
+  throw new Error(i18n.global.t('api.streamEndedUnexpectedly'))
 }
 
 export async function compileExperiment(json: ExperimentPlan): Promise<{

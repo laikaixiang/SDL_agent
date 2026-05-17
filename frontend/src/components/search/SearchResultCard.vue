@@ -26,10 +26,10 @@ function pct(sim: number) {
       <p class="snippet">{{ result.text_snippet }}</p>
       <div class="card-actions">
         <button class="action-btn" @click="emit('preview', result.pdf_path, result.page_num)">
-          <Eye :size="14" /><span>查看页面</span>
+          <Eye :size="14" /><span>{{ $t('search.viewPage') }}</span>
         </button>
         <button class="action-btn primary" @click="emit('extract', result.pdf_path, result.page_num)">
-          <Download :size="14" /><span>提取此页</span>
+          <Download :size="14" /><span>{{ $t('search.extractPage') }}</span>
         </button>
       </div>
     </div>

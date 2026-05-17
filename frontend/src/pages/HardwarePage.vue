@@ -32,14 +32,14 @@ watch(() => store.logMessages.length, (len) => {
 <template>
   <div class="hardware-page">
     <div class="page-header">
-      <h2><Cpu :size="18" /> 硬件控制</h2>
-      <Badge v-if="store.isRunning" variant="warning">运行中</Badge>
+      <h2><Cpu :size="18" /> {{ $t('modes.hardwareControl') }}</h2>
+      <Badge v-if="store.isRunning" variant="warning">{{ $t('hardware.running') }}</Badge>
     </div>
 
     <div class="page-body">
       <!-- Tools -->
       <section class="tools-section">
-        <h3><Wrench :size="14" /> 可用工具 ({{ store.tools.length }})</h3>
+        <h3><Wrench :size="14" /> {{ $t('hardware.availableTools') }} ({{ store.tools.length }})</h3>
         <div class="tool-rows">
           <div
             v-for="t in store.tools"
@@ -58,7 +58,7 @@ watch(() => store.logMessages.length, (len) => {
                 class="tool-run-btn"
                 :class="{ running: store.isRunning }"
                 :disabled="store.isRunning"
-                title="单步执行"
+                :title="$t('hardware.singleStep')"
                 @click.stop="store.runSingleTool(t.name)"
               >
                 <Play :size="12" />
@@ -70,10 +70,10 @@ watch(() => store.logMessages.length, (len) => {
                 <div v-for="(v, k) in t.params" :key="k" class="param-field">
                   <div class="param-head">
                     <span class="param-label">{{ k }}</span>
-                    <Badge v-if="v.required" variant="warning" class="param-badge">必填</Badge>
-                    <Badge v-else variant="default" class="param-badge">可选</Badge>
+                    <Badge v-if="v.required" variant="warning" class="param-badge">{{ $t('hardware.required') }}</Badge>
+                    <Badge v-else variant="default" class="param-badge">{{ $t('hardware.optional') }}</Badge>
                   </div>
-                  <span class="param-type">{{ v.type }}<span v-if="v.default !== undefined"> · 默认: {{ v.default }}</span></span>
+                  <span class="param-type">{{ v.type }}<span v-if="v.default !== undefined"> · {{ $t('hardware.defaultValue') }}: {{ v.default }}</span></span>
                   <input
                     class="param-input"
                     :placeholder="v.description || k"
@@ -82,22 +82,22 @@ watch(() => store.logMessages.length, (len) => {
                   />
                 </div>
               </div>
-              <div v-if="!Object.keys(t.params).length" class="param-empty">无参数</div>
+              <div v-if="!Object.keys(t.params).length" class="param-empty">{{ $t('hardware.noParams') }}</div>
             </div>
           </div>
         </div>
         <div v-if="!store.tools.length" class="tools-empty">
-          <LoadingSpinner :size="16" label="加载工具列表..." />
+          <LoadingSpinner :size="16" :label="$t('hardware.loadingTools')" />
         </div>
       </section>
 
       <!-- Confirm card -->
       <div v-if="store.confirmMessage" class="confirm-area">
-        <ResultCard title="确认操作">
+        <ResultCard :title="$t('hardware.confirmOperation')">
           <pre class="confirm-text">{{ store.confirmMessage }}</pre>
           <div class="confirm-actions">
-            <button class="btn-cancel" @click="store.dismissConfirm()">取消</button>
-            <button class="btn-execute" @click="store.execute()">确认执行</button>
+            <button class="btn-cancel" @click="store.dismissConfirm()">{{ $t('common.cancel') }}</button>
+            <button class="btn-execute" @click="store.execute()">{{ $t('hardware.confirmExecute') }}</button>
           </div>
         </ResultCard>
       </div>
@@ -106,12 +106,12 @@ watch(() => store.logMessages.length, (len) => {
       <div v-if="store.logMessages.length" class="log-panel">
         <div v-for="(log, i) in store.logMessages" :key="i" class="log-line">{{ log }}</div>
         <div v-if="store.isRunning" class="loading-line">
-          <LoadingSpinner :size="16" label="执行中..." />
+          <LoadingSpinner :size="16" :label="$t('hardware.executing')" />
         </div>
       </div>
 
       <div v-if="!store.logMessages.length && !store.confirmMessage" class="body-center">
-        <EmptyState title="硬件控制" description="展开工具填写参数，点击 ▶ 单步执行" />
+        <EmptyState :title="$t('modes.hardwareControl')" :description="$t('hardware.expandToolHint')" />
       </div>
     </div>
 

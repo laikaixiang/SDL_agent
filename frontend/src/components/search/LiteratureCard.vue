@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { FileText } from 'lucide-vue-next'
 import type { LiteratureEntry } from '@/types/search'
+
+const { t } = useI18n()
 
 defineProps<{ entry: LiteratureEntry }>()
 const emit = defineEmits<{ select: [id: string] }>()
@@ -16,7 +19,7 @@ const emit = defineEmits<{ select: [id: string] }>()
       <div class="lit-card-meta">
         <span v-if="entry.authors" class="lit-card-authors">{{ entry.authors }}</span>
         <span v-if="entry.extraction_status" class="lit-card-status" :class="entry.extraction_status">
-          {{ entry.extraction_status === 'done' ? '已提取' : entry.extraction_status }}
+          {{ entry.extraction_status === 'done' ? t('literature.extractionDone') : entry.extraction_status }}
         </span>
       </div>
       <div v-if="entry.abstract_summary" class="lit-card-abstract">

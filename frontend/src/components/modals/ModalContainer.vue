@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { X } from 'lucide-vue-next'
 import IconButton from '@/components/common/IconButton.vue'
+
+const { t } = useI18n()
 
 defineProps<{
   open: boolean
@@ -18,7 +21,7 @@ defineEmits<{ 'update:open': [value: boolean] }>()
           <div v-if="open" class="modal-panel" :style="{ maxWidth: width || '500px' }">
             <div class="modal-header" v-if="title">
               <h3>{{ title }}</h3>
-              <IconButton title="关闭" @click="$emit('update:open', false)"><X :size="16" /></IconButton>
+              <IconButton :title="$t('common.close')" @click="$emit('update:open', false)"><X :size="16" /></IconButton>
             </div>
             <div class="modal-body"><slot /></div>
           </div>

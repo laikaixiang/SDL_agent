@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { X, FileText, Lightbulb, Eye } from 'lucide-vue-next'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import type { LiteratureEntry } from '@/types/search'
+
+const { t } = useI18n()
 
 defineProps<{ entry: LiteratureEntry | null; loading: boolean }>()
 const emit = defineEmits<{ close: []; viewPdf: [pdfPath: string, filename: string] }>()
@@ -11,11 +14,11 @@ const emit = defineEmits<{ close: []; viewPdf: [pdfPath: string, filename: strin
   <Transition name="slide-left">
     <div v-if="entry || loading" class="abstract-panel">
       <div class="abstract-header">
-        <span>文献摘要</span>
+        <span>{{ $t('literature.abstract') }}</span>
         <button class="close-btn" @click="$emit('close')"><X :size="18" /></button>
       </div>
       <div class="abstract-body">
-        <LoadingSpinner v-if="loading" :size="28" label="加载摘要..." />
+        <LoadingSpinner v-if="loading" :size="28" :label="$t('literature.loadingAbstract')" />
 
         <template v-else-if="entry">
           <div class="abstract-section">
@@ -27,14 +30,14 @@ const emit = defineEmits<{ close: []; viewPdf: [pdfPath: string, filename: strin
           </div>
 
           <div v-if="entry.abstract_summary" class="abstract-section">
-            <h3 class="section-label">摘要</h3>
+            <h3 class="section-label">{{ $t('literature.summarySection') }}</h3>
             <p class="abstract-text">{{ entry.abstract_summary }}</p>
           </div>
 
           <div v-if="entry.innovation_points?.length" class="abstract-section">
             <h3 class="section-label">
               <Lightbulb :size="14" />
-              创新点
+              {{ $t('literature.innovationPoints') }}
             </h3>
             <ul class="innovation-list">
               <li v-for="(point, i) in entry.innovation_points" :key="i">{{ point }}</li>
@@ -42,7 +45,7 @@ const emit = defineEmits<{ close: []; viewPdf: [pdfPath: string, filename: strin
           </div>
 
           <div class="abstract-section abstract-meta">
-            <span v-if="entry.current_filename" class="meta-item">文件: {{ entry.current_filename }}</span>
+            <span v-if="entry.current_filename" class="meta-item">{{ $t('literature.file', { filename: entry.current_filename }) }}</span>
             <span v-if="entry.doi" class="meta-item">DOI: {{ entry.doi }}</span>
           </div>
         </template>
@@ -54,7 +57,7 @@ const emit = defineEmits<{ close: []; viewPdf: [pdfPath: string, filename: strin
           @click="$emit('viewPdf', entry.pdf_path, entry.current_filename || entry.title)"
         >
           <Eye :size="14" />
-          <span>查看PDF</span>
+          <span>{{ $t('literature.viewPdf') }}</span>
         </button>
       </div>
     </div>

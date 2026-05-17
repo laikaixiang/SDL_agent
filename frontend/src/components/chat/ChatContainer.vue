@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { ref, watch, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
-import { useChatStore } from '@/stores/chat'
+import { useChatStore, MODE_PREFIX } from '@/stores/chat'
 import { useAnalysisStore } from '@/stores/analysis'
 import { uploadPDF } from '@/api/chat'
 import MessageBubble from './MessageBubble.vue'
 import InputBar from './InputBar.vue'
 import { Plus, X } from 'lucide-vue-next'
 
+const { t } = useI18n()
 const store = useChatStore()
 const analysisStore = useAnalysisStore()
 const { messages, isStreaming, fieldConfirm } = storeToRefs(store)
@@ -49,7 +51,7 @@ watch(() => store.messages.length, scrollToBottom)
 async function onSend(text: string) {
   inputText.value = ''
   if (showGuide.value && !guideDone.value) {
-    store.addMessage('user', text || '（跳过）')
+    store.addMessage('user', text || t('chat.skip'))
     await analysisStore.submitGuideAnswer(text)
     scrollToBottom()
     return
@@ -62,7 +64,7 @@ async function onFileSelected(file: File) {
   try {
     const result = await uploadPDF(file)
     if (result.success) {
-      inputText.value = `帮我搜寻：${result.filename}`
+      inputText.value = `${MODE_PREFIX.extraction}${result.filename}`
     }
   } catch (err) {
     console.error('文件上传失败:', err)
@@ -94,23 +96,23 @@ async function onCancelExtraction() {
             :style="{ width: guideProgress === 'complete' ? '100%' : (parseInt(guideProgress) / 4 * 100) + '%' }">
           </div>
         </div>
-        <div class="guide-progress-label">{{ guideProgress === 'complete' ? '完成' : guideProgress }}</div>
+        <div class="guide-progress-label">{{ guideProgress === 'complete' ? $t('common.complete') : guideProgress }}</div>
         <div class="guide-reply">{{ guideReply }}</div>
         <div v-if="!guideDone" class="guide-actions">
-          <button class="btn-guide-cancel" @click="analysisStore.cancelGuide()">取消</button>
-          <button class="btn-guide-back" @click="analysisStore.guideGoBack()">返回</button>
-          <button class="btn-guide-submit" :disabled="generating" @click="onSend(inputText)">提交</button>
+          <button class="btn-guide-cancel" @click="analysisStore.cancelGuide()">{{ $t('common.cancel') }}</button>
+          <button class="btn-guide-back" @click="analysisStore.guideGoBack()">{{ $t('common.back') }}</button>
+          <button class="btn-guide-submit" :disabled="generating" @click="onSend(inputText)">{{ $t('common.submit') }}</button>
         </div>
       </div>
 
       <!-- Inline field confirm card -->
       <div v-if="fieldConfirm" class="confirm-card">
-        <div class="confirm-label">LLM 推断的提取字段，可编辑后确认：</div>
+        <div class="confirm-label">{{ $t('chat.fieldConfirmHint') }}</div>
         <div class="confirm-fields">
           <div v-for="(f, i) in fieldConfirm.fields" :key="i" class="field-tag-row">
             <template v-if="editingFieldIndex !== i">
               <span class="field-tag" @dblclick="startEditField(i, f)">{{ f }}</span>
-              <button class="field-del" title="删除" @click="store.removeConfirmField(i)"><X :size="12" /></button>
+              <button class="field-del" :title="$t('common.delete')" @click="store.removeConfirmField(i)"><X :size="12" /></button>
             </template>
             <template v-else>
               <input
@@ -127,14 +129,14 @@ async function onCancelExtraction() {
           <input
             v-model="newFieldName"
             class="field-add-input"
-            placeholder="添加新字段..."
+            :placeholder="$t('chat.addNewField')"
             @keydown.enter="addField()"
           />
           <button class="field-add-btn" :disabled="!newFieldName.trim()" @click="addField()"><Plus :size="14" /></button>
         </div>
         <div class="confirm-actions">
-          <button class="confirm-btn-yes" @click="store.confirmExtraction()">确认提取</button>
-          <button class="confirm-btn-no" @click="store.cancelExtraction()">修改要求</button>
+          <button class="confirm-btn-yes" @click="store.confirmExtraction()">{{ $t('chat.confirmExtraction') }}</button>
+          <button class="confirm-btn-no" @click="store.cancelExtraction()">{{ $t('chat.modifyRequirement') }}</button>
         </div>
       </div>
     </div>
@@ -142,7 +144,7 @@ async function onCancelExtraction() {
       <InputBar
         v-model="inputText"
         :disabled="isStreaming"
-        :placeholder="isStreaming ? 'AI 回复中...' : '输入消息... (Enter 发送)'"
+        :placeholder="isStreaming ? $t('chat.thinking') : $t('chat.inputPlaceholder')"
         @send="onSend"
         @file-selected="onFileSelected"
         @cancel-extraction="onCancelExtraction"

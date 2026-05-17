@@ -10,7 +10,7 @@ const collapsed = ref(false)
   <div class="thinking-block">
     <button class="thinking-toggle" @click="collapsed = !collapsed">
       <Brain :size="14" />
-      <span>思考{{ duration ? `了 ${duration}s` : '中' }}...</span>
+      <span>{{ duration ? $t('thinking.thoughtFor', { duration }) : $t('thinking.thinking') }}</span>
       <span class="chevron">{{ collapsed ? '▶' : '▼' }}</span>
     </button>
     <div class="thinking-content" v-show="!collapsed">{{ content }}</div>

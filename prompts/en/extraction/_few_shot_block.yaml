@@ -1,0 +1,13 @@
+name: extraction_few_shot_block
+description: "Few-shot historical extraction example injection block"
+variables: [examples_text]
+template: |
+
+  📋 Below are real data successfully extracted from similar pages in historical extraction records. Please reference their extraction style:
+
+  ${examples_text}
+
+  Reference points:
+  - Field granularity: The level of detail and precision in extraction should match the examples
+  - Data format: Unit notation style and empty value handling should be consistent with the examples
+  - If new fields appear that are not in the historical records, extract them with the same quality standards

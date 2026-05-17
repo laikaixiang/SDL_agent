@@ -134,7 +134,7 @@ function pageNumbers(): number[] {
     <div class="pdf-toolbar">
       <span class="pdf-filename" :title="filename">{{ filename }}</span>
       <div class="pdf-nav">
-        <button class="nav-btn" title="上一页" @click="goPrev"><ChevronUp :size="16" /></button>
+        <button class="nav-btn" :title="$t('pdf.prevPage')" @click="goPrev"><ChevronUp :size="16" /></button>
         <div class="page-jump">
           <Hash :size="12" />
           <input
@@ -145,7 +145,7 @@ function pageNumbers(): number[] {
           />
           <span class="total-label">/ {{ totalPages }}</span>
         </div>
-        <button class="nav-btn" title="下一页" @click="goNext"><ChevronDown :size="16" /></button>
+        <button class="nav-btn" :title="$t('pdf.nextPage')" @click="goNext"><ChevronDown :size="16" /></button>
       </div>
     </div>
     <div class="pdf-scroll" ref="scrollEl">
@@ -160,12 +160,12 @@ function pageNumbers(): number[] {
           <span>{{ pn + 1 }}</span>
         </div>
         <div v-else-if="pageMap[pn].loading" class="page-loading">
-          <span>加载第 {{ pn + 1 }} 页...</span>
+          <span>{{ $t('pdf.loadingPage', { n: pn + 1 }) }}</span>
         </div>
         <img
           v-else-if="pageMap[pn].imageBase64"
           :src="'data:image/jpeg;base64,' + pageMap[pn].imageBase64"
-          :alt="`第 ${pn + 1} 页`"
+          :alt="$t('pdf.pageOf', { n: pn + 1, total: totalPages })"
           class="page-img"
         />
       </div>

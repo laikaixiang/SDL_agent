@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { ref, watch } from 'vue'
 import { X, FileText, Folder, Upload } from 'lucide-vue-next'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   open: boolean
@@ -91,20 +94,20 @@ async function onUpload(e: Event) {
   <div v-if="open" class="fs-overlay" @click.self="close">
     <div class="fs-modal">
       <div class="fs-header">
-        <h3>{{ title || (dirMode ? '选择输出目录' : '选择数据文件') }}</h3>
+        <h3>{{ title || $t(dirMode ? 'modals.selectOutputDir' : 'modals.selectDataFile') }}</h3>
         <button class="fs-close" @click="close"><X :size="16" /></button>
       </div>
 
       <div v-if="!dirMode" class="fs-tabs">
-        <button class="fs-tab" :class="{ active: activeTab === 'recent' }" @click="activeTab = 'recent'; loadRecent()">最近使用</button>
-        <button class="fs-tab" :class="{ active: activeTab === 'browse' }" @click="activeTab = 'browse'">上传文件</button>
-        <button class="fs-tab" :class="{ active: activeTab === 'custom' }" @click="activeTab = 'custom'">自定义路径</button>
+        <button class="fs-tab" :class="{ active: activeTab === 'recent' }" @click="activeTab = 'recent'; loadRecent()">{{ $t('modals.recentlyUsed') }}</button>
+        <button class="fs-tab" :class="{ active: activeTab === 'browse' }" @click="activeTab = 'browse'">{{ $t('modals.uploadFile') }}</button>
+        <button class="fs-tab" :class="{ active: activeTab === 'custom' }" @click="activeTab = 'custom'">{{ $t('modals.customPath') }}</button>
       </div>
 
       <div class="fs-body">
         <!-- Recent files -->
         <div v-if="activeTab === 'recent' && !dirMode" class="fs-list">
-          <div v-if="loading" class="fs-loading">加载中...</div>
+          <div v-if="loading" class="fs-loading">{{ $t('common.loading') }}</div>
           <button
             v-for="f in recentFiles"
             :key="f.path"
@@ -117,27 +120,27 @@ async function onUpload(e: Event) {
               <span class="fs-path">{{ f.path }}</span>
             </div>
           </button>
-          <div v-if="!loading && !recentFiles.length" class="fs-empty">暂无最近使用的文件</div>
+          <div v-if="!loading && !recentFiles.length" class="fs-empty">{{ $t('modals.noRecentFiles') }}</div>
         </div>
 
         <!-- Upload -->
         <div v-if="activeTab === 'browse' && !dirMode" class="fs-upload">
           <label class="fs-upload-area">
             <Upload :size="24" />
-            <span>点击上传 CSV 文件</span>
+            <span>{{ $t('modals.clickToUploadCsv') }}</span>
             <input type="file" accept=".csv,.xlsx,.xls" hidden @change="onUpload" />
           </label>
         </div>
 
         <!-- Custom path -->
         <div v-if="activeTab === 'custom' && !dirMode" class="fs-custom">
-          <input v-model="customPath" class="fs-input" placeholder="输入文件路径..." @keyup.enter="confirmCustom" />
-          <button class="fs-confirm-btn" @click="confirmCustom">确认</button>
+          <input v-model="customPath" class="fs-input" :placeholder="$t('modals.enterFilePath')" @keyup.enter="confirmCustom" />
+          <button class="fs-confirm-btn" @click="confirmCustom">{{ $t('common.confirm') }}</button>
         </div>
 
         <!-- Dir mode -->
         <div v-if="dirMode" class="fs-list">
-          <div v-if="loading" class="fs-loading">加载中...</div>
+          <div v-if="loading" class="fs-loading">{{ $t('common.loading') }}</div>
           <button
             v-for="d in dirs"
             :key="d.path"
@@ -150,7 +153,7 @@ async function onUpload(e: Event) {
               <span class="fs-path">{{ d.path }}</span>
             </div>
           </button>
-          <div v-if="!loading && !dirs.length" class="fs-empty">暂无可用目录</div>
+          <div v-if="!loading && !dirs.length" class="fs-empty">{{ $t('modals.noAvailableDirs') }}</div>
         </div>
       </div>
     </div>

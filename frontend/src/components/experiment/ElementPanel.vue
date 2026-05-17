@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useExperimentStore } from '@/stores/experiment'
 import type { HelperType } from '@/types/experiment'
 import { Wrench, BarChart3, GitBranch, ChevronDown, ChevronRight } from 'lucide-vue-next'
 
+const { t } = useI18n()
 const store = useExperimentStore()
 
 const toolsOpen = ref(true)
@@ -14,12 +16,12 @@ const selectedTool = ref<string | null>(null)
 const selectedAlgo = ref<string | null>(null)
 
 const helperTypes: { type: HelperType; label: string }[] = [
-  { type: 'LOOP', label: '循环' },
-  { type: 'GROUP', label: '分组' },
-  { type: 'WAIT', label: '等待' },
-  { type: 'CONDITION', label: '条件' },
-  { type: 'END', label: '结束' },
-  { type: 'USER_INPUT', label: '输入' },
+  { type: 'LOOP', label: t('experiment.loop') },
+  { type: 'GROUP', label: t('experiment.group') },
+  { type: 'WAIT', label: t('experiment.wait') },
+  { type: 'CONDITION', label: t('experiment.condition') },
+  { type: 'END', label: t('experiment.end') },
+  { type: 'USER_INPUT', label: t('experiment.input') },
 ]
 
 onMounted(() => {
@@ -57,7 +59,7 @@ function onHelperClick(type: HelperType) {
       <button class="elem-section-header" @click="toolsOpen = !toolsOpen">
         <component :is="toolsOpen ? ChevronDown : ChevronRight" :size="12" />
         <Wrench :size="13" />
-        <span>工具</span>
+        <span>{{ $t('experiment.tools') }}</span>
         <span class="elem-count">{{ store.hardwareTools.length }}</span>
       </button>
       <div v-if="toolsOpen" class="elem-list">
@@ -75,7 +77,7 @@ function onHelperClick(type: HelperType) {
             <span v-for="(v, k) in t.params" :key="k" class="param-hint">{{ k }}: {{ v.type }}</span>
           </span>
         </button>
-        <div v-if="!store.hardwareTools.length" class="elem-empty">暂无工具</div>
+        <div v-if="!store.hardwareTools.length" class="elem-empty">{{ $t('experiment.noTools') }}</div>
       </div>
     </div>
 
@@ -84,7 +86,7 @@ function onHelperClick(type: HelperType) {
       <button class="elem-section-header" @click="algosOpen = !algosOpen">
         <component :is="algosOpen ? ChevronDown : ChevronRight" :size="12" />
         <BarChart3 :size="13" />
-        <span>算法</span>
+        <span>{{ $t('experiment.algorithms') }}</span>
         <span class="elem-count">{{ store.algorithms.length }}</span>
       </button>
       <div v-if="algosOpen" class="elem-list">
@@ -99,7 +101,7 @@ function onHelperClick(type: HelperType) {
         >
           <span class="elem-name">{{ a.chinese_name || a.name }}</span>
         </button>
-        <div v-if="!store.algorithms.length" class="elem-empty">暂无算法</div>
+        <div v-if="!store.algorithms.length" class="elem-empty">{{ $t('experiment.noAlgorithms') }}</div>
       </div>
     </div>
 
@@ -108,7 +110,7 @@ function onHelperClick(type: HelperType) {
       <button class="elem-section-header" @click="helpersOpen = !helpersOpen">
         <component :is="helpersOpen ? ChevronDown : ChevronRight" :size="12" />
         <GitBranch :size="13" />
-        <span>辅助</span>
+        <span>{{ $t('experiment.helpers') }}</span>
       </button>
       <div v-if="helpersOpen" class="elem-list helper-list">
         <button

@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { CheckCircle } from 'lucide-vue-next'
 import ModalContainer from './ModalContainer.vue'
+
+const { t } = useI18n()
 
 defineProps<{
   open: boolean
@@ -13,13 +16,13 @@ defineEmits<{ 'update:open': [value: boolean] }>()
   <ModalContainer :open="open" width="420px" @update:open="$emit('update:open', $event)">
     <div class="summary">
       <div class="icon-wrap"><CheckCircle :size="48" stroke-width="1" class="icon" /></div>
-      <h3>提取完成</h3>
+      <h3>{{ $t('modals.extractionComplete') }}</h3>
       <div v-if="summary" class="stats">
-        <div class="stat"><span class="val">{{ summary.field_count }}</span><span class="lbl">条数据</span></div>
-        <div class="stat"><span class="val">{{ summary.pdf_count }}</span><span class="lbl">篇文献</span></div>
+        <div class="stat"><span class="val">{{ summary.field_count }}</span><span class="lbl">{{ $t('modals.dataItems') }}</span></div>
+        <div class="stat"><span class="val">{{ summary.pdf_count }}</span><span class="lbl">{{ $t('modals.documents') }}</span></div>
       </div>
-      <p v-if="summary" class="file">保存至: {{ summary.file }}</p>
-      <button class="btn-close" @click="$emit('update:open', false)">关闭</button>
+      <p v-if="summary" class="file">{{ $t('modals.savedTo') }}{{ summary.file }}</p>
+      <button class="btn-close" @click="$emit('update:open', false)">{{ $t('common.close') }}</button>
     </div>
   </ModalContainer>
 </template>

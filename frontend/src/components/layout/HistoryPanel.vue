@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useChatStore } from '@/stores/chat'
 import { useLayoutStore } from '@/stores/layout'
 import {
@@ -8,6 +9,8 @@ import {
   fetchFolders, createFolder, renameFolder, deleteFolder, moveSession,
   type SessionEntry, type Folder,
 } from '@/api/history'
+
+const { t } = useI18n()
 
 const store = useChatStore()
 const layout = useLayoutStore()
@@ -116,9 +119,13 @@ async function startNewSession() {
   } catch { /* silently fail */ }
 }
 
-onMounted(() => {
-  loadSessions()
-  loadFolders()
+onMounted(async () => {
+  await loadSessions()
+  await loadFolders()
+  // Auto-create a new session on entry if no messages exist yet
+  if (store.messages.length === 0) {
+    await startNewSession()
+  }
 })
 
 async function onSessionClick(s: SessionEntry) {
@@ -235,11 +242,11 @@ interface ModeItem {
 }
 
 const modes: ModeItem[] = [
-  { icon: '💬', label: '对话',                               chatMode: 'normal' },
-  { icon: '📄', label: '文献提取',  panelType: 'extraction', chatMode: 'extraction' },
-  { icon: '⚙️', label: '硬件控制',  panelType: 'hardware',   chatMode: 'hardware' },
-  { icon: '🧪', label: '实验设计',  panelType: 'experiment', chatMode: 'experiment' },
-  { icon: '📈', label: '数据分析',  panelType: 'analysis',   chatMode: 'analysis' },
+  { icon: '💬', label: 'modes.chat',                               chatMode: 'normal' },
+  { icon: '📄', label: 'modes.literatureExtraction',  panelType: 'extraction', chatMode: 'extraction' },
+  { icon: '⚙️', label: 'modes.hardwareControl',   panelType: 'hardware',   chatMode: 'hardware' },
+  { icon: '🧪', label: 'modes.experimentDesign',  panelType: 'experiment', chatMode: 'experiment' },
+  { icon: '📈', label: 'modes.dataAnalysis',       panelType: 'analysis',   chatMode: 'analysis' },
 ]
 
 function isActive(mode: ModeItem): boolean {
@@ -272,7 +279,7 @@ function formatDate(ts: string): string {
 
 function displayTitle(s: SessionEntry): string {
   if (s.title && s.title !== '未命名会话') return s.title
-  return `${formatDate(s.started_at || s.timestamp)} 的对话`
+  return `${formatDate(s.started_at || s.timestamp)} ${t('history.conversationSuffix')}`
 }
 </script>
 
@@ -284,19 +291,19 @@ function displayTitle(s: SessionEntry): string {
         :key="m.label"
         class="mode-btn"
         :class="{ active: isActive(m) }"
-        :title="m.label"
+        :title="$t(m.label)"
         @click="onModeClick(m)"
       >
         <span class="mode-emoji">{{ m.icon }}</span>
-        <span class="mode-label">{{ m.label }}</span>
+        <span class="mode-label">{{ $t(m.label) }}</span>
       </button>
     </div>
 
     <!-- 文件夹 -->
     <div class="folder-section">
       <div class="folder-header">
-        <span class="folder-title">文件夹</span>
-        <button class="icon-btn" title="新建文件夹" @click="creatingFolder = true">+</button>
+        <span class="folder-title">{{ $t('history.folders') }}</span>
+        <button class="icon-btn" :title="$t('history.createFolder')" @click="creatingFolder = true">+</button>
       </div>
 
       <!-- 新建文件夹输入框 -->
@@ -304,7 +311,7 @@ function displayTitle(s: SessionEntry): string {
         <input
           v-model="newFolderName"
           class="title-input"
-          placeholder="文件夹名称"
+          :placeholder="$t('history.folderNamePlaceholder')"
           maxlength="50"
           @keydown.enter="onCreateFolder()"
           @keydown.escape="creatingFolder = false"
@@ -324,7 +331,7 @@ function displayTitle(s: SessionEntry): string {
           @drop="onFolderDrop($event, null)"
         >
           <span class="folder-icon">&#128193;</span>
-          <span class="folder-name">未分类</span>
+          <span class="folder-name">{{ $t('history.uncategorized') }}</span>
         </div>
         <div
           v-for="f in folders"
@@ -352,10 +359,10 @@ function displayTitle(s: SessionEntry): string {
           <div class="folder-actions">
             <button
               class="icon-btn"
-              title="重命名"
+              :title="$t('history.rename')"
               @click.stop="renamingFolderId = f.id; renameFolderName = f.name"
             >&#9998;</button>
-            <button class="icon-btn danger" title="删除" @click.stop="onDeleteFolder(f)">&#10005;</button>
+            <button class="icon-btn danger" :title="$t('common.delete')" @click.stop="onDeleteFolder(f)">&#10005;</button>
           </div>
         </div>
       </div>
@@ -364,9 +371,9 @@ function displayTitle(s: SessionEntry): string {
     <div class="section-divider" />
 
     <div class="history-header">
-      <span class="history-title">会话</span>
+      <span class="history-title">{{ $t('history.sessions') }}</span>
       <span class="history-count" v-if="sessions.length">{{ sessions.length }}</span>
-      <button class="icon-btn new-session-btn" title="新建会话" @click="startNewSession()">
+      <button class="icon-btn new-session-btn" :title="$t('history.newSession')" @click="startNewSession()">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="1.5" y="2.5" width="11" height="8" rx="2"/>
           <polygon points="4,10.5 5.5,13 7.5,10.5"/>
@@ -405,23 +412,23 @@ function displayTitle(s: SessionEntry): string {
           </div>
           <div class="history-item-meta">
             <span>{{ formatDate(s.started_at || s.timestamp) }}</span>
-            <span>{{ s.message_count }} 条消息</span>
-            <span v-if="restoring === s.timestamp" class="restoring-hint">加载中...</span>
+            <span>{{ s.message_count }}{{ $t('history.msgCountSuffix') }}</span>
+            <span v-if="restoring === s.timestamp" class="restoring-hint">{{ $t('common.loading') }}</span>
           </div>
         </div>
 
         <!-- 操作按钮 -->
         <div v-if="editingId !== s.timestamp" class="history-item-actions">
-          <button class="icon-btn" title="重命名" @click.stop="startEdit(s)">
+          <button class="icon-btn" :title="$t('history.rename')" @click.stop="startEdit(s)">
             <span class="action-icon">&#9998;</span>
           </button>
-          <button class="icon-btn" title="删除" @click.stop="showDeleteModal(s)">
+          <button class="icon-btn" :title="$t('common.delete')" @click.stop="showDeleteModal(s)">
             <span class="action-icon">&#10005;</span>
           </button>
         </div>
       </div>
       <div v-if="filteredSessions.length === 0" class="history-empty">
-        {{ activeFolderId ? '此文件夹为空' : '暂无历史会话' }}
+        {{ activeFolderId ? $t('history.emptyFolder') : $t('history.noSessions') }}
       </div>
     </div>
     <div class="history-list" v-else>
@@ -435,13 +442,13 @@ function displayTitle(s: SessionEntry): string {
     <Teleport to="body">
       <div v-if="deleteModalVisible" class="modal-overlay" @click.self="cancelDeleteModal()">
         <div class="modal-dialog">
-          <div class="modal-header">确认删除</div>
+          <div class="modal-header">{{ $t('history.confirmDelete') }}</div>
           <div class="modal-body">
-            确定要删除会话「{{ pendingDeleteSession ? displayTitle(pendingDeleteSession) : '' }}」吗？
+            {{ $t('history.deleteConfirmBody', { title: pendingDeleteSession ? displayTitle(pendingDeleteSession) : '' }) }}
           </div>
           <div class="modal-footer">
-            <button class="modal-btn cancel" @click="cancelDeleteModal()">取消</button>
-            <button class="modal-btn confirm" @click="confirmDeleteModal()">确认删除</button>
+            <button class="modal-btn cancel" @click="cancelDeleteModal()">{{ $t('common.cancel') }}</button>
+            <button class="modal-btn confirm" @click="confirmDeleteModal()">{{ $t('history.confirmDelete') }}</button>
           </div>
         </div>
       </div>

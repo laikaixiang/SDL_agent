@@ -2,6 +2,7 @@ import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import { listAlgorithms, browseCSV, runAlgorithm } from '@/api/analysis'
 import type { useExperimentStore as _ExpStore } from '@/stores/experiment'
+import i18n from '@/i18n'
 
 interface Algorithm {
   name: string
@@ -103,7 +104,7 @@ export const useAnalysisStore = defineStore('analysis', () => {
         guideProgress.value = data.progress
         guideSessionId.value = data.session_id
       } else {
-        guideReply.value = data.reply || '启动失败'
+        guideReply.value = data.reply || i18n.global.t('analysis.startFailed')
         guideDone.value = true
       }
     } catch (err) {

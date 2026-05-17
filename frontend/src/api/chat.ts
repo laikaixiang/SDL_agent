@@ -1,4 +1,5 @@
 import type { Message } from '@/types/chat'
+import i18n from '@/i18n'
 
 interface ChatRequest {
   message: string
@@ -128,7 +129,7 @@ export async function sendChatMessage(
     }
   } catch (err) {
     if ((err as Error).name === 'AbortError') {
-      fullText += '\n(已停止生成)'
+      fullText += '\n' + i18n.global.t('chat.generationStopped')
       cb.onTextChunk?.(fullText)
     } else {
       throw err

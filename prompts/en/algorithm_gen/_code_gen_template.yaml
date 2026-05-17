@@ -1,0 +1,62 @@
+name: algorithm_gen_code_gen_template
+description: "Code generation user template (with complete interface specification and placeholders)"
+variables: [name, description, class_name, input_format, output_fields, params_detail]
+template: |
+  Please write a Python algorithm file that satisfies all the following requirements:
+
+  ## Algorithm Specification
+  - Algorithm Identifier: ${name}
+  - Function Description: ${description}
+  - Class Name: ${class_name}
+  - Input Format: ${input_format}
+  - Output Fields: ${output_fields}
+  - Algorithm Parameters:
+  ${params_detail}
+
+  ## Mandatory Interface Specification
+
+  ### 1. File Header (copy and paste)
+  ```
+  import sys
+  import os
+  sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+  from software.algorithms.base import BaseAlgorithm
+  import numpy as np
+  ```
+
+  ### 2. Class Definition Skeleton
+  Inherit from BaseAlgorithm, set class attributes, and implement the run() method:
+  - name = "${name}"
+  - description = "${description}"
+  - params_schema = {param_name: {"type": "type", "description": "description", "default": default_value, "required": False}, ...}
+  - run(self, data, params=None) -> {"success": bool, "result": dict, "message": str}
+
+  ### 3. run() Implementation Steps
+  a) Parameter Extraction: Read each parameter from params, using the default values defined in params_schema as fallback.
+  b) Input Validation: Verify that data format matches input_format; return an error if invalid.
+  c) Core Logic: Implement the algorithm functionality, handling edge cases.
+  d) Construct Output: The result dict must contain all fields listed in output_fields.
+  e) Return self._build_success(result, "message") or self._build_error("error description").
+
+  ### 4. End-of-File Test Code
+  ```
+  if __name__ == "__main__":
+      import json
+      algo = ${class_name}()
+      print(f"Algorithm Info: {algo.get_info()}\n")
+      test_data = <construct realistic test data based on input_format>
+      test_params = <fill in test parameters based on params_schema>
+      result = algo.run(data=test_data, params=test_params)
+      print("Test Result:")
+      print(json.dumps(result, indent=2, ensure_ascii=False))
+  ```
+
+  ## Important Notes
+  1. Core algorithm logic must be fully implemented; do not use placeholders or return None.
+  2. Correctly handle edge cases: empty input, None values, division by zero, etc.
+  3. The result dict must contain all fields listed in output_fields.
+  4. Only use standard library, numpy, and math.
+  5. Test data must be realistic and reasonable, capable of verifying the algorithm logic.
+  6. Output Python code directly; do NOT wrap in markdown code blocks.
+
+  Please now write the complete algorithm code:

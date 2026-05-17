@@ -29,7 +29,7 @@ onUnmounted(() => document.removeEventListener('mousedown', onOutsideClick))
         class="pdf-tab-selector"
         @click="dropdownOpen = !dropdownOpen"
       >
-        <span class="pdf-tab-label">{{ String(openPdfTabs.length).padStart(3, ' ') }} 个文档</span><ChevronDown :size="12" class="pdf-tab-chevron" :class="{ open: dropdownOpen }" />
+        <span class="pdf-tab-label">{{ String(openPdfTabs.length).padStart(3, ' ') }}{{ $t('pdf.documentsSuffix') }}</span><ChevronDown :size="12" class="pdf-tab-chevron" :class="{ open: dropdownOpen }" />
         <div v-if="dropdownOpen && openPdfTabs.length > 0" class="pdf-tab-dropdown">
           <div
             v-for="tab in openPdfTabs"
@@ -41,13 +41,13 @@ onUnmounted(() => document.removeEventListener('mousedown', onOutsideClick))
             <span class="pdf-tab-item-name">{{ tab.filename }}</span>
             <button
               class="pdf-tab-item-close"
-              title="关闭此标签"
+              :title="$t('pdf.closeTab')"
               @click.stop="store.closePdfTab(tab.id)"
             >&#x00d7;</button>
           </div>
         </div>
       </div>
-      <button class="pdf-panel-close" title="关闭PDF面板" @click="store.closePdfViewer()">
+      <button class="pdf-panel-close" :title="$t('pdf.closePanel')" @click="store.closePdfViewer()">
         <X :size="16" />
       </button>
     </div>

@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
+import i18n from '@/i18n'
 import type { HardwareTool } from '@/types/hardware'
 import { getHardwareTools, sendHardwareCommand, executeHardware, cancelTask as apiCancel } from '@/api/hardware'
 import { useSSE } from '@/composables/useSSE'
@@ -69,22 +70,22 @@ export const useHardwareStore = defineStore('hardware', () => {
     const params = collectToolParams(toolName)
     for (const [k, v] of Object.entries(tool.params)) {
       if (v.required && !params[k] && params[k] !== 0) {
-        addLog(`缺少必填参数: ${k}`)
-        setStatus(`缺少必填参数: ${k}`, true)
+        addLog(i18n.global.t('hardware.missingRequiredParam', { k }))
+        setStatus(i18n.global.t('hardware.missingRequiredParam', { k }), true)
         return
       }
     }
 
     isRunning.value = true
     logMessages.value = []
-    addLog(`执行: ${tool.description || tool.name}`)
-    setStatus('执行中...', true)
+    addLog(i18n.global.t('hardware.executingWith', { name: tool.description || tool.name }))
+    setStatus(i18n.global.t('hardware.executing'), true)
 
     try {
       const resp = await executeHardware([{ name: toolName, params }])
 
       if (resp.type === 'task_trigger') {
-        addLog(resp.reply || '任务已触发')
+        addLog(resp.reply || i18n.global.t('hardware.taskTriggered'))
         const { connect } = useSSE('/api/task_stream', {
           onMessage(msg) {
             if (msg.type === 'info' || msg.type === 'progress') {
@@ -97,29 +98,29 @@ export const useHardwareStore = defineStore('hardware', () => {
               const d = msg.data as Record<string, unknown> | undefined
               if (d?.message) {
                 addLog(d.message as string)
-                setStatus('完成: ' + (d.message as string), false)
+                setStatus(i18n.global.t('hardware.completeWith', { msg: d.message as string }), false)
               }
               if (d?.error) {
                 error.value = d.error as string
                 addLog(d.error as string)
-                setStatus('失败: ' + (d.error as string), false)
+                setStatus(i18n.global.t('hardware.failed', { msg: d.error as string }), false)
               }
             }
           },
           onError(err) {
             error.value = err.message
             isRunning.value = false
-            setStatus('错误: ' + err.message, false)
+            setStatus(i18n.global.t('hardware.error', { msg: err.message }), false)
           },
         })
         connect()
       } else {
         isRunning.value = false
-        setStatus('完成', false)
+        setStatus(i18n.global.t('hardware.complete'), false)
       }
     } catch (err) {
-      addLog('执行失败: ' + (err as Error).message)
-      setStatus('失败: ' + (err as Error).message, false)
+      addLog(i18n.global.t('hardware.execFailed', { msg: (err as Error).message }))
+      setStatus(i18n.global.t('hardware.failed', { msg: (err as Error).message }), false)
       isRunning.value = false
     }
   }

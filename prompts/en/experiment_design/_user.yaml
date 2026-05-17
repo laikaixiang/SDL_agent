@@ -1,0 +1,14 @@
+name: experiment_design_user
+description: "Experiment design user message template"
+variables: [system_prompt, user_description]
+template: |
+  ${system_prompt}
+
+  User requirement: ${user_description}
+
+  Before outputting the JSON, please confirm mentally:
+  1. Do you understand the core objective of the user's requirement?
+  2. Which hardware tools and software algorithms are needed to meet this requirement?
+  3. Is the step order logical? Are any safety waiting steps missing?
+
+  Then directly output the experiment design plan in JSON format.

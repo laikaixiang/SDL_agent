@@ -6,11 +6,11 @@ const route = useRoute()
 const layout = useLayoutStore()
 
 const navItems = [
-  { path: '/',           name: 'chat',        label: '对话',       icon: '💬' },
-  { path: '/extraction', name: 'extraction',  label: '文献提取',   icon: '📄' },
-  { path: '/hardware',   name: 'hardware',    label: '硬件控制',   icon: '⚙️' },
-  { path: '/experiment', name: 'experiment',  label: '实验设计',   icon: '🧪' },
-  { path: '/analysis',   name: 'analysis',    label: '数据分析',   icon: '📈' },
+  { path: '/',           name: 'chat',        label: 'modes.chat',               icon: '💬' },
+  { path: '/extraction', name: 'extraction',  label: 'modes.literatureExtraction', icon: '📄' },
+  { path: '/hardware',   name: 'hardware',    label: 'modes.hardwareControl',    icon: '⚙️' },
+  { path: '/experiment', name: 'experiment',  label: 'modes.experimentDesign',   icon: '🧪' },
+  { path: '/analysis',   name: 'analysis',    label: 'modes.dataAnalysis',       icon: '📈' },
 ]
 
 function isActive(path: string): boolean {
@@ -28,10 +28,10 @@ function isActive(path: string): boolean {
         :to="item.path"
         class="nav-item"
         :class="{ active: isActive(item.path) }"
-        :title="layout.sidebarCollapsed ? item.label : ''"
+        :title="layout.sidebarCollapsed ? $t(item.label) : ''"
       >
         <span class="nav-icon">{{ item.icon }}</span>
-        <span class="nav-label">{{ item.label }}</span>
+        <span class="nav-label">{{ $t(item.label) }}</span>
       </router-link>
     </div>
   </nav>

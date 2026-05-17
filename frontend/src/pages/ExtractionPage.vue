@@ -67,12 +67,12 @@ function onViewPdf(pdfPath: string, filename: string) {
       <div class="search-results">
         <!-- Loading -->
         <div v-if="store.loading" class="state-center">
-          <LoadingSpinner :size="28" label="搜索中..." />
+          <LoadingSpinner :size="28" :label="$t('extraction.searching')" />
         </div>
 
         <!-- Error -->
         <div v-else-if="store.error" class="state-center">
-          <EmptyState title="搜索失败" :description="store.error" />
+          <EmptyState :title="$t('extraction.searchFailed')" :description="store.error" />
         </div>
 
         <!-- Literature list (before search) -->
@@ -80,17 +80,17 @@ function onViewPdf(pdfPath: string, filename: string) {
           <div class="lit-header">
             <div class="lit-header-left">
               <BookOpen :size="16" />
-              <span>文献库</span>
-              <span v-if="!store.literatureLoading" class="lit-count">共 {{ store.literatureTotal }} 篇</span>
+              <span>{{ $t('extraction.literatureLibrary') }}</span>
+              <span v-if="!store.literatureLoading" class="lit-count">{{ $t('extraction.totalDocs', { n: store.literatureTotal }) }}</span>
             </div>
           </div>
 
           <div v-if="store.literatureLoading" class="state-center">
-            <LoadingSpinner :size="24" label="加载文献库..." />
+            <LoadingSpinner :size="24" :label="$t('extraction.loadingLibrary')" />
           </div>
 
           <div v-else-if="!store.literatureList.length" class="state-center">
-            <EmptyState title="文献库为空" description="暂无已索引的文献，请先将 PDF 放入文献库并执行索引" />
+            <EmptyState :title="$t('extraction.libraryEmpty')" :description="$t('extraction.libraryEmptyDesc')" />
           </div>
 
           <div v-else class="lit-list">
@@ -105,13 +105,13 @@ function onViewPdf(pdfPath: string, filename: string) {
 
         <!-- No results -->
         <div v-else-if="!store.results.length" class="state-center">
-          <EmptyState title="无结果" :description="'未找到与「' + store.query + '」相关的页面'" />
+          <EmptyState :title="$t('extraction.noResults')" :description="$t('extraction.noResultsDesc', { query: store.query })" />
         </div>
 
         <!-- Results -->
         <div v-else class="results-area">
           <div class="results-header">
-            共 {{ store.totalPages }} 页已索引，找到 {{ store.results.length }} 条结果
+            {{ $t('extraction.searchStats', { total: store.totalPages, found: store.results.length }) }}
           </div>
           <SearchResultList
             :results="store.results"

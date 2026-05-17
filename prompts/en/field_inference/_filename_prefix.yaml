@@ -1,0 +1,4 @@
+name: field_inference_filename_prefix
+description: "Translate task description into an English filename prefix"
+variables: [task_description]
+template: "Translate the core keywords of the following extraction task into concise English (words connected by underscores), output only English characters, no other characters. Task: ${task_description}"

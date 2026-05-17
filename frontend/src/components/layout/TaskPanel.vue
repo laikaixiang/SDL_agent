@@ -13,10 +13,10 @@ const panelComponents: Record<string, ReturnType<typeof defineAsyncComponent>> =
 }
 
 const panelLabels: Record<string, string> = {
-  extraction: '文献提取',
-  hardware: '硬件控制',
-  analysis: '数据分析',
-  experiment: '实验设计',
+  extraction: 'modes.literatureExtraction',
+  hardware: 'modes.hardwareControl',
+  analysis: 'modes.dataAnalysis',
+  experiment: 'modes.experimentDesign',
 }
 
 const isWide = computed(() => layout.activeTaskPanel === 'experiment')
@@ -29,8 +29,8 @@ const isWide = computed(() => layout.activeTaskPanel === 'experiment')
     v-if="layout.activeTaskPanel"
   >
     <div class="task-header">
-      <span class="task-title">{{ panelLabels[layout.activeTaskPanel] }}</span>
-      <button class="task-close" title="关闭" @click="layout.closeTaskPanel()">
+      <span class="task-title">{{ $t(panelLabels[layout.activeTaskPanel]) }}</span>
+      <button class="task-close" :title="$t('common.close')" @click="layout.closeTaskPanel()">
         <X :size="16" />
       </button>
     </div>

@@ -51,7 +51,7 @@ class FieldInference:
         schema_str = json.dumps(DynamicFieldsResponse.model_json_schema(), ensure_ascii=False)
 
         from prompts import create_prompt_manager
-        pm = create_prompt_manager()
+        pm = create_prompt_manager(lang='zh')
         prompt = pm.get("field_inference_infer_fields", task_description=task_description, schema_str=schema_str)
 
         messages = (history or []) + [
@@ -82,7 +82,7 @@ class FieldInference:
             英文文件名前缀
         """
         from prompts import create_prompt_manager
-        pm = create_prompt_manager()
+        pm = create_prompt_manager(lang='zh')
         prompt = pm.get("field_inference_filename_prefix", task_description=task_description)
 
         messages = [
@@ -335,7 +335,7 @@ class ExperimentDesignAgent:
 
         # 组装完整提示词（外层模板从 PromptManager 获取）
         from prompts import create_prompt_manager
-        pm = create_prompt_manager()
+        pm = create_prompt_manager(lang='zh')
         prompt = pm.get(
             "experiment_design_system",
             hardware_tools_desc="\n".join(hardware_tools_desc),
@@ -356,7 +356,7 @@ class ExperimentDesignAgent:
             (成功状态, JSON字典或错误信息)
         """
         from prompts import create_prompt_manager
-        pm = create_prompt_manager()
+        pm = create_prompt_manager(lang='zh')
         prompt = pm.get(
             "experiment_design_user",
             system_prompt=self.system_prompt,
@@ -418,7 +418,7 @@ class ExperimentDesignAgent:
             - error: 错误信息 {"type": "error", "data": "..."}
         """
         from prompts import create_prompt_manager
-        pm = create_prompt_manager()
+        pm = create_prompt_manager(lang='zh')
         prompt = pm.get(
             "experiment_design_user",
             system_prompt=self.system_prompt,

@@ -83,7 +83,7 @@ def extract_algorithm_spec(user_description: str) -> dict:
         算法规格 dict：{"name", "description", "input_format", "output_fields", "params"}
     """
     from prompts import create_prompt_manager
-    pm = create_prompt_manager()
+    pm = create_prompt_manager(lang='zh')
     raw = _call_llm(pm.get("algorithm_gen_spec_extraction"), user_description)
     raw = _strip_markdown_code_block(raw)
     return json.loads(raw)
@@ -129,7 +129,7 @@ def generate_algorithm_code(spec: dict) -> str:
         params_detail = "  （无额外参数）"
 
     from prompts import create_prompt_manager
-    pm = create_prompt_manager()
+    pm = create_prompt_manager(lang='zh')
 
     prompt = pm.get(
         "algorithm_gen_code_gen_template",
@@ -361,7 +361,7 @@ if __name__ == "__main__":
     print("算法自动生成器 - 交互测试")
     print("=" * 60)
     from prompts import create_prompt_manager
-    pm = create_prompt_manager()
+    pm = create_prompt_manager(lang='zh')
     print(pm.get("algorithm_gen_user_guidance"))
 
     user_input = input("请输入您的算法需求描述（直接回车使用示例）：\n> ").strip()

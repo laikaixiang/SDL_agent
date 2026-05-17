@@ -17,16 +17,16 @@ const store = useExperimentStore()
             <Play :size="13" /> Python
           </button>
         </div>
-        <span v-if="store.compileStatus === 'compiling'" class="compile-dot compiling" title="编译中...">●</span>
-        <span v-else-if="store.compileStatus === 'error'" class="compile-dot error" title="编译失败">●</span>
+        <span v-if="store.compileStatus === 'compiling'" class="compile-dot compiling" :title="$t('experiment.compiling')">●</span>
+        <span v-else-if="store.compileStatus === 'error'" class="compile-dot error" :title="$t('experiment.compileFailed')">●</span>
       </div>
       <div class="code-actions">
-        <button class="code-act-btn" title="手动编译为 Python" @click="store.compile()"><Terminal :size="13" /></button>
-        <button class="code-act-btn" title="从 JSON 同步到实验步骤" @click="store.syncFromCode()"><RefreshCw :size="13" /></button>
-        <button class="code-act-btn" title="全屏" @click="store.codeAreaFullscreen = !store.codeAreaFullscreen">
+        <button class="code-act-btn" :title="$t('experiment.compileToPython')" @click="store.compile()"><Terminal :size="13" /></button>
+        <button class="code-act-btn" :title="$t('experiment.syncFromJson')" @click="store.syncFromCode()"><RefreshCw :size="13" /></button>
+        <button class="code-act-btn" :title="$t('experiment.fullscreen')" @click="store.codeAreaFullscreen = !store.codeAreaFullscreen">
           <component :is="store.codeAreaFullscreen ? Minimize2 : Maximize2" :size="13" />
         </button>
-        <button class="code-act-btn" title="最小化" @click="store.codeAreaMinimized = !store.codeAreaMinimized">
+        <button class="code-act-btn" :title="$t('experiment.minimize')" @click="store.codeAreaMinimized = !store.codeAreaMinimized">
           {{ store.codeAreaMinimized ? '+' : '−' }}
         </button>
       </div>

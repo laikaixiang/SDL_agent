@@ -1,0 +1,4 @@
+name: misc_session_title
+description: "Generate a title for a chat session (max 20 words)"
+variables: [lines]
+template: "Please summarize the topic of the following conversation in one sentence (no more than 20 words). Return only the summary text, without quotes or extra explanations:\n${lines}"

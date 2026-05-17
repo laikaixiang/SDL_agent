@@ -14,13 +14,14 @@ Prompts API — Flask Blueprint
 from flask import Blueprint, request, jsonify
 from . import create_prompt_manager
 from .manager import NoSuchPromptError, MissingVariableError
+from utils.i18n import i18n
 
 prompts_bp = Blueprint("prompts", __name__)
 
 
 def _get_manager():
     """获取全局 PromptManager"""
-    return create_prompt_manager()
+    return create_prompt_manager(lang=i18n.get_lang(request))
 
 
 def _get_optimizer():

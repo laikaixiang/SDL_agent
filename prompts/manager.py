@@ -42,14 +42,16 @@ class NoSuchPromptError(Exception):
 class PromptManager:
     """Prompt 集中管理器"""
 
-    def __init__(self, registry_path: str, overrides_dir: str):
+    def __init__(self, registry_path: str, overrides_dir: str, lang: str = 'zh'):
         """
         Args:
             registry_path: registry.yaml 文件路径
             overrides_dir: overrides 覆盖文件目录路径
+            lang: 语言代码，默认 'zh'，可选 'en'
         """
         self._registry_path = registry_path
         self._overrides_dir = overrides_dir
+        self._lang = lang
         self._registry: Dict[str, dict] = {}      # name → {file, category, enabled}
         self._prompts: Dict[str, dict] = {}        # name → {name, description, variables, template}
         self._templates: Dict[str, Template] = {}  # name → compiled Template
@@ -211,6 +213,16 @@ class PromptManager:
     # 内部方法
     # ═══════════════════════════════════════════════════════════════
 
+    def _resolve_path(self, file_path: str) -> str:
+        """根据当前 lang 设置替换语言前缀"""
+        parts = file_path.split('/', 1)
+        if parts[0] in ('zh', 'en') and len(parts) == 2:
+            return os.path.join(
+                os.path.dirname(self._registry_path),
+                self._lang, parts[1]
+            )
+        return os.path.join(os.path.dirname(self._registry_path), file_path)
+
     def _load_all(self) -> None:
         """完整加载流程: registry → 源文件 → overrides 合并 → 编译模板"""
         self._registry = {}
@@ -239,9 +251,7 @@ class PromptManager:
             {name, description, variables, template}
         """
         meta = self._registry[name]
-        prompt_path = os.path.join(
-            os.path.dirname(self._registry_path), meta["file"]
-        )
+        prompt_path = self._resolve_path(meta["file"])
 
         with open(prompt_path, "r", encoding="utf-8") as f:
             prompt = yaml.safe_load(f)
@@ -277,9 +287,7 @@ class PromptManager:
     def _load_original_template(self, name: str) -> str:
         """加载源文件中的原始模板（忽略 overrides）"""
         meta = self._registry[name]
-        prompt_path = os.path.join(
-            os.path.dirname(self._registry_path), meta["file"]
-        )
+        prompt_path = self._resolve_path(meta["file"])
         with open(prompt_path, "r", encoding="utf-8") as f:
             prompt = yaml.safe_load(f)
         return prompt.get("template", "")
@@ -290,9 +298,7 @@ class PromptManager:
         只合并 override 中显式出现的字段，其他字段保持源文件原文。
         """
         meta = self._registry[name]
-        prompt_path = os.path.join(
-            os.path.dirname(self._registry_path), meta["file"]
-        )
+        prompt_path = self._resolve_path(meta["file"])
         with open(prompt_path, "r", encoding="utf-8") as f:
             source = yaml.safe_load(f)
 

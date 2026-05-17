@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Send, Paperclip, MessageSquare, FileText, Cpu, FlaskConical, BarChart3 } from 'lucide-vue-next'
 import { useChatStore, MODE_LABEL, type ChatMode } from '@/stores/chat'
 
+const { t } = useI18n()
 const store = useChatStore()
 const modelValue = defineModel<string>('modelValue', { default: '' })
 defineProps<{ disabled?: boolean; placeholder?: string }>()
@@ -11,13 +13,33 @@ const emit = defineEmits<{ send: [text: string]; fileSelected: [file: File]; can
 const textarea = ref<HTMLTextAreaElement>()
 const fileInput = ref<HTMLInputElement>()
 
-const modes: { id: ChatMode; label: string; icon: typeof MessageSquare; hint: string }[] = [
-  { id: 'normal',      label: '对话',     icon: MessageSquare,   hint: '自由对话' },
-  { id: 'extraction',  label: '文献提取', icon: FileText,        hint: '自动添加"帮我搜寻："前缀进行文献提取' },
-  { id: 'hardware',    label: '硬件控制', icon: Cpu,             hint: '输入硬件指令操控设备' },
-  { id: 'experiment',  label: '实验设计', icon: FlaskConical,    hint: '输入实验描述设计实验' },
-  { id: 'analysis',    label: '数据分析', icon: BarChart3,       hint: '输入数据分析需求' },
-]
+const modeLabels: Record<ChatMode, string> = {
+  normal: 'modes.chat',
+  extraction: 'modes.literatureExtraction',
+  hardware: 'modes.hardwareControl',
+  experiment: 'modes.experimentDesign',
+  analysis: 'modes.dataAnalysis',
+}
+const modeHints: Record<ChatMode, string> = {
+  normal: 'modes.hintNormal',
+  extraction: 'modes.hintExtraction',
+  hardware: 'modes.hintHardware',
+  experiment: 'modes.hintExperiment',
+  analysis: 'modes.hintAnalysis',
+}
+const modeIcons: Record<ChatMode, typeof MessageSquare> = {
+  normal: MessageSquare,
+  extraction: FileText,
+  hardware: Cpu,
+  experiment: FlaskConical,
+  analysis: BarChart3,
+}
+const modes = computed(() => (['normal', 'extraction', 'hardware', 'experiment', 'analysis'] as ChatMode[]).map(id => ({
+  id,
+  label: t(modeLabels[id]),
+  icon: modeIcons[id],
+  hint: t(modeHints[id]),
+})))
 
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Enter' && !e.shiftKey) {
@@ -68,7 +90,7 @@ function onFileChange(e: Event) {
           v-model="modelValue"
           class="input-textarea"
           :class="{ 'with-bubble': store.currentMode !== 'normal' }"
-          :placeholder="store.extractionRunning ? '提取任务运行中...' : (placeholder || (store.currentMode === 'extraction' ? '按 Enter 直接使用默认提取配置 (FAPbI3 钙钛矿钝化剂)...' : '输入消息... (Enter 发送, Shift+Enter 换行)'))"
+          :placeholder="store.extractionRunning ? $t('chat.extractionRunning') : (placeholder || (store.currentMode === 'extraction' ? $t('chat.extractionDefaultHint') : $t('chat.inputPlaceholderWithShift')))"
           :disabled="disabled || store.extractionRunning"
           rows="1"
           @keydown="onKeydown"
@@ -93,7 +115,7 @@ function onFileChange(e: Event) {
         class="file-input-hidden"
         @change="onFileChange"
       />
-      <button class="toolbar-btn" title="上传文件" @click="triggerFileInput">
+      <button class="toolbar-btn" :title="$t('chat.uploadFile')" @click="triggerFileInput">
         <Paperclip :size="15" />
       </button>
       <span class="toolbar-divider" />

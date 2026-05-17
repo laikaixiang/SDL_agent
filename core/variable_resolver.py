@@ -100,6 +100,26 @@ class VariableResolver:
         return True
 
     @staticmethod
+    def _collect_loop_variables(steps: List[Dict]) -> Dict[str, str]:
+        """
+        从步骤中收集 LOOP 定义的迭代变量
+
+        扫描 type=helper + name=LOOP 的步骤，提取其 var 参数。
+        这些变量在编译时不需要解析（运行时的循环变量），
+        但需要被 VariableBar 展示、被 isVariableDeclared 识别。
+
+        Returns:
+            dict: {var_name: var_name, ...}
+        """
+        loop_vars = {}
+        for step in steps:
+            if step.get("type") == "helper" and step.get("name") == "LOOP":
+                var_name = step.get("params", {}).get("var", "_i")
+                if var_name and isinstance(var_name, str):
+                    loop_vars[var_name] = var_name
+        return loop_vars
+
+    @staticmethod
     def _infer_type(value: Any) -> str:
         """
         从值推断变量类型

@@ -12,7 +12,7 @@ from .registry import register_tool
         "target": {"type": "float", "description": "目标温度(℃)", "required": True}
     }
 )
-def execute_set_temperature(target: float) -> str:
+def set_temperature(target: float) -> str:
     """
     底层同步函数：设置加热台温度
 

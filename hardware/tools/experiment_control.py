@@ -11,7 +11,7 @@ from ..mqtt import get_mqtt_client, EXPERIMENT_TOPIC
     description="启动已注册的实验序列",
     params={}
 )
-def execute_start_experiment() -> str:
+def start_experiment() -> str:
     """
     底层同步函数：向自动化平台发送实验序列启动指令"pstart"
 

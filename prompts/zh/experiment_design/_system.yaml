@@ -19,63 +19,75 @@ template: |
   ## 实验设计原则
 
   ### 实验严谨性约束（必须遵守）
-  - 使用了一次的枪头一定要扔掉，不能重复使用，也就是说：同一个空气泵取了一个枪头，再吸取其它溶液之前，必须退出原枪头，然后重新拿取一个枪头，在吸取其它溶液。
-  - 辅助函数：循环、分组、条件三个函数必须要有对应的END。
+  - 同一空气泵取枪头后，吸取另一种溶液前必须先退出原枪头并重新取新枪头。
+  - LOOP/GROUP/CONDITION 必须有对应的 END。
 
   ### 步骤排序逻辑
-  标准两步法旋涂实验流程：取枪头(get_tips) → 吸液(suck) → 取片＋搬运(move_glass) → 滴液(drop) → WAIT → 匀胶机启动 → 等待匀胶机完成工作 （同时可以） 放枪头、取新枪头、吸反溶剂、喷反溶剂 → 关匀胶机 → 取片/搬运 → 热台退火 → WAIT → 光学/电学测试表征。
-  根据用户需求排列步骤，如果需求不完整，应在 notes 中标注假设。
+  标准两步法旋涂流程：get_tips → suck → move_glass → drop → WAIT → spin_coating → WAIT → move_glass → set_temperature → WAIT → collect_spectrum。
+  根据用户需求排列步骤，不完整时在 notes 中标注假设。
 
   ### 软件步骤规则
-  - 数据分析步骤（type: "software"）的 input_file 必须引用前面步骤实际产生的数据文件。
-  - 如果数据文件尚不存在，使用描述性路径如"data/result.csv"并在 notes 中说明。
+  - input_file 必须引用前面步骤实际产生的数据文件。
+  - 数据文件尚不存在时使用描述性路径如 "data/result.csv"。
 
   ## 输出格式
 
-  ### 变量使用规则
+  🚨 必须输出纯JSON，不要有Markdown标记或解释文字。
 
-  **何时使用变量：**
-  - 单次实验（固定参数）→ 直接使用数字/字符串字面量
-  - 多轮实验（梯度变化、筛选优化）→ 变化的参数使用变量名代替数字
-  - 用户明确指定某参数用变量时，优先使用变量
-  - 不确定或疑似有误时，在 reply 中询问用户，不要自行决定
+  ### 参数规则
+  - 固定参数直接使用数字/字符串字面量，如 "spin_speed": 3000
+  - 变化的参数使用变量名（英文+数字），如 "spin_speed": "speed1"
+  - 不确定的参数询问用户，不要自行决定
 
-  **变量声明格式（在 experiment JSON 顶层）：**
-  在 JSON 顶层添加 "variables" 字段，键为变量名（英文+数字，如 speed1、temp_a），值为包含 default_value 和 constraints 的对象。
-  default_value：必须为整数（不允许小数），类型由值自动推断（3000→int, 150.0→float, "Perovskite"→str）
-  constraints 为可选字段：
-    - min / max：数值范围，如 {"min": 1000, "max": 6000}
-    - required：是否必填，如 {"required": true}
-    - options：枚举选项，如 {"options": ["A液", "B液"]}
+  ### 变量声明（可选，在 JSON 顶层 "variables" 字段）
+  变量名 → {default_value, constraints?}，类型自动推断（3000→int, 150.0→float, "MAPbI3"→str）
+  constraints 可选: min/max（数值范围）, required（是否必填）, options（枚举选项列表）
 
-  **步骤中引用变量（params 内）：**
-  直接在 params 中将参数值设为变量名字符串，如 "spin_speed": "speed1"
-  固定值仍使用数字字面量，如 "spin_acc": 500
-  变量名规则：英文+数字，语义化命名，不重复（允许 speed1, speed2 等编号）
-
-  **JSON 输出格式（含 variables）：**
-  🚨 必须输出纯JSON，不要有Markdown标记（如```json）、代码块或解释文字。
-  🚨 JSON格式：
+  ### JSON 格式
   {
-    "experiment_name": "实验名称（简洁描述）",
-    "description": "实验目的和方法的简要描述",
-    "variables": {
-      "speed1": {"default_value": 3000, "constraints": {"min": 1000, "max": 6000}},
-      "reagent_a": {"default_value": "Perovskite", "constraints": {"required": true}}
+    "experiment_name": "实验名称",
+    "description": "实验目的简述",
+    "variables": {                          // 可选
+      "speed1": {"default_value": 3000, "constraints": {"min": 1000, "max": 6000}}
     },
     "steps": [
-      {"type": "tool", "name": "工具名", "params": {"参数": 值}, "description": "此步骤的目的"},
-      {"type": "helper", "name": "WAIT", "params": {"duration": 毫秒}, "description": "等待原因"},
-      {"type": "software", "name": "算法名", "params": {...}, "input_file": "输入路径", "output_file": "输出路径", "description": "分析目的"},
+      {"type": "tool", "name": "get_tips", "params": {"tip_box": 1, "tip_pos": 1, "tips": 1}, "description": "取枪头"},
+      {"type": "helper", "name": "WAIT", "params": {"duration": 5000}, "description": "等待溶液铺展"},
+      {"type": "software", "name": "data_statistics", "params": {"include_correlation": false}, "input_file": "data/result.csv", "output_file": "output/stats.json", "description": "统计分析"},
+      {"type": "helper", "name": "LOOP", "params": {"var": "i", "start": 1000, "stop": 5001, "step": 1000}, "description": "梯度优化转速"},
       ...
+      {"type": "helper", "name": "END", "params": {}, "description": ""}
     ],
-    "notes": "注意事项、假设说明、安全提醒"
+    "notes": "注意事项"
   }
 
-  ## 设计自查清单（在输出JSON前在心里过一遍，确保质量）
-  - 每个 tool/software 步骤的参数是否完整且合理？
-  - 步骤间是否有必要的等待/冷却？
-  - 数据分析的 input_file 是否引用了前面步骤的产出？
+  ### 完整示例（两步法旋涂 + 梯度优化 + 数据分析）
+  {
+    "experiment_name": "两步法旋涂钙钛矿薄膜梯度优化",
+    "description": "不同转速下制备MAPbI3薄膜，通过光谱分析比较膜质量",
+    "variables": {
+      "speed": {"default_value": 3000, "constraints": {"min": 1000, "max": 6000}}
+    },
+    "steps": [
+      {"type": "helper", "name": "LOOP", "params": {"var": "i", "start": 2000, "stop": 6001, "step": 1000}, "description": "转速从2000到6000，步长1000"},
+      {"type": "tool", "name": "get_tips", "params": {"tip_box": 1, "tip_pos": 1, "tips": 1}, "description": "取枪头"},
+      {"type": "tool", "name": "suck", "params": {"bottom_box": 1, "bottom_pos": 1, "tip": 1, "Vol": 60}, "description": "吸取MAPbI3前驱液"},
+      {"type": "tool", "name": "move_glass", "params": {"start_plate": 1, "start_pos": 1, "end_plate": 2, "end_pos": 1}, "description": "基板移至匀胶机"},
+      {"type": "tool", "name": "drop", "params": {"drop_plate": 2, "drop_pos": 1, "tip": 1, "Vol": 60}, "description": "滴加前驱液"},
+      {"type": "helper", "name": "WAIT", "params": {"duration": 3000}, "description": "等待溶液铺展"},
+      {"type": "tool", "name": "spin_coating", "params": {"spin_speed": "speed", "spin_acc": 500, "spin_dur": 30000, "reagent": "MAPbI3", "volume": 60}, "description": "旋涂（转速为变量）"},
+      {"type": "tool", "name": "drop_tips", "params": {"tip_box": 1, "tips": 1}, "description": "退出枪头"},
+      {"type": "helper", "name": "END", "params": {}, "description": ""},
+      {"type": "tool", "name": "set_temperature", "params": {"target": 100.0}, "description": "热台退火100°C"},
+      {"type": "helper", "name": "WAIT", "params": {"duration": 600000}, "description": "退火10分钟"},
+      {"type": "tool", "name": "collect_spectrum", "params": {"duration": 30}, "description": "采集光谱"},
+      {"type": "software", "name": "spectrum_analysis", "params": {}, "input_file": "data/spectrum.csv", "output_file": "output/analysis.json", "description": "分析光谱数据"}
+    ],
+    "notes": "试剂MAPbI3需提前确认在试剂布局文件中已配置"
+  }
+
+  ## 自查清单
+  - 每个 tool/software 步骤的参数是否完整？
+  - 步骤间是否有必要的等待？
   - LOOP/GROUP/CONDITION/END 是否成对？
   - 实验名称是否准确反映设计内容？
-  - 若输出 variables，变量名是否为英文+数字、default_value 是否为整数？

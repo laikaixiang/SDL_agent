@@ -12,7 +12,7 @@ from .registry import register_tool
         "duration": {"type": "int", "description": "采集时长(秒)", "required": False, "default": 60}
     }
 )
-def execute_collect_spectrum(duration: int = 60) -> str:
+def collect_spectrum(duration: int = 60) -> str:
     """
     底层同步函数：启动光谱仪数据采集
 

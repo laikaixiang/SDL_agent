@@ -3,6 +3,8 @@ import { ref, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useExperimentStore } from '@/stores/experiment'
 import type { ExperimentStep } from '@/types/experiment'
+import FileSelectorModal from '@/components/modals/FileSelectorModal.vue'
+import { Folder } from 'lucide-vue-next'
 
 const { t } = useI18n()
 
@@ -12,6 +14,9 @@ const props = defineProps<{
 }>()
 
 defineEmits<{ (e: 'close'): void }>()
+
+const fileModalOpen = ref(false)
+const fileModalTarget = ref<'input' | 'output'>('input')
 
 const store = useExperimentStore()
 
@@ -137,6 +142,15 @@ function onDeclareVariable(paramKey: string, varName: string) {
   variablesHint[paramKey] = `→ ${t('experiment.fillDefaultValue')}`
 }
 
+function onFileSelected(path: string) {
+  if (fileModalTarget.value === 'input') {
+    inputFile.value = path
+  } else {
+    outputFile.value = path
+  }
+  store.addLog(`✓ 已选择文件路径: ${path}`)
+}
+
 function onSave() {
   let parsedParams: Record<string, unknown> = {}
   try {
@@ -156,6 +170,10 @@ function onSave() {
 
 const toolDef = props.step.type === 'tool'
   ? store.hardwareTools.find(t => t.name === props.step.name)
+  : null
+
+const helperDef = props.step.type === 'helper'
+  ? store.HELPER_PARAM_SCHEMAS[props.step.name] ?? null
   : null
 </script>
 
@@ -204,13 +222,42 @@ const toolDef = props.step.type === 'tool'
       <!-- Software params -->
       <template v-if="step.type === 'software'">
         <label>{{ $t('experiment.inputFile') }}</label>
-        <input v-model="inputFile" class="editor-input" :placeholder="$t('experiment.csvPath')" />
+        <div class="file-input-row">
+          <input v-model="inputFile" class="editor-input" :placeholder="$t('experiment.csvPath')" />
+          <button class="btn-browse" :title="$t('experiment.browseFile')" @click="fileModalTarget = 'input'; fileModalOpen = true"><Folder :size="14" /></button>
+        </div>
         <label>{{ $t('experiment.outputDir') }}</label>
-        <input v-model="outputFile" class="editor-input" :placeholder="$t('experiment.outputDirOptional')" />
+        <div class="file-input-row">
+          <input v-model="outputFile" class="editor-input" :placeholder="$t('experiment.outputDirOptional')" />
+          <button class="btn-browse" :title="$t('experiment.browseFile')" @click="fileModalTarget = 'output'; fileModalOpen = true"><Folder :size="14" /></button>
+        </div>
       </template>
 
-      <!-- Helper / generic params: raw JSON editor -->
-      <template v-if="step.type === 'helper' || (step.type === 'tool' && !toolDef)">
+      <!-- Helper params: render like tool params when schema available -->
+      <template v-if="step.type === 'helper' && helperDef">
+        <label>{{ $t('experiment.params') }}</label>
+        <div class="param-grid">
+          <div v-for="(v, k) in helperDef" :key="k" class="param-field">
+            <span class="param-label">{{ k }}
+              <span v-if="v.required" class="param-req">*</span>
+              <span v-else class="param-opt">{{ $t('experiment.optional') }}</span>
+            </span>
+            <span class="param-type">{{ v.type }}</span>
+            <div class="param-input-row">
+              <input
+                class="editor-input param-input"
+                :placeholder="v.description || k"
+                :value="draftValues[k] ?? String(step.params[k] ?? v.default ?? '')"
+                @input="(e) => onParamInput(k, (e.target as HTMLInputElement).value)"
+                @keydown="onParamKeydown"
+              />
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- Helper without schema / unknown tool: raw JSON editor -->
+      <template v-if="(step.type === 'helper' && !helperDef) || (step.type === 'tool' && !toolDef)">
         <label>{{ $t('experiment.paramsJson') }}</label>
         <textarea v-model="params" class="editor-textarea" rows="4" spellcheck="false" />
       </template>
@@ -220,6 +267,12 @@ const toolDef = props.step.type === 'tool'
       <button class="btn-save" @click="onSave">{{ $t('common.save') }}</button>
       <button class="btn-cancel" @click="$emit('close')">{{ $t('common.cancel') }}</button>
     </div>
+
+    <FileSelectorModal
+      :open="fileModalOpen"
+      @update:open="fileModalOpen = $event"
+      @selected="onFileSelected"
+    />
   </div>
 </template>
 
@@ -297,4 +350,15 @@ const toolDef = props.step.type === 'tool'
 .param-invalid-hint { font-size: 11px; color: #f59e0b; white-space: nowrap; }
 .btn-declare { padding: 2px 8px; border: 1px solid var(--color-error); border-radius: 4px; background: var(--color-error); color: #fff; font-size: 11px; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
 .btn-declare:hover { opacity: 0.85; }
+
+.file-input-row { display: flex; align-items: center; gap: 4px; }
+.file-input-row .editor-input { flex: 1; }
+.btn-browse {
+  display: flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; flex-shrink: 0;
+  border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+  background: var(--color-surface); color: var(--color-text-tertiary);
+  cursor: pointer; transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+.btn-browse:hover { color: var(--color-primary); border-color: var(--color-primary); }
 </style>

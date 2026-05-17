@@ -1,6 +1,6 @@
 import { ref, computed, watch } from 'vue'
 import { defineStore } from 'pinia'
-import type { ExperimentStep, ExperimentPlan, HelperType, VariableDefinition } from '@/types/experiment'
+import type { ExperimentStep, ExperimentPlan, HelperType, VariableDefinition, VariableConstraint } from '@/types/experiment'
 import type { HardwareTool } from '@/types/hardware'
 import {
   generateExperimentStream,
@@ -23,12 +23,37 @@ interface AlgorithmDef {
 }
 
 const HELPER_TEMPLATES: Record<HelperType, Omit<ExperimentStep, 'description'>> = {
-  LOOP: { type: 'helper', name: 'LOOP', params: { iterations: 3 } },
+  LOOP: { type: 'helper', name: 'LOOP', params: { count: 3, var: '_i' } },
   GROUP: { type: 'helper', name: 'GROUP', params: { name: i18n.global.t('experiment.stepGroup') } },
   WAIT: { type: 'helper', name: 'WAIT', params: { duration: 5000 } },
   CONDITION: { type: 'helper', name: 'CONDITION', params: { condition: 'temperature > 100' } },
   END: { type: 'helper', name: 'END', params: {} },
-  USER_INPUT: { type: 'helper', name: 'USER_INPUT', params: { prompt: i18n.global.t('experiment.inputParameter'), variable_name: 'user_value' } },
+  USER_INPUT: { type: 'helper', name: 'USER_INPUT', params: { prompt: i18n.global.t('experiment.inputParameter'), var_name: 'user_value' } },
+}
+
+/** Helper parameter schemas — same format as HardwareTool.params, drives structured input UI */
+const HELPER_PARAM_SCHEMAS: Record<string, Record<string, { type: string; description: string; required: boolean; default?: unknown }>> = {
+  LOOP: {
+    count: { type: 'int', description: '循环次数（简单模式）', required: false, default: 3 },
+    var: { type: 'str', description: '循环变量名', required: false, default: '_i' },
+    start: { type: 'int', description: '起始值（范围模式）', required: false },
+    stop: { type: 'int', description: '结束值（范围模式，不包含）', required: false },
+    step: { type: 'int', description: '步长', required: false, default: 1 },
+  },
+  GROUP: {
+    name: { type: 'str', description: '步骤组名称', required: false, default: '步骤组' },
+  },
+  WAIT: {
+    duration: { type: 'int', description: '等待时长(ms)', required: true, default: 5000 },
+  },
+  CONDITION: {
+    condition: { type: 'str', description: '条件表达式', required: true, default: 'temperature > 100' },
+  },
+  END: {} as Record<string, { type: string; description: string; required: boolean; default?: unknown }>,
+  USER_INPUT: {
+    prompt: { type: 'str', description: '提示信息', required: true, default: '请输入参数' },
+    var_name: { type: 'str', description: '变量名', required: true, default: 'user_value' },
+  },
 }
 
 const HELPER_LABELS: Record<HelperType, string> = {
@@ -467,7 +492,53 @@ export const useExperimentStore = defineStore('experiment', () => {
       type: s.type || 'tool',
       params: s.params || {},
     }))
-    variables.value = json.variables || {}
+    // 规范化 variables：补 name（从 key）、补 type（从 default_value 推断）
+    // 同时自动声明 LOOP 迭代变量
+    const rawVars = json.variables || {}
+    const normalized: Record<string, VariableDefinition> = {}
+
+    // 自动声明 LOOP 迭代变量
+    for (const s of (json.steps || [])) {
+      if (s.type === 'helper' && s.name === 'LOOP') {
+        const p = s.params || {}
+        const loopVar = (p.var as string) || '_i'
+        if (loopVar && !rawVars[loopVar] && !normalized[loopVar]) {
+          const startVal = p.start as number | undefined
+          const stopVal = p.stop as number | undefined
+          const stepVal = (p.step as number) || 1
+          const constraints: VariableConstraint = {}
+          if (startVal !== undefined) constraints.min = startVal
+          if (stopVal !== undefined) constraints.max = stopVal
+          if (stepVal !== 1) constraints.step = stepVal
+          normalized[loopVar] = {
+            name: loopVar,
+            type: 'int',
+            default_value: startVal !== undefined ? startVal : 0,
+            constraints: Object.keys(constraints).length > 0 ? constraints : undefined,
+          }
+        }
+      }
+    }
+
+    for (const [key, def] of Object.entries(rawVars)) {
+      if (!def || typeof def !== 'object') continue
+      const d = def as unknown as Record<string, unknown>
+      const dv = d.default_value
+      let varType: 'int' | 'float' | 'str' | 'bool' = d.type as 'int' | 'float' | 'str' | 'bool'
+      if (!varType) {
+        if (typeof dv === 'boolean') varType = 'bool'
+        else if (typeof dv === 'number' && Number.isInteger(dv)) varType = 'int'
+        else if (typeof dv === 'number') varType = 'float'
+        else varType = 'str'
+      }
+      normalized[key] = {
+        name: key,
+        type: varType,
+        default_value: (dv !== undefined ? dv : 0) as number | string | boolean,
+        constraints: d.constraints as VariableConstraint | undefined,
+      }
+    }
+    variables.value = normalized
     batchData.value = json.batch_data || []
     batchMode.value = json.batch_mode || false
     editingStepIndex.value = null
@@ -628,7 +699,7 @@ export const useExperimentStore = defineStore('experiment', () => {
     plan, jsonCode, nestingInfo, blockErrors,
     collapsedBlocks, toggleCollapse, hiddenStepIndices,
     addStep, removeStep, moveStepUp, moveStepDown, moveStep, updateStep, toggleEdit,
-    addToolStep, addAlgorithmStep, addHelperFunction,
+    addToolStep, addAlgorithmStep, addHelperFunction, HELPER_PARAM_SCHEMAS,
     loadHardwareTools, loadAlgorithms,
     generateFromAI, compile, compileAndRunExperiment, syncFromCode,
     onJsonFocus, onJsonBlur, onPyFocus, onPyBlur,

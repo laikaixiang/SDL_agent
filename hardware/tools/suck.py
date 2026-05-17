@@ -1,7 +1,6 @@
 """
 吸液
 """
-from win32con import TRUETYPE_FONTTYPE
 
 from .registry import register_tool
 

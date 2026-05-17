@@ -15,7 +15,7 @@ from .registry import register_tool
         "r": {"type": "float", "description": "R轴坐标", "required": False, "default": 0}
     }
 )
-def execute_move_robot_arm(x: float, y: float, z: float, r: float) -> str:
+def move_robot_arm(x: float, y: float, z: float, r: float) -> str:
     """
     底层同步函数：移动机械臂到指定坐标位置
 

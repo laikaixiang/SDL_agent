@@ -68,7 +68,7 @@ from .registry import register_tool
         },
     }
 )
-def execute_example_tool(
+def example_tool(
     target_temp: float,
     reagent: str,
     speed: int = 3000,

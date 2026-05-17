@@ -182,10 +182,10 @@
   "modals": {
     "selectOutputDir": "选择输出目录",
     "selectDataFile": "选择数据文件",
-    "recentlyUsed": "最近使用",
+    "recentlyUsed": "推荐文件",
     "uploadFile": "上传文件",
     "customPath": "自定义路径",
-    "noRecentFiles": "暂无最近使用的文件",
+    "noRecentFiles": "暂无推荐文件（请先执行数据提取）",
     "clickToUploadCsv": "点击上传 CSV 文件",
     "enterFilePath": "输入文件路径...",
     "noAvailableDirs": "暂无可用目录",

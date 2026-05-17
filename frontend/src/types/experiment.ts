@@ -13,6 +13,7 @@ export interface ExperimentStep {
 export interface VariableConstraint {
   min?: number
   max?: number
+  step?: number
   required?: boolean
   options?: string[]
 }

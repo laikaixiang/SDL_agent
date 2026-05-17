@@ -47,11 +47,25 @@ class ExperimentCompiler:
                     tool_names.add(name)
         if not tool_names:
             return ""
-        func_names = sorted(f"execute_{n}" for n in tool_names)
-        return f"from hardware import {', '.join(func_names)}"
+        func_names = []
+        for n in tool_names:
+            # 从 ToolRegistry 获取真实函数名（新工具无 execute_ 前缀，旧工具有）
+            try:
+                from hardware.tools.registry import ToolRegistry
+                entry = ToolRegistry.get_tool(n)
+                if entry and entry.get("function"):
+                    func_names.append(entry["function"].__name__)
+                    continue
+            except Exception:
+                pass
+            # fallback
+            func_names.append(f"execute_{n}")
+        if not func_names:
+            return ""
+        return f"from hardware import {', '.join(sorted(func_names))}"
 
     @classmethod
-    def _build_tool_call(cls, tool_name, params_dict, registry, variables=None):
+    def _build_tool_call(cls, tool_name, params_dict, registry, variables=None, loop_vars=None):
         """
         根据registry param顺序生成位置参数调用字符串
 
@@ -59,14 +73,14 @@ class ExperimentCompiler:
             tool_name: 工具名
             params_dict: 参数字典（可能包含变量名引用）
             registry: 工具注册表
-            variables: 变量定义字典（用于解析变量名），如 {"speed1": {"type": "int", "default_value": 3000}}
+            variables: 变量定义字典（用于解析变量名）
+            loop_vars: LOOP迭代变量名集合（这些变量不需要类型转换，直接传递）
 
         Returns:
-            str: 位置参数调用字符串，如 "execute_spin_coating(3000, \"Perovskite\")"
-
-        Raises:
-            ValueError: 未知工具或参数类型错误
+            str: 位置参数调用字符串
         """
+        if loop_vars is None:
+            loop_vars = set()
         if tool_name not in registry:
             raise ValueError(f"未知工具 '{tool_name}'，未在REGISTRY.json中注册")
 
@@ -89,13 +103,18 @@ class ExperimentCompiler:
             else:
                 raw_value = None
 
-            # 变量解析：如果raw_value是字符串且variables存在，尝试解析变量/表达式
-            if variables and isinstance(raw_value, str) and raw_value.strip():
-                try:
-                    resolved = VariableResolver._resolve_param_value(raw_value, var_values)
-                    raw_value = resolved
-                except (ValueError, SyntaxError):
-                    pass  # 解析失败，保持原值
+            # 变量解析：如果raw_value是字符串，尝试解析变量/表达式（或识别loop变量）
+            if isinstance(raw_value, str) and raw_value.strip():
+                # loop变量：不解析，直接作为Python变量名传递
+                if raw_value.strip() in loop_vars:
+                    args.append(raw_value.strip())
+                    continue
+                if variables:
+                    try:
+                        resolved = VariableResolver._resolve_param_value(raw_value, var_values)
+                        raw_value = resolved
+                    except (ValueError, SyntaxError):
+                        pass  # 解析失败，保持原值
 
             ptype = pinfo.get("type", "str")
             try:
@@ -116,7 +135,18 @@ class ExperimentCompiler:
                 raise ValueError(f"参数 '{pname}' 期望类型 {ptype}，但值为 '{raw_value}'")
             args.append(formatted)
 
-        return f"execute_{tool_name}({', '.join(args)})"
+        # 获取真实函数名（新工具无 execute_ 前缀）
+        func_name = None
+        try:
+            from hardware.tools.registry import ToolRegistry
+            tool_entry = ToolRegistry.get_tool(tool_name)
+            if tool_entry and tool_entry.get("function"):
+                func_name = tool_entry["function"].__name__
+        except Exception:
+            pass
+        if func_name is None:
+            func_name = f"execute_{tool_name}"
+        return f"{func_name}({', '.join(args)})"
 
     def compile_to_python(self, experiment_json: dict) -> str:
         """
@@ -138,18 +168,38 @@ class ExperimentCompiler:
         """
         steps = experiment_json.get("steps", [])
         registry = self._load_registry()
+
+        # 收集 LOOP 迭代变量名（编译时不做类型转换，直接传递）
+        loop_vars = set()
+        for step in steps:
+            if step.get("type") == "helper" and step.get("name") == "LOOP":
+                lv = step.get("params", {}).get("var", "_i")
+                if lv and isinstance(lv, str):
+                    loop_vars.add(lv)
+
         import_line = self._build_imports(steps, registry)
+
+        has_software = any(s.get("type") == "software" for s in steps)
 
         code_lines = [
             "# 自动生成的实验执行代码",
             "import time",
         ]
+        if has_software:
+            code_lines.extend(["import json", "import os"])
         if import_line:
             code_lines.append(import_line)
+        if has_software:
+            code_lines.append("from software.software_manager import SoftwareManager")
         code_lines.extend([
             "",
             "# 用户输入变量存储",
             "user_vars = {}",
+            "",
+        ])
+        if has_software:
+            code_lines.append("sm = SoftwareManager()")
+        code_lines.extend([
             "",
             "def execute_experiment():",
         ])
@@ -179,8 +229,16 @@ class ExperimentCompiler:
             # 处理不同类型的步骤
             if step_type == "helper":
                 if step_name == "LOOP":
-                    iterations = params.get("iterations", 3)
-                    code_lines.append(f"{indent}for _loop_iter in range({iterations}):")
+                    # 支持两种模式：count（简单）或 start/stop/step（范围）
+                    loop_var = params.get("var", "_i")
+                    if "start" in params:
+                        start_val = params.get("start", 0)
+                        stop_val = params.get("stop", 10)
+                        step_val = params.get("step", 1)
+                        code_lines.append(f"{indent}for {loop_var} in range({start_val}, {stop_val}, {step_val}):")
+                    else:
+                        count = params.get("count", params.get("iterations", 3))
+                        code_lines.append(f"{indent}for {loop_var} in range({count}):")
                     stack.append(("LOOP", indent_level))
                     indent_level += 1
 
@@ -204,7 +262,7 @@ class ExperimentCompiler:
 
                 elif step_name == "USER_INPUT":
                     prompt = params.get("prompt", "请输入参数")
-                    variable_name = params.get("variable_name", "user_value")
+                    variable_name = params.get("var_name", params.get("variable_name", "user_value"))
                     code_lines.append(f"{indent}user_vars['{variable_name}'] = input('{prompt}: ')")
 
             elif step_type == "tool":
@@ -213,7 +271,7 @@ class ExperimentCompiler:
                 if step_name in registry:
                     try:
                         variables = experiment_json.get("variables", {})
-                        call_str = self._build_tool_call(step_name, params, registry, variables=variables)
+                        call_str = self._build_tool_call(step_name, params, registry, variables=variables, loop_vars=loop_vars)
                         code_lines.append(f"{indent}result = {call_str}")
                         code_lines.append(f"{indent}print(f'结果: {{result}}')")
                     except ValueError as e:
@@ -223,16 +281,17 @@ class ExperimentCompiler:
                     code_lines.append(f"{indent}print('错误: 未知工具 {step_name}')")
 
             elif step_type == "software":
-                # 算法调用
                 algo_name = step_name
                 input_file = step.get("input_file", "")
                 output_file = step.get("output_file", "")
+                algo_params = json.dumps(params, ensure_ascii=False).replace('true', 'True').replace('false', 'False').replace('null', 'None') if params else "{}"
                 code_lines.append(f"{indent}print('执行算法: {algo_name}')")
-                code_lines.append(f"{indent}# TODO: 调用算法 {algo_name}")
-                if input_file:
-                    code_lines.append(f"{indent}# 输入文件: {input_file}")
+                code_lines.append(f"{indent}_data = sm._read_csv_as_columns({json.dumps(input_file)}) if {json.dumps(input_file)} and os.path.exists({json.dumps(input_file)}) else {{}}")
+                code_lines.append(f"{indent}_result = sm.run_algorithm({json.dumps(algo_name)}, _data, {algo_params})")
                 if output_file:
-                    code_lines.append(f"{indent}# 输出文件: {output_file}")
+                    code_lines.append(f"{indent}os.makedirs(os.path.dirname({json.dumps(output_file)} or '.'), exist_ok=True)")
+                    code_lines.append(f"{indent}with open({json.dumps(output_file)}, 'w', encoding='utf-8') as _f: json.dump(_result, _f, ensure_ascii=False, indent=2)")
+                code_lines.append(f"{indent}print(f'算法结果: {{json.dumps(_result, ensure_ascii=False)[:500]}}')")
 
         # 关闭所有未闭合的结构
         while stack:

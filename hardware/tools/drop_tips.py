@@ -10,8 +10,8 @@ from .registry import register_tool
     description="放枪头",
     params={
         "tip_box": {"type": "int", "description": "枪头盒位置", "required": True},
+        "tips": {"type": "int", "description": "空气泵编号(1或者2)", "required": True, "default": 1},
         "tip_pos": {"type": "int", "description": "枪头在枪头盒中位置(从1开始)", "required": False, "default": 1},
-        "tips": {"type": "int", "description": "空气泵编号(1或者2)", "required": True, "default": 1}
     }
 )
 def drop_tips(tip_box: int, tips: int, tip_pos: int = 1) -> str:

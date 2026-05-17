@@ -333,25 +333,39 @@ def serve_v2_static(filename: str):
 def upload_file():
     """
     文件上传路由
-    处理PDF文件上传，保存到配置的PDF文件夹
+    处理PDF上传（到PDF文件夹）和CSV上传（到全局temporal目录）
+    支持 form key: 'files' 或 'file'
     """
-    if 'files' not in request.files:
+    files = request.files.getlist('files') or request.files.getlist('file')
+    if not files:
         lang = i18n.get_lang(request)
         return jsonify({'error': i18n.get('errors.noFileReceived', lang)}), 400
 
-    files = request.files.getlist('files')
-
-    # 确保PDF文件夹存在
-    os.makedirs(config.PDF_FOLDER, exist_ok=True)
     saved_files = []
 
     for file in files:
-        if file.filename.lower().endswith('.pdf'):
+        if not file.filename:
+            continue
+        fname_lower = file.filename.lower()
+        if fname_lower.endswith('.pdf'):
+            os.makedirs(config.PDF_FOLDER, exist_ok=True)
             path = os.path.join(config.PDF_FOLDER, file.filename)
-            file.save(path)
-            saved_files.append(file.filename)
+        elif fname_lower.endswith('.csv') or fname_lower.endswith('.xlsx') or fname_lower.endswith('.xls'):
+            os.makedirs(GLOBAL_TEMPORAL_DIR, exist_ok=True)
+            path = os.path.join(GLOBAL_TEMPORAL_DIR, file.filename)
+        else:
+            continue
+        file.save(path)
+        saved_files.append({'name': file.filename, 'path': path.replace('\\', '/')})
 
-    return jsonify({'status': 'success', 'saved': saved_files})
+    if saved_files:
+        return jsonify({
+            'status': 'success',
+            'saved': [s['name'] for s in saved_files],
+            'filename': saved_files[0]['path'],
+            'files': saved_files,
+        })
+    return jsonify({'status': 'success', 'saved': []})
 
 
 @app.route('/api/task_stream')
@@ -1372,40 +1386,94 @@ def parse_algorithm():
 
 @app.route('/api/recent_files', methods=['GET'])
 def get_recent_files():
-    """返回当前会话最近使用的CSV文件列表"""
+    """返回推荐文件列表：全局 temporal + 当前会话 extract/temporal + 最近会话的 extract"""
     import glob
     import time
 
     files = []
+    seen = set()  # 去重
 
-    # 扫描当前会话的 temporal/ 和 extract/ 目录
-    session_temporal = get_session_path("temporal")
-    session_extract = get_session_path("extract")
-
-    for pattern in [
-        os.path.join(session_temporal, "*.csv"),
-        os.path.join(session_extract, "*.csv")
-    ]:
-        for filepath in glob.glob(pattern):
+    # 1. 全局 temporal（dialogue data/temporal/）— 暂存数据，优先
+    if os.path.isdir(GLOBAL_TEMPORAL_DIR):
+        for fp in glob.glob(os.path.join(GLOBAL_TEMPORAL_DIR, "*.csv")):
             try:
-                stat = os.stat(filepath)
-                files.append({
-                    'path': filepath.replace('\\', '/'),
-                    'name': os.path.basename(filepath),
-                    'size': stat.st_size,
-                    'modified': stat.st_mtime,
-                    'modified_str': time.strftime('%Y-%m-%d %H:%M', time.localtime(stat.st_mtime))
-                })
+                stat = os.stat(fp)
+                path = fp.replace('\\', '/')
+                if path not in seen:
+                    seen.add(path)
+                    files.append({
+                        'path': path,
+                        'name': os.path.basename(fp),
+                        'size': stat.st_size,
+                        'modified': stat.st_mtime,
+                        'modified_str': time.strftime('%Y-%m-%d %H:%M', time.localtime(stat.st_mtime)),
+                        'source': 'temporal',
+                    })
             except Exception:
                 continue
 
-    # 按修改时间倒序排序
+    # 2. 当前会话的 temporal/ 和 extract/
+    session_temporal = get_session_path("temporal")
+    session_extract = get_session_path("extract")
+
+    for folder in [session_temporal, session_extract]:
+        if not os.path.isdir(folder):
+            continue
+        for fp in glob.glob(os.path.join(folder, "*.csv")):
+            try:
+                stat = os.stat(fp)
+                path = fp.replace('\\', '/')
+                if path not in seen:
+                    seen.add(path)
+                    files.append({
+                        'path': path,
+                        'name': os.path.basename(fp),
+                        'size': stat.st_size,
+                        'modified': stat.st_mtime,
+                        'modified_str': time.strftime('%Y-%m-%d %H:%M', time.localtime(stat.st_mtime)),
+                        'source': 'session',
+                    })
+            except Exception:
+                continue
+
+    # 3. 所有历史会话的 extract/ 和 temporal/ 目录
+    history_dir = config.DIALOGUE_DATA_DIR
+    if os.path.isdir(history_dir):
+        try:
+            sessions = sorted(
+                [d for d in os.listdir(history_dir) if os.path.isdir(os.path.join(history_dir, d))],
+                reverse=True
+            )
+            for sess in sessions:
+                for sub in ["extract", "temporal"]:
+                    sub_dir = os.path.join(history_dir, sess, sub)
+                    if not os.path.isdir(sub_dir):
+                        continue
+                    for fp in glob.glob(os.path.join(sub_dir, "*.csv")):
+                        try:
+                            stat = os.stat(fp)
+                            path = fp.replace('\\', '/')
+                            if path not in seen:
+                                seen.add(path)
+                                files.append({
+                                    'path': path,
+                                    'name': f"[{sess[:8]}] {os.path.basename(fp)}",
+                                    'size': stat.st_size,
+                                    'modified': stat.st_mtime,
+                                    'modified_str': time.strftime('%Y-%m-%d %H:%M', time.localtime(stat.st_mtime)),
+                                    'source': 'history',
+                                })
+                        except Exception:
+                            continue
+        except Exception:
+            pass
+
+    # 按修改时间倒序排序，返回前20个
     files.sort(key=lambda x: x['modified'], reverse=True)
 
-    # 只返回最近10个
     return jsonify({
         "success": True,
-        "files": files[:10]
+        "files": files[:20]
     })
 
 

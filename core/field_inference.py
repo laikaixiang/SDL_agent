@@ -244,12 +244,35 @@ class ExperimentDesignAgent:
             },
             "LOOP": {
                 "name": "LOOP",
-                "description": "循环辅助操作 - 重复执行步骤",
+                "description": "循环辅助操作 - 重复执行步骤（count模式）或按范围迭代（start/stop/step模式）",
                 "params": {
                     "count": {
                         "type": "int",
-                        "description": "循环次数",
-                        "required": True
+                        "description": "循环次数（简单模式，与start/stop互斥）",
+                        "required": False,
+                        "default": 3
+                    },
+                    "var": {
+                        "type": "str",
+                        "description": "循环变量名，默认 _i",
+                        "required": False,
+                        "default": "_i"
+                    },
+                    "start": {
+                        "type": "int",
+                        "description": "起始值（范围模式，与count互斥）",
+                        "required": False
+                    },
+                    "stop": {
+                        "type": "int",
+                        "description": "结束值（范围模式，不包含）",
+                        "required": False
+                    },
+                    "step": {
+                        "type": "int",
+                        "description": "步长，默认 1",
+                        "required": False,
+                        "default": 1
                     }
                 }
             },
@@ -292,48 +315,40 @@ class ExperimentDesignAgent:
             }
         }
 
+    @staticmethod
+    def _format_params_sig(params: dict) -> str:
+        """将参数定义格式化为函数签名风格: param1: type, param2: type = default"""
+        parts = []
+        for pname, pinfo in params.items():
+            ptype = pinfo.get("type", "str")
+            default = pinfo.get("default")
+            required = pinfo.get("required", False)
+            if not required and default is not None:
+                parts.append(f"{pname}: {ptype} = {default}")
+            elif not required:
+                parts.append(f"{pname}: {ptype} = ?")
+            else:
+                parts.append(f"{pname}: {ptype}")
+        return ", ".join(parts) if parts else "无参数"
+
     def _generate_system_prompt(self) -> str:
-        """动态生成系统提示词"""
-        # 硬件工具部分
+        """动态生成系统提示词（函数签名格式，紧凑）"""
         hardware_tools_desc = []
         for idx, (name, info) in enumerate(self.hardware_registry.items(), 1):
-            params_list = []
-            for param_name, param_info in info.get("params", {}).items():
-                param_desc = f"{param_name}({param_info['description']})"
-                params_list.append(param_desc)
-            params_str = ", ".join(params_list) if params_list else "无参数"
-            hardware_tools_desc.append(
-                f"{idx}. {name} - {info['description']}\n"
-                f"   参数: {params_str}"
-            )
+            sig = self._format_params_sig(info.get("params", {}))
+            hardware_tools_desc.append(f"{idx}. {name}({sig}) — {info['description']}")
 
-        # 软件算法部分
         software_tools_desc = []
         for idx, algo in enumerate(self.software_registry, 1):
-            params_list = []
-            for param_name, param_info in algo.get("params_schema", {}).items():
-                param_desc = f"{param_name}({param_info.get('description', '')})"
-                params_list.append(param_desc)
-            params_str = ", ".join(params_list) if params_list else "无参数"
-            software_tools_desc.append(
-                f"{idx}. {algo['name']} - {algo.get('chinese_name', algo['name'])} - {algo['description']}\n"
-                f"   参数: {params_str}"
-            )
+            sig = self._format_params_sig(algo.get("params_schema", {}))
+            label = algo.get('chinese_name', algo['name'])
+            software_tools_desc.append(f"{idx}. {algo['name']}({sig}) — {label}: {algo['description']}")
 
-        # 辅助操作部分
         helper_tools_desc = []
         for idx, (name, info) in enumerate(self.helper_registry.items(), 1):
-            params_list = []
-            for param_name, param_info in info.get("params", {}).items():
-                param_desc = f"{param_name}({param_info['description']})"
-                params_list.append(param_desc)
-            params_str = ", ".join(params_list) if params_list else "无参数"
-            helper_tools_desc.append(
-                f"{idx}. {name} - {info['description']}\n"
-                f"   参数: {params_str}"
-            )
+            sig = self._format_params_sig(info.get("params", {}))
+            helper_tools_desc.append(f"{idx}. {name}({sig}) — {info['description']}")
 
-        # 组装完整提示词（外层模板从 PromptManager 获取）
         from prompts import create_prompt_manager
         pm = create_prompt_manager(lang='zh')
         prompt = pm.get(
@@ -516,20 +531,55 @@ class ExperimentDesignAgent:
     @staticmethod
     def _normalize_variables(experiment_json: dict) -> dict:
         """
-        规范化 variables 字段：为缺少 type 的变量从 default_value 推断类型
+        规范化 variables 字段：补 name、补 type、自动声明 LOOP 迭代变量
 
         AI 的 prompt 不要求输出 type，因此需要在后端补全。
+        同时扫描步骤中的 LOOP helper，将其 var 自动加入 variables 列表。
         直接修改传入的 dict（浅层），同时返回该 dict。
         """
+        from core.variable_resolver import VariableResolver
         variables = experiment_json.get("variables")
         if not variables or not isinstance(variables, dict):
-            return experiment_json
+            variables = {}
+            experiment_json["variables"] = variables
 
-        from core.variable_resolver import VariableResolver
+        # 自动声明 LOOP 迭代变量
+        steps = experiment_json.get("steps", [])
+        for step in steps:
+            if step.get("type") == "helper" and step.get("name") == "LOOP":
+                params = step.get("params", {})
+                loop_var = params.get("var", "_i")
+                if loop_var and isinstance(loop_var, str) and loop_var not in variables:
+                    start_val = params.get("start")
+                    stop_val = params.get("stop")
+                    step_val = params.get("step", 1)
+                    # loop 变量：default_value=start, constraints=start-stop
+                    var_def = {
+                        "name": loop_var,
+                        "type": "int",
+                        "default_value": start_val if start_val is not None else 0,
+                    }
+                    constraints = {}
+                    if start_val is not None:
+                        constraints["min"] = start_val
+                    if stop_val is not None:
+                        constraints["max"] = stop_val
+                    if step_val != 1:
+                        constraints["step"] = step_val
+                    if constraints:
+                        var_def["constraints"] = constraints
+                    variables[loop_var] = var_def
+
+        # 规范化已有变量
         for var_name, var_def in list(variables.items()):
-            if isinstance(var_def, dict) and "type" not in var_def:
-                dv = var_def.get("default_value")
-                var_def["type"] = VariableResolver._infer_type(dv)
+            if isinstance(var_def, dict):
+                # 补 name 字段（变量名是 key，前端需要 name 字段）
+                if "name" not in var_def:
+                    var_def["name"] = var_name
+                # 补 type 字段（从 default_value 推断）
+                if "type" not in var_def:
+                    dv = var_def.get("default_value")
+                    var_def["type"] = VariableResolver._infer_type(dv)
                 if "constraints" not in var_def:
                     var_def["constraints"] = {}
 

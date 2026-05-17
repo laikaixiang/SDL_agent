@@ -390,9 +390,15 @@ class ExperimentExecutor:
         return f"✅ 等待 {duration_s} 秒完成"
 
     def _execute_loop(self, params: dict) -> str:
-        """LOOP 步骤：当前仅记录循环次数，嵌套步骤由上层调用方处理"""
-        iterations = params.get("iterations", 1)
-        return f"🔁 循环标记 {iterations} 次（嵌套步骤需在上层展开）"
+        """LOOP 步骤：当前仅记录循环信息，嵌套步骤由上层调用方处理"""
+        loop_var = params.get("var", "_i")
+        if "start" in params:
+            start_val = params.get("start", 0)
+            stop_val = params.get("stop", 10)
+            step_val = params.get("step", 1)
+            return f"🔁 循环标记: for {loop_var} in range({start_val}, {stop_val}, {step_val})（嵌套步骤需在上层展开）"
+        count = params.get("count", params.get("iterations", 1))
+        return f"🔁 循环标记: for {loop_var} in range({count})（嵌套步骤需在上层展开）"
 
     def _execute_group(self, params: dict) -> str:
         """GROUP 步骤：步骤组标记，实际步骤由上层调用方处理"""
@@ -420,7 +426,7 @@ class ExperimentExecutor:
         4. 接收到输入后恢复执行并将输入值存储到变量
         """
         prompt = params.get("prompt", "请输入参数")
-        variable_name = params.get("variable_name", "user_value")
+        variable_name = params.get("var_name", params.get("variable_name", "user_value"))
         return f"✋ 用户输入标记: {prompt} (变量: {variable_name})"
 
     def _get_software_manager(self):

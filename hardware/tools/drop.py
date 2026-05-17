@@ -1,7 +1,6 @@
 """
 滴液
 """
-from win32con import TRUETYPE_FONTTYPE
 
 from .registry import register_tool
 
@@ -16,7 +15,7 @@ from .registry import register_tool
         "Vol": {"type": "int", "description": "滴液体积(uL)", "required": True, "default": 60},
     }
 )
-def suck(drop_plate: int, drop_pos: int, tip: int, Vol: int) -> str:
+def drop(drop_plate: int, drop_pos: int, tip: int, Vol: int) -> str:
     """
     底层同步函数：滴液
 

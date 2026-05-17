@@ -15,7 +15,7 @@ from .registry import register_tool
         "end_pos": {"type": "int", "description": "基底在托盘中位置_目标", "required": True, "default": 1}
     }
 )
-def drop(start_plate: int, start_pos: int, end_plate: int, end_pos: int) -> str:
+def move_glass(start_plate: int, start_pos: int, end_plate: int, end_pos: int) -> str:
     """
     底层同步函数：滴液
 

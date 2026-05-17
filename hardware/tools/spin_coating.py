@@ -19,7 +19,7 @@ from ..utils.reagent import find_reagent
         "volume": {"type": "int", "description": "体积(µl)", "required": True}
     }
 )
-def execute_spin_coating(
+def spin_coating(
     spin_speed: int,
     spin_acc: int,
     spin_dur: int,

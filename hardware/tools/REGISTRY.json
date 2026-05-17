@@ -37,16 +37,16 @@
         "description": "枪头盒位置",
         "required": true
       },
-      "tip_pos": {
-        "type": "int",
-        "description": "枪头在枪头盒中位置(从1开始)",
-        "required": false,
-        "default": 1
-      },
       "tips": {
         "type": "int",
         "description": "空气泵编号(1或者2)",
         "required": true,
+        "default": 1
+      },
+      "tip_pos": {
+        "type": "int",
+        "description": "枪头在枪头盒中位置(从1开始)",
+        "required": false,
         "default": 1
       }
     }

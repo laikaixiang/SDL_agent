@@ -182,7 +182,7 @@
   "modals": {
     "selectOutputDir": "Select output directory",
     "selectDataFile": "Select data file",
-    "recentlyUsed": "Recently used",
+    "recentlyUsed": "Recommended",
     "uploadFile": "Upload file",
     "customPath": "Custom path",
     "noRecentFiles": "No recently used files",

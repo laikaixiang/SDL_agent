@@ -8,21 +8,26 @@
 
 ```
 dialogue data/
-├── 20260417_152030/          # 会话时间戳文件夹（格式：YYYYMMDD_HHMMSS）
-│   ├── extract/              # 文献提取结果（带时间戳的存档文件）
-│   │   └── fapbi3_passivator_20260417-153045.csv
-│   ├── temporal/             # 临时工作文件
-│   │   └── extraction.csv    # 最新提取结果（会被覆盖）
-│   ├── results/              # 数据分析结果
-│   │   ├── analysis_data_statistics.json          # 最新分析结果
-│   │   └── analysis_data_statistics_20260417-154030.json  # 存档
-│   └── experiment_designs/   # 实验设计文件
-│       └── 旋涂实验_v1_2026-04-17T15-30-00.json
-├── 20260417_160000/          # 另一个会话
-│   ├── extract/
-│   ├── temporal/
-│   ├── results/
-│   └── experiment_designs/
+├── temporal/                 # 全局临时目录（跨会话共享）
+│   └── uploaded_data.csv     # 上传的 CSV/XLSX 文件
+├── history/                  # 历史会话
+│   ├── 20260417_152030/      # 会话时间戳文件夹（格式：YYYYMMDD_HHMMSS）
+│   │   ├── extract/          # 文献提取结果（带时间戳的存档文件）
+│   │   │   └── fapbi3_passivator_20260417-153045.csv
+│   │   ├── temporal/         # 会话临时工作文件
+│   │   │   └── extraction.csv    # 最新提取结果（会被覆盖）
+│   │   ├── results/          # 数据分析结果
+│   │   │   ├── analysis_data_statistics.json          # 最新分析结果
+│   │   │   └── analysis_data_statistics_20260417-154030.json  # 存档
+│   │   └── experiment_designs/   # 实验设计文件
+│   │       └── 旋涂实验_v1_2026-04-17T15-30-00.json
+│   ├── 20260417_160000/      # 另一个会话
+│   │   ├── extract/
+│   │   ├── temporal/
+│   │   ├── results/
+│   │   └── experiment_designs/
+│   ├── sessions_index.json   # 会话索引
+│   └── folders.json          # 文件夹分组
 └── README.md                 # 本说明文件
 ```
 
@@ -62,19 +67,27 @@ experimental_parameters_20260417-154030.csv
 
 ### 2. temporal/ - 临时工作文件
 
-**用途**: 存储当前会话的最新工作数据
+**会话级 temporal** (`dialogue data/history/<timestamp>/temporal/`):
+- **主要文件**: `extraction.csv`
+- 每次提取任务会覆盖，用于快速访问最新数据
 
-**主要文件**: `extraction.csv`
+**全局 temporal** (`dialogue data/temporal/`):
+- 跨会话共享的暂存目录（`GLOBAL_TEMPORAL_DIR`）
+- `/api/upload` 上传的 CSV/XLSX 文件保存在此
+- `/api/recent_files` 优先推荐此目录中的文件
 
 **特点**:
-- 固定文件名，每次提取任务会覆盖
-- 用于快速访问最新数据
-- 数据分析默认使用此文件
+- 固定文件名，每次提取任务会覆盖（会话级）
+- 全局 temporal 文件跨会话持久保留
+- 数据分析默认使用当前会话的 `temporal/extraction.csv`
 
 **使用场景**:
 ```python
 # 数据分析时默认读取
 csv_path = "dialogue data/20260417_152030/temporal/extraction.csv"
+
+# 上传的 CSV 文件
+uploaded_path = "dialogue data/temporal/uploaded_data.csv"
 ```
 
 ### 3. results/ - 数据分析结果
@@ -188,8 +201,24 @@ df = pd.read_csv("dialogue data/20260417_152030/temporal/extraction.csv")
 // 前端 JavaScript
 const response = await fetch('/api/get_session_path?subdir=temporal');
 const data = await response.json();
-console.log(data.path);  // "dialogue data/20260417_152030/temporal"
+console.log(data.path);  // "dialogue data/history/20260417_152030/temporal"
 console.log(data.timestamp);  // "20260417_152030"
+```
+
+**推荐文件列表**:
+```javascript
+// 获取推荐 CSV 文件（全局 temporal + 当前会话 + 所有历史会话）
+const resp = await fetch('/api/recent_files');
+const { files } = await resp.json();
+// files: [{ path, name, size, modified, modified_str, source }]
+```
+
+**上传 CSV/XLSX 文件到全局 temporal**:
+```javascript
+const formData = new FormData();
+formData.append('file', csvFile);  // 或 'files'
+const resp = await fetch('/api/upload', { method: 'POST', body: formData });
+const { filename } = await resp.json();  // 保存后的完整路径
 ```
 
 ## 数据流转示例
@@ -199,22 +228,25 @@ console.log(data.timestamp);  // "20260417_152030"
 ```
 1. 启动应用
    python app.py
-   → 创建会话文件夹: dialogue data/20260417_152030/
+   → 创建会话文件夹: dialogue data/history/20260417_152030/
 
 2. 上传PDF文献
    → 保存到: pdf_library/
 
-3. 执行文献提取
-   → 生成: dialogue data/20260417_152030/extract/fapbi3_passivator_20260417-153045.csv
-   → 生成: dialogue data/20260417_152030/temporal/extraction.csv
+3. 上传CSV数据
+   → 保存到: dialogue data/temporal/ (全局 temporal)
 
-4. 执行数据分析
-   → 读取: dialogue data/20260417_152030/temporal/extraction.csv
-   → 生成: dialogue data/20260417_152030/results/analysis_data_statistics.json
-   → 生成: dialogue data/20260417_152030/results/analysis_data_statistics_20260417-154030.json
+4. 执行文献提取
+   → 生成: dialogue data/history/20260417_152030/extract/fapbi3_passivator_20260417-153045.csv
+   → 生成: dialogue data/history/20260417_152030/temporal/extraction.csv
 
-5. 设计实验
-   → 生成: dialogue data/20260417_152030/experiment_designs/旋涂实验_v1_2026-04-17T15-30-00.json
+5. 执行数据分析
+   → 读取: dialogue data/history/20260417_152030/temporal/extraction.csv 或全局 temporal 的 CSV
+   → 生成: dialogue data/history/20260417_152030/results/analysis_data_statistics.json
+   → 生成: dialogue data/history/20260417_152030/results/analysis_data_statistics_20260417-154030.json
+
+6. 设计实验
+   → 生成: dialogue data/history/20260417_152030/experiment_designs/旋涂实验_v1_2026-04-17T15-30-00.json
 ```
 
 ## 数据管理建议
@@ -266,7 +298,7 @@ rm -rf "dialogue data/20260417_152030"
 # 检查当前会话时间戳
 # 查看应用启动日志：
 # [会话管理] 应用启动，会话时间戳: 20260417_152030
-# [会话管理] 数据保存路径: dialogue data/20260417_152030
+# [会话管理] 数据保存路径: dialogue data/history/20260417_152030
 ```
 
 ### 问题：数据被覆盖
@@ -289,7 +321,8 @@ rm -rf "dialogue data/20260417_152030"
 from datetime import datetime
 
 SESSION_TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
-SESSION_BASE_PATH = os.path.join("dialogue data", SESSION_TIMESTAMP)
+SESSION_BASE_PATH = os.path.join("dialogue data", "history", SESSION_TIMESTAMP)
+GLOBAL_TEMPORAL_DIR = os.path.join("dialogue data", "temporal")
 ```
 
 ### 路径获取函数
@@ -307,11 +340,11 @@ def get_session_path(subdir=""):
 ```python
 # 获取 temporal 路径
 temporal_path = get_session_path("temporal")
-# 返回: "dialogue data/20260417_152030/temporal"
+# 返回: "dialogue data/history/20260417_152030/temporal"
 
 # 获取 extract 路径
 extract_path = get_session_path("extract")
-# 返回: "dialogue data/20260417_152030/extract"
+# 返回: "dialogue data/history/20260417_152030/extract"
 ```
 
 ## 版本历史

@@ -1,7 +1,8 @@
 """
 吸液
 """
-
+from typing import *
+from ..mqtt import get_mqtt_client, EXPERIMENT_TOPIC
 from .registry import register_tool
 
 
@@ -9,30 +10,42 @@ from .registry import register_tool
     name="suck",
     description="吸液",
     params={
-         "bottom_box": {"type": "int", "description": "试剂瓶盒编号", "required": True},
-         "bottom_pos": {"type": "int", "description": "试剂瓶在盒中位置(从1开始)", "required": True, "default": 1},
-         "tip": {"type": "int", "description": "空气泵编号(1或者2)", "required": True, "default": 1},
-         "Vol": {"type": "int", "description": "吸液体积(uL)", "required": True, "default": 60},
+        "bottle_pos": {"type": "Tuple[int, int, int]", "description": "需要吸液的目标试剂瓶的位置,[x,y,z]", "required": True, "default": [0,0,0]},
+        "tip": {"type": "int", "description": "空气泵编号(1或者2,1为左泵,2为右泵)", "required": True, "default": 1},
+        "vol": {"type": "int", "description": "吸液体积(uL)", "required": True, "default": 60},
     }
 )
-def suck(bottom_box: int, bottom_pos: int, tip: int, Vol: int) -> str:
+def suck(bottle_pos: Tuple[int, int, int], tip: int, vol: int) -> str:
     """
-    底层同步函数：滴液
-
-    当前为模拟实现（返回确认消息），实际部署时需取消注释
+    底层同步函数：吸液
 
     Args:
-        "bottom_box": {"type": "int", "description": "试剂瓶盒编号", "required": True},
-         "bottom_pos": {"type": "int", "description": "试剂瓶在盒中位置(从1开始)", "required": True, "default": 1},
-         "tip": {"type": "int", "description": "空气泵编号(1或者2)", "required": True, "default": 1},
-         "Vol": {"type": "int", "description": "吸液体积(uL)", "required": True, "default": 60},
+        "spit_pos": {"type": "Tuple[int,int,int]", "description": "需要吸液的目标试剂瓶的位置,[x,y,z]", "required": True, "default": [0,0,0]},
+        "tip": {"type": "int", "description": "空气泵编号(1或者2,1为左泵,2为右泵)", "required": True, "default": 1},
+        "vol": {"type": "int", "description": "吸液体积(uL)", "required": True, "default": 60},
 
     Returns:
         str: 返回结果消息
     """
+    # "d<action code>,tip,x,y,z,vol", action code 2: suck
+    x, y, z = bottle_pos[0], bottle_pos[1], bottle_pos[2]
     try:
-        # TODO: 取消以下注释以连接真实硬件
-        print(f"{tip}号泵从{bottom_box}号盘的{bottom_pos}号瓶吸取了{Vol}ul溶液")
-        return f"{tip}号泵从{bottom_box}号盘的{bottom_pos}号瓶吸取了{Vol}ul溶液"
+        client = get_mqtt_client()
+        if client.is_connected:
+            client.publish(EXPERIMENT_TOPIC, f"d0,0,{x},{y},0,0")#move horizontal
+            client.publish(EXPERIMENT_TOPIC, f"d1,{tip},0,0,{z},0,0")# move tip vertical
+            client.publish(EXPERIMENT_TOPIC, f"d2,{tip},0,0,0,{vol}")# suck
+            client.publish(EXPERIMENT_TOPIC, f"d1,{tip},0,0,0,0,0")# move tip back
+            return f"滴液机已保存:{tip}号泵向x={bottle_pos[0]},y={bottle_pos[1]},z={bottle_pos[2]}位置吸取{vol}ul溶液"
+        else:
+            connect_state = client.connect()
+            if connect_state:
+                client.publish(EXPERIMENT_TOPIC, f"d0,0,{x},{y},0,0")
+                client.publish(EXPERIMENT_TOPIC, f"d1,{tip},0,0,{z},0,0")
+                client.publish(EXPERIMENT_TOPIC, f"d2,{tip},0,0,0,{vol}")
+                client.publish(EXPERIMENT_TOPIC, f"d1,{tip},0,0,0,0,0")
+                return f"滴液机已保存:{tip}号泵向x={bottle_pos[0]},y={bottle_pos[1]},z={bottle_pos[2]}位置滴{vol}ul溶液"
+            else:
+                return f"滴液机吸液步骤保存失败"
     except Exception as e:
-        return f"设置失败，错误：{e}"
+        return f"滴液机吸液步骤保存失败: {str(e)}"

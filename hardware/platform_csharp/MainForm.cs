@@ -14,6 +14,7 @@ using Winform_platform.Auto;
 using uPLibrary.Networking.M2Mqtt;
 using Microsoft.VisualBasic;
 using System.Threading.Tasks;
+using System.Linq.Expressions;
 
 
 namespace WinFormsApp_Draft
@@ -895,45 +896,146 @@ namespace WinFormsApp_Draft
                     {
                         while (true)
                         {
-                            if (Mqtt_connection.msg[0] == 'p')
+                            try
                             {
-                                if(Mqtt_connection.msg.Substring(1) == "start")// get step parameters from step_buffer
+                                //do a whole round
+                                if (Mqtt_connection.msg == "start")// get step parameters from step_buffer
                                 {
-                                    for(int i = 0; i < Agent.step_buffer.Count; i++)
+                                    for (int i = 0; i < Agent.step_buffer.Count; i++)
                                     {
-                                        string[] parameters = Agent.step_buffer[i].Split(",");
-                                        int spin_speed = Convert.ToInt32(parameters[0]);
-                                        int spin_acc = Convert.ToInt32(parameters[1]);
-                                        int spin_dur = Convert.ToInt32(parameters[2]);
-                                        string reagent = parameters[3];
-                                        int volume = Convert.ToInt32(parameters[4]);
-
-                                        Response.Invoke(() =>
+                                        string parameters = Agent.step_buffer[i];
+                                        switch (parameters[0])
                                         {
-                                            Response.Text += Agent.step_buffer[i] + " ";
-                                        });
-                                        await Task.Delay(3000);
-                                        
-                                        //await agent_round_test(spin_speed, spin_acc, spin_dur, reagent, volume);
+                                            //move arm if "ax,y,z,r,grip" read
+                                            case 'a':
+                                                string[] points0 = parameters.Substring(1).Split(",");
+                                                // get move position
+                                                double xa = Convert.ToDouble(points0[0]);
+                                                double ya = Convert.ToDouble(points0[1]);
+                                                double za = Convert.ToDouble(points0[2]);
+                                                double ra = Convert.ToDouble(points0[3]);
+                                                //grip or release
+                                                int grip = Convert.ToInt32(points0[4]);
+                                                DescartesPoint pt = new DescartesPoint();
+                                                pt.x = xa; pt.y = ya; pt.z = za; pt.r = ra;
+                                                //move, then grip
+                                                await armForm.MovL(pt);
+                                                switch (grip)
+                                                {
+                                                    case 0:
+                                                        await armForm.Release(13);
+                                                        break;
+                                                    case 1:
+                                                        await armForm.Grip(13);
+                                                        break;
+                                                    default: break;
+                                                }
+                                                break;
+
+                                            //move dispenser if "d<action code>,tip,x,y,z,vol" read
+                                            case 'd':
+                                                string[] points1 = parameters.Substring(1).Split(",");
+                                                // action code: 0 for move horizontal, 1 for move verticle, 2 for suck, 3 for spit, 4 for pop tip
+                                                // if not move horizontal, get tip 1 left 2 right, then do the action. horizontal do action directly
+                                                switch (Convert.ToInt32(points1[0]))
+                                                {
+                                                    case 0:// horizontal move only requires x and y
+                                                        int xd = Convert.ToInt32(points1[2]);
+                                                        int yd = Convert.ToInt32(points1[3]);
+                                                        DKPoint pt0 = new DKPoint();
+                                                        pt0.x = xd; pt0.y = yd; pt0.lz = 0; pt0.rz = 0;
+                                                        await dispenserForm.MovL_hor(pt0);
+                                                        break;
+                                                    case 1:// vertical move only requires z and tip
+                                                        int zd = Convert.ToInt32(points1[4]);
+                                                        int tip1 = Convert.ToInt32(points1[1]);
+                                                        DKPoint pt1 = new DKPoint();
+                                                        pt1.x = 0; pt1.y = 0;
+                                                        if (tip1 == 1)
+                                                        {
+                                                            pt1.lz = zd;
+                                                            pt1.rz = 0;
+                                                        }
+                                                        else if (tip1 == 2)
+                                                        {
+                                                            pt1.rz = zd;
+                                                            pt1.lz = 0;
+                                                        }
+                                                        await dispenserForm.MovL_ver(pt1);
+                                                        break;
+                                                    case 2:// suck only requires tip and volume
+                                                        byte tip2 = Convert.ToByte(points1[1]);
+                                                        int suck_volume = Convert.ToInt32(points1[5]);
+                                                        await dispenserForm.Tip_Suck(suck_volume, tip2);
+                                                        break;
+                                                    case 3:// spit only requires tip and volume
+                                                        byte tip3 = Convert.ToByte(points1[1]);
+                                                        int spit_volume = Convert.ToInt32(points1[5]);
+                                                        await dispenserForm.Tip_Suck(spit_volume, tip3);
+                                                        break;
+                                                    case 4:// pop only requires tip
+                                                        byte tip4 = Convert.ToByte(points1[1]);
+                                                        dispenserForm.back_tip(tip4);
+                                                        break;
+                                                    default:
+                                                        break;
+                                                }
+                                                break;
+
+                                            //do spin coating if "c<spin_speed>,<spin_acc>,<spin_dur>" read
+                                            case 'c':
+                                                string[] points2 = parameters.Substring(1).Split(",");
+                                                int spin_speed = Convert.ToInt32(points2[0]);
+                                                int spin_acc = Convert.ToInt32(points2[1]);
+                                                int spin_dur = Convert.ToInt32(points2[2]);
+                                                await coaterForm.Spin_Coat(spin_speed, spin_acc, spin_dur);
+                                                break;
+                                            default:
+                                                break;
+                                        }
                                     }
                                     Agent.clear_step_buffer();
                                 }
+
+                                //scan the platform
+                                else if (Mqtt_connection.msg == "scan")
+                                {
+                                    Mqtt_connection.clear_msg();
+                                    for (int i = 0; i < 6; i++)
+                                    {
+                                        Agent.init_queue();
+                                        string point_name = Agent.scan_buffer.Dequeue();
+                                        DKPoint tar_point = new DKPoint();
+                                        dispenser_conf.Points.TryGetValue(point_name, out tar_point);
+                                        await dispenserForm.MovL_hor(tar_point);
+                                        Mqtt_connection.clear_msg();
+                                        
+                                        //used to stop the scan when it finishes
+                                        await Task.Run(() =>
+                                        {
+                                            while (i != 5)
+                                            {
+                                                if (Mqtt_connection.msg == "scan")
+                                                {
+                                                    break;
+                                                }
+                                            }
+                                        });
+                                    }
+                                }
+
                                 else// save step parameters to step_buffer
                                 {
-                                    string parameters = Mqtt_connection.msg.Substring(1);
+                                    string parameters = Mqtt_connection.msg;
                                     Agent.to_step_buffer(parameters);
                                     Mqtt_connection.clear_msg();
-
-                                    //Response.Invoke(() =>
-                                    //{
-                                    //    for (int i = 0; i < parameters.Length; i++)
-                                    //    {
-                                    //        Response.Text += parameters[i] + " ";
-                                    //    }
-                                    //});
                                 }
+                                Agent.clear_queue();
+
+                                if (AI_Agent.BackColor == Color.Red) break;
                             }
-                            if (AI_Agent.BackColor == Color.Red) break;
+
+                            catch(Exception e){ }
                         }
                     });
                 }
@@ -1004,7 +1106,7 @@ namespace WinFormsApp_Draft
 
             await arm_MovL("Zero");
             //Response.Text = "Moving done. ";
-  
+
         }
     }
 }

@@ -13,7 +13,7 @@ from ..mqtt import get_mqtt_client, EXPERIMENT_TOPIC
 )
 def start_experiment() -> str:
     """
-    底层同步函数：向自动化平台发送实验序列启动指令"pstart"
+    底层同步函数：向自动化平台发送实验序列启动指令"start"
 
     此函数是start_experiment()异步工具函数的同步版本，
     供core/hardware_controller.py的前缀命令路径调用。
@@ -24,11 +24,11 @@ def start_experiment() -> str:
     try:
         client = get_mqtt_client()
         if client.is_connected:
-            client.publish(EXPERIMENT_TOPIC, "pstart")
+            client.publish(EXPERIMENT_TOPIC, "start")
             return "实验序列启动指令已发送"
         else:
             if client.connect(timeout=2):
-                client.publish(EXPERIMENT_TOPIC, "pstart")
+                client.publish(EXPERIMENT_TOPIC, "start")
                 return "实验序列启动指令已发送"
             else:
                 return "MQTT连接失败，无法启动实验"

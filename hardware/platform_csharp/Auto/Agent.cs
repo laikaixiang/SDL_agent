@@ -15,6 +15,7 @@ namespace Winform_platform.Auto
     {
         public const string topic = "do_experiment";
         public static List<string> step_buffer = new List<string>();
+        public static Queue<string> scan_buffer = new Queue<string>();
 
         public static void to_step_buffer(string parameters)
         {
@@ -23,6 +24,20 @@ namespace Winform_platform.Auto
         public static void clear_step_buffer()
         {
             step_buffer.Clear();
+        }
+
+        public static void init_queue()
+        {
+            string point_prefix = "Block";
+            for (int i = 1; i <= 6; i++)
+            {
+                scan_buffer.Enqueue(String.Format("{0}{1}", point_prefix, i));
+            }
+        }
+
+        public static void clear_queue()
+        {
+            scan_buffer.Clear();
         }
     }
 

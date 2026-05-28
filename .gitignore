@@ -17,6 +17,7 @@ config.json
 # IDE
 .idea/
 .vscode/
+hardware/platform_csharp/.vs
 
 # CLAUDE
 .claude/

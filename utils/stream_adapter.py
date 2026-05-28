@@ -91,7 +91,15 @@ class StreamAdapter:
             return None
         try:
             chunk = json.loads(data_str)
-            return chunk.get("choices", [{}])[0].get("delta", {})
+            delta = chunk.get("choices", [{}])[0].get("delta", {})
+            # MiniMax/SiliconFlow 使用 thinking/thought 字段，而非 reasoning_content
+            for extra_key in ("thinking", "thought"):
+                if extra_key in delta and delta[extra_key]:
+                    if "reasoning_content" not in delta or not delta["reasoning_content"]:
+                        delta["reasoning_content"] = delta[extra_key]
+                    elif delta.get("reasoning_content") != delta[extra_key]:
+                        delta["reasoning_content"] += delta[extra_key]
+            return delta
         except (json.JSONDecodeError, KeyError, IndexError):
             return None
 

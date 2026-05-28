@@ -252,7 +252,7 @@ namespace WinFormsApp_Draft
 
         //entrance for auto spin coating
         /// <summary>
-        /// spin_speed rpm; acc_speed rpm/s; spin_dur s
+        /// spin_speed rpm; acc_speed rpm/s; spin_dur ms
         /// </summary>
         /// <param name="spin_speed"></param>
         /// <param name="acc_speed"></param>

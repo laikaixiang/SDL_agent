@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dobot M1Pro 数字孪生 — SCARA 机械臂</title>
+<style>
+:root { --bg:#1a1d23; --panel-bg:#21252b; --border:#333842; --text:#abb2bf; --text-bright:#e5e5e5; --accent:#61afef; --accent2:#e5c07b; --danger:#e06c75; --success:#98c379; --slider-track:#3a3f4b; }
+* { box-sizing:border-box; margin:0; padding:0; }
+body { font-family: -apple-system,'Segoe UI','Microsoft YaHei',sans-serif; background:var(--bg); color:var(--text); overflow:hidden; height:100vh; display:flex; }
+#canvas-container { flex:1; position:relative; min-width:0; }
+#canvas-container canvas { display:block; }
+#panel { width:380px; background:var(--panel-bg); border-left:1px solid var(--border); display:flex; flex-direction:column; overflow-y:auto; padding:16px; gap:12px; }
+h2 { color:var(--text-bright); font-size:15px; font-weight:600; margin-bottom:4px; }
+h3 { color:var(--text-bright); font-size:13px; margin-bottom:6px; }
+.tab-row { display:flex; gap:4px; }
+.tab-btn { flex:1; padding:8px; background:var(--slider-track); border:1px solid var(--border); color:var(--text); cursor:pointer; border-radius:4px 4px 0 0; font-size:13px; }
+.tab-btn.active { background:var(--panel-bg); border-bottom-color:transparent; color:var(--accent); }
+.group { background:#282c34; border:1px solid var(--border); border-radius:6px; padding:12px; }
+.slider-row { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+.slider-row:last-child { margin-bottom:0; }
+.slider-label { width:32px; font-size:12px; color:var(--accent); font-weight:600; flex-shrink:0; }
+.slider-label.z-label { color:var(--accent2); }
+.slider-val { width:142px; text-align:right; font-size:12px; color:var(--text-bright); font-variant-numeric:tabular-nums; flex-shrink:0; }
+input[type=range] { flex:1; accent-color:var(--accent); height:6px; }
+input[type=range].z-slider { accent-color:var(--accent2); }
+.input-row { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+.input-label { width:20px; font-size:12px; color:var(--accent); font-weight:600; flex-shrink:0; text-align:center; }
+.input-label.r-label { color:var(--accent2); }
+.input-row input[type=number] { width:100px; background:var(--bg); border:1px solid var(--border); color:var(--text-bright); padding:4px 8px; border-radius:4px; font-size:13px; }
+.input-unit { font-size:11px; color:var(--text); width:40px; flex-shrink:0; }
+.btn { padding:8px 14px; border-radius:4px; border:none; cursor:pointer; font-size:13px; font-weight:500; }
+.btn-accent { background:var(--accent); color:#1a1d23; }
+.btn-accent:hover { opacity:0.85; }
+.btn-sm { padding:4px 10px; font-size:12px; }
+.pose-display { display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:6px; }
+.pose-item { text-align:center; background:var(--bg); border-radius:4px; padding:6px 4px; }
+.pose-item .val { font-size:16px; font-weight:700; color:var(--accent); }
+.pose-item .lbl { font-size:10px; color:var(--text); margin-top:2px; }
+.status-row { display:flex; align-items:center; gap:8px; font-size:12px; }
+.status-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.status-dot.ok { background:var(--success); }
+.status-dot.warn { background:var(--accent2); }
+.status-dot.err { background:var(--danger); }
+#overlay-info { position:absolute; top:12px; left:12px; background:rgba(0,0,0,0.75); padding:8px 12px; border-radius:6px; font-size:11px; line-height:1.6; color:#ccc; pointer-events:none; font-variant-numeric:tabular-nums; }
+#overlay-info span { color:var(--accent); font-weight:600; }
+</style>
+</head>
+<body>
+
+<div id="canvas-container">
+  <div id="overlay-info">末端 X:<span id="oi-x">--</span> Y:<span id="oi-y">--</span> Z:<span id="oi-z">--</span> R:<span id="oi-r">--</span>°</div>
+</div>
+
+<div id="panel">
+  <h2>Dobot M1Pro SCARA 数字孪生</h2>
+  <div class="group">
+    <h3>末端位姿 (TCP)</h3>
+    <div class="pose-display">
+      <div class="pose-item"><div class="val" id="pv-x">--</div><div class="lbl">X mm</div></div>
+      <div class="pose-item"><div class="val" id="pv-y">--</div><div class="lbl">Y mm</div></div>
+      <div class="pose-item"><div class="val" id="pv-z">--</div><div class="lbl">Z mm</div></div>
+      <div class="pose-item"><div class="val" id="pv-r">--</div><div class="lbl">R °</div></div>
+    </div>
+    <div class="status-row" style="margin-top:6px">
+      <div class="status-dot ok" id="limit-dot"></div><span id="limit-msg">关节限位正常</span>
+    </div>
+  </div>
+
+  <div class="tab-row">
+    <button class="tab-btn active" id="tab-joint" onclick="switchTab('joint')">关节控制 (电机)</button>
+    <button class="tab-btn" id="tab-cart" onclick="switchTab('cart')">笛卡尔控制 (XYZR)</button>
+  </div>
+
+  <div class="group" id="joint-panel">
+    <div class="slider-row"><span class="slider-label">J1</span><input type="range" id="s-j1" min="-85" max="85" value="0" step="0.1" oninput="onJointSlider()"><span class="slider-val" id="v-j1">0.0°</span></div>
+    <div class="slider-row"><span class="slider-label">J2</span><input type="range" id="s-j2" min="-130" max="130" value="0" step="0.1" oninput="onJointSlider()"><span class="slider-val" id="v-j2">0.0°</span></div>
+    <div class="slider-row"><span class="slider-label z-label">J3</span><input type="range" class="z-slider" id="s-j3" min="-5400" max="5400" value="0" step="1" oninput="onJointSlider()"><span class="slider-val" id="v-j3">电机 0° | d₃=300mm</span></div>
+    <div class="slider-row"><span class="slider-label">J4</span><input type="range" id="s-j4" min="-360" max="360" value="0" step="0.1" oninput="onJointSlider()"><span class="slider-val" id="v-j4">0.0°</span></div>
+    <button class="btn btn-sm btn-accent" style="margin-top:4px" onclick="resetJoints()">归零 (Home)</button>
+  </div>
+
+  <div class="group" id="cart-panel" style="display:none">
+    <div class="input-row"><span class="input-label">X</span><input type="number" id="ci-x" value="400" step="1"><span class="input-unit">mm</span></div>
+    <div class="input-row"><span class="input-label">Y</span><input type="number" id="ci-y" value="0" step="1"><span class="input-unit">mm</span></div>
+    <div class="input-row"><span class="input-label">Z</span><input type="number" id="ci-z" value="305" step="1"><span class="input-unit">mm</span></div>
+    <div class="input-row"><span class="input-label r-label">R</span><input type="number" id="ci-r" value="0" step="1"><span class="input-unit">deg</span></div>
+    <div style="display:flex;gap:6px;margin-top:6px">
+      <select id="ik-elbow" style="flex:1;background:var(--bg);color:var(--text);border:1px solid var(--border);padding:4px;border-radius:4px"><option value="up">肘部在上</option><option value="down">肘部在下</option></select>
+      <button class="btn btn-sm btn-accent" onclick="moveCartesian()">IK求解→移动</button>
+    </div>
+    <div id="ik-status" style="font-size:11px;margin-top:4px;color:var(--danger);display:none"></div>
+  </div>
+
+  <div class="group">
+    <h3>TCP 协议模拟 (30003端口)</h3>
+    <textarea id="cmd-input" rows="2" style="width:100%;background:var(--bg);color:var(--text-bright);border:1px solid var(--border);padding:6px;border-radius:4px;font-size:12px;font-family:monospace;resize:vertical" placeholder="输入运动指令...">MovJ(200, 50, 150, 0)</textarea>
+    <div style="display:flex;gap:6px;margin-top:4px">
+      <button class="btn btn-sm btn-accent" onclick="sendCommand()">发送</button>
+      <select id="cmd-type" style="background:var(--bg);color:var(--text);border:1px solid var(--border);padding:4px;border-radius:4px;font-size:12px">
+        <option value="MovJ">MovJ (笛卡尔关节运动)</option><option value="MovL">MovL (笛卡尔直线)</option><option value="JointMovJ">JointMovJ (关节空间)</option><option value="MovJExt">MovJExt (Z直线电机)</option>
+      </select>
+    </div>
+    <div id="cmd-response" style="font-size:11px;margin-top:4px;font-family:monospace;min-height:16px"></div>
+  </div>
+
+  <div style="font-size:11px;color:var(--text);text-align:center;margin-top:auto;padding-top:8px">
+    a₁=250mm a₂=150mm | J1±85° J2±130° Z155~455mm J4±360°<br>
+    J3(升降柱)同轴于J1 | 鼠标拖拽旋转 | 滚轮缩放 | 右键平移
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ============================================================
+// Kinematic constants (matches kinematics.py)
+// ============================================================
+const A1=250, A2=150, D1=85, D4=80;
+const SCREW_LEAD=10, D3_BASE=300;
+const Z_MIN=155, Z_MAX=455, D3_MIN=150, D3_MAX=450;
+const J1_MIN=-85, J1_MAX=85, J2_MIN=-130, J2_MAX=130, J4_MIN=-360, J4_MAX=360;
+
+// d3 = D3_BASE + (J3_deg/360)*SCREW_LEAD  (positive slope)
+const j3deg2d3 = j3 => D3_BASE + (j3/360)*SCREW_LEAD;
+const d32j3deg = d3 => (d3 - D3_BASE)*360/SCREW_LEAD;
+const D2R = d => d*Math.PI/180;
+const R2D = r => r*180/Math.PI;
+const clamp = (v,lo,hi) => Math.max(lo, Math.min(hi, v));
+const wrap180 = d => { d%=360; if(d>=180)d-=360; if(d<-180)d+=360; return d; };
+
+// FK: z = D1 + d3 - D4  (arm plane rises with d3)
+function fk(j1,j2,d3,j4) {
+  const t1=D2R(j1), t12=t1+D2R(j2);
+  return { x:A1*Math.cos(t1)+A2*Math.cos(t12), y:A1*Math.sin(t1)+A2*Math.sin(t12), z:D1+d3-D4, r:wrap180(j1+j2+j4) };
+}
+
+function ik(x,y,z,r,elbowUp) {
+  const d3 = z - D1 + D4;
+  if(d3<D3_MIN||d3>D3_MAX) return {valid:false, reason:`d₃=${d3.toFixed(0)}mm超限[${D3_MIN},${D3_MAX}]`};
+  const c2=(x*x+y*y-A1*A1-A2*A2)/(2*A1*A2);
+  if(c2<-1.0001||c2>1.0001) return {valid:false, reason:`(${x.toFixed(0)},${y.toFixed(0)})不可达`};
+  const q2=elbowUp?Math.acos(clamp(c2,-1,1)):-Math.acos(clamp(c2,-1,1));
+  const q1=Math.atan2(y,x)-Math.atan2(A2*Math.sin(q2),A1+A2*Math.cos(q2));
+  const j1=R2D(q1), j2=R2D(q2), j4=wrap180(r-j1-j2);
+  if(j1<J1_MIN-0.01||j1>J1_MAX+0.01) return {valid:false, reason:`J1=${j1.toFixed(1)}°超限`};
+  if(j2<J2_MIN-0.01||j2>J2_MAX+0.01) return {valid:false, reason:`J2=${j2.toFixed(1)}°超限`};
+  if(j4<J4_MIN-0.01||j4>J4_MAX+0.01) return {valid:false, reason:`J4=${j4.toFixed(1)}°超限`};
+  return {valid:true, j1, j2, d3, j4, j3deg:d32j3deg(d3), elbowUp};
+}
+
+// ============================================================
+// Three.js setup
+// ============================================================
+const container = document.getElementById('canvas-container');
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.1;
+container.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background=new THREE.Color('#1e2127');
+scene.fog=new THREE.Fog('#1e2127',800,1800);
+
+const camera = new THREE.PerspectiveCamera(45,1,20,3000);
+camera.position.set(500,350,500);
+
+const controls = new OrbitControls(camera,renderer.domElement);
+controls.target.set(200,140,0);
+controls.enableDamping=true; controls.dampingFactor=0.1;
+controls.minDistance=200; controls.maxDistance=1400;
+controls.maxPolarAngle=Math.PI*0.72;
+controls.update();
+
+// Lighting
+scene.add(new THREE.AmbientLight('#8899bb',1.6));
+const key=new THREE.DirectionalLight('#fffef5',4.5);
+key.position.set(350,500,250); key.castShadow=true;
+key.shadow.mapSize.set(2048,2048); key.shadow.camera.near=20; key.shadow.camera.far=1800;
+key.shadow.camera.left=-700; key.shadow.camera.right=700;
+key.shadow.camera.top=700; key.shadow.camera.bottom=-200; key.shadow.bias=-0.0003;
+scene.add(key);
+scene.add((l=>{l.position.set(-200,150,-200);return l})(new THREE.DirectionalLight('#aaccff',1.2)));
+scene.add((l=>{l.position.set(0,60,-350);return l})(new THREE.DirectionalLight('#ffffff',1.8)));
+
+// Table
+const table = new THREE.Mesh(new THREE.PlaneGeometry(1100,1100),
+  new THREE.MeshStandardMaterial({color:'#3d424b',roughness:0.65,metalness:0.1}));
+table.rotation.x=-Math.PI/2; table.position.y=0; table.receiveShadow=true; scene.add(table);
+
+// Decal
+const decal = new THREE.Mesh(new THREE.PlaneGeometry(210,250),
+  new THREE.MeshBasicMaterial({color:'#111',transparent:true,opacity:0.35}));
+decal.rotation.x=-Math.PI/2; decal.position.y=0.02; scene.add(decal);
+
+// Grid
+scene.add((g=>{g.position.y=0.015;return g})(new THREE.GridHelper(800,16,'#4a4f59','#2a2d33')));
+
+// Workspace rings
+function ring(r,color,opacity) {
+  const pts=[]; for(let i=0;i<=160;i++){const a=(i/160)*Math.PI*2; pts.push(new THREE.Vector3(r*Math.cos(a),0.04,r*Math.sin(a)));}
+  return new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({color,transparent:true,opacity,depthTest:true}));
+}
+const wsGroup = new THREE.Group();
+wsGroup.add(ring(A1+A2,'#61afef',0.28));
+wsGroup.add(ring(Math.abs(A1-A2),'#e06c75',0.28));
+for(let a=0;a<360;a+=30){const ra=D2R(a),i=Math.abs(A1-A2),o=A1+A2;
+  wsGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(i*Math.cos(ra),0.03,i*Math.sin(ra)),new THREE.Vector3(o*Math.cos(ra),0.03,o*Math.sin(ra))]),new THREE.LineBasicMaterial({color:'#61afef',transparent:true,opacity:0.12})));}
+scene.add(wsGroup);
+
+// Materials
+const M=(c,r,m)=>new THREE.MeshStandardMaterial({color:c,roughness:r,metalness:m});
+const matBase=M('#4a5568',0.35,0.65), matBaseA=M('#5a657a',0.3,0.7), matBaseP=M('#3d4552',0.4,0.6);
+const matArm1=M('#2563eb',0.28,0.55), matArm2=M('#1d4ed8',0.28,0.55);
+const matJoint=M('#64748b',0.3,0.65), matQuill=M('#94a3b8',0.22,0.8);
+const matJ4=M('#475569',0.25,0.7), matTool=M('#f59e0b',0.3,0.5);
+const matGrip=M('#d97706',0.35,0.45), matFinger=M('#78716c',0.4,0.55);
+const matTcp=new THREE.MeshStandardMaterial({color:'#ff3333',emissive:'#cc0000',emissiveIntensity:0.5,roughness:0.25});
+const cyl=(rt,rb,h,s=32)=>new THREE.CylinderGeometry(rt,rb,h,s);
+const box=(w,h,d)=>new THREE.BoxGeometry(w,h,d);
+
+// ============================================================
+// Robot hierarchy: J3 base-lift column → entire arm plane moves
+// ============================================================
+const robotRoot = new THREE.Group(); scene.add(robotRoot);
+
+// ---- Fixed base (table → D1=85mm) ----
+const baseGroup = new THREE.Group(); robotRoot.add(baseGroup);
+
+// Plate
+const bp = new THREE.Mesh(box(180,24,230),matBaseP); bp.position.y=12; bp.castShadow=true; bp.receiveShadow=true; baseGroup.add(bp);
+
+// Fixed column (short, D1=85mm)
+const fc1 = new THREE.Mesh(cyl(60,50,50),matBase); fc1.position.y=49; fc1.castShadow=true; fc1.receiveShadow=true; baseGroup.add(fc1);
+const fc2 = new THREE.Mesh(cyl(50,44,40),matBase); fc2.position.y=94; fc2.castShadow=true; baseGroup.add(fc2);
+const fcf = new THREE.Mesh(cyl(46,42,10),matBaseA); fcf.position.y=D1+3; fcf.castShadow=true; baseGroup.add(fcf);
+
+// ---- J3 MOTOR (coaxial with lift, at top of fixed column) ----
+const j3m = new THREE.Mesh(cyl(48,42,28),M('#5a657a',0.3,0.7)); j3m.position.y=D1+16; j3m.castShadow=true; baseGroup.add(j3m);
+const j3r = new THREE.Mesh(new THREE.TorusGeometry(26,2.5,8,32),M('#f59e0b',0.4,0.5)); j3r.rotation.x=Math.PI/2; j3r.position.set(0,D1+28,0); baseGroup.add(j3r);
+const j3c = new THREE.Mesh(cyl(40,48,6),matJoint); j3c.position.y=D1+34; j3c.castShadow=true; baseGroup.add(j3c);
+
+// ---- LIFT CARRIAGE (translates by d3 along Y) ----
+const liftCarriage = new THREE.Group(); baseGroup.add(liftCarriage);
+
+// Lift shaft (scaled dynamically to d3)
+const liftShaft = new THREE.Mesh(new THREE.CylinderGeometry(22,22,1,24), M('#94a3b8',0.22,0.8));
+liftShaft.castShadow=true; liftCarriage.add(liftShaft);
+
+// Shoulder platform (on top of lift)
+const shoulderPlat = new THREE.Group(); shoulderPlat.position.y=0; liftCarriage.add(shoulderPlat);
+shoulderPlat.add((m=>{m.castShadow=true;return m})(new THREE.Mesh(cyl(52,42,14),matBaseA)));
+
+// J1 motor (on platform, centered)
+const j1m = new THREE.Mesh(cyl(48,44,30),matJoint); j1m.position.y=10; j1m.castShadow=true; shoulderPlat.add(j1m);
+
+// J2 motor (on platform, offset behind)
+const j2m = new THREE.Mesh(cyl(22,20,22,20),matJoint); j2m.position.set(0,8,-36); j2m.castShadow=true; shoulderPlat.add(j2m);
+
+// ===== J1 PIVOT (rotates arm) =====
+const j1Pivot = new THREE.Group(); shoulderPlat.add(j1Pivot);
+j1Pivot.add((r=>{r.rotation.x=Math.PI/2;r.position.y=24;return r})(new THREE.Mesh(new THREE.TorusGeometry(32,3,16,32),matJoint)));
+
+// Link 1
+const lnk1 = new THREE.Group(); lnk1.position.set(A1/2,1,0); j1Pivot.add(lnk1);
+lnk1.add((m=>{m.castShadow=true;m.receiveShadow=true;return m})(new THREE.Mesh(box(A1-20,24,40),matArm1)));
+[-(A1-20)/2+4,(A1-20)/2-4].forEach(x=>{const c=new THREE.Mesh(cyl(21,21,24,16),matArm1);c.rotation.z=Math.PI/2;c.position.set(x,0,0);lnk1.add(c);});
+lnk1.add((m=>{m.position.set(0,14,0);m.castShadow=true;return m})(new THREE.Mesh(box(A1-40,5,14),M('#334155',0.4,0.5))));
+
+// J2 Pivot
+const j2Pivot = new THREE.Group(); j2Pivot.position.set(A1,0,0); j1Pivot.add(j2Pivot);
+j2Pivot.add((m=>{m.castShadow=true;return m})(new THREE.Mesh(cyl(24,24,22),matJoint)));
+j2Pivot.add((r=>{r.rotation.x=Math.PI/2;r.position.y=-1;return r})(new THREE.Mesh(new THREE.TorusGeometry(20,2.5,16,32),matJoint)));
+
+// Link 2
+const lnk2 = new THREE.Group(); lnk2.position.set(A2/2,0,0); j2Pivot.add(lnk2);
+lnk2.add((m=>{m.castShadow=true;m.receiveShadow=true;return m})(new THREE.Mesh(box(A2-16,18,30),matArm2)));
+[-(A2-16)/2+3,(A2-16)/2-3].forEach(x=>{const c=new THREE.Mesh(cyl(16,16,18,16),matArm2);c.rotation.z=Math.PI/2;c.position.set(x,0,0);lnk2.add(c);});
+lnk2.add((m=>{m.position.set(0,11,0);m.castShadow=true;return m})(new THREE.Mesh(box(A2-30,4,10),M('#334155',0.4,0.5))));
+
+// ===== J4 PIVOT (at end of link2) =====
+const j4Pivot = new THREE.Group(); j4Pivot.position.set(A2,0,0); j2Pivot.add(j4Pivot);
+
+// J4 motor
+j4Pivot.add((m=>{m.position.y=-14;m.castShadow=true;return m})(new THREE.Mesh(cyl(18,16,28),matJ4)));
+j4Pivot.add((r=>{r.rotation.x=Math.PI/2;return r})(new THREE.Mesh(new THREE.TorusGeometry(14,2,12,24),matJoint)));
+
+// Tool flange
+j4Pivot.add((m=>{m.position.y=-30;m.castShadow=true;return m})(new THREE.Mesh(cyl(14,18,10),matTool)));
+
+// Gripper
+j4Pivot.add((m=>{m.position.y=-48;m.castShadow=true;return m})(new THREE.Mesh(box(16,28,20),matGrip)));
+j4Pivot.add((m=>{m.position.set(-6,-68,0);m.castShadow=true;return m})(new THREE.Mesh(box(3,25,6),matFinger)));
+j4Pivot.add((m=>{m.position.set(6,-68,0);m.castShadow=true;return m})(new THREE.Mesh(box(3,25,6),matFinger)));
+
+// TCP
+const tcpSphere = new THREE.Mesh(new THREE.SphereGeometry(4,16,16),matTcp); tcpSphere.position.y=-D4; j4Pivot.add(tcpSphere);
+
+// ============================================================
+// State & update
+// ============================================================
+let currentJoints = {j1:0,j2:0,j3deg:0,j4:0,d3:D3_BASE};
+
+function updateRobot(j1,j2,j3deg,j4) {
+  const d3 = clamp(j3deg2d3(j3deg), D3_MIN, D3_MAX);
+  currentJoints = {j1,j2,j3deg,j4,d3};
+
+  // Lift carriage moves entire arm plane
+  liftCarriage.position.y = d3;
+  // Lift shaft spans from table (y=0) up to arm plane (y=d3).
+  // Cylinder height=1 scaled by d3 → extends -d3/2..+d3/2 in local Y.
+  // Position at -d3/2 so bottom=0, top=d3 in world space.
+  liftShaft.scale.y = Math.max(d3, 2);
+  liftShaft.position.y = -d3 / 2;
+
+  // Rotations
+  j1Pivot.rotation.y = D2R(j1);
+  j2Pivot.rotation.y = D2R(j2);
+  j4Pivot.rotation.y = D2R(j4);
+
+  const pose = fk(j1,j2,d3,j4);
+  updateUI(j1,j2,j3deg,d3,j4,pose);
+  return pose;
+}
+
+function updateUI(j1,j2,j3deg,d3,j4,pose) {
+  document.getElementById('v-j1').textContent = `${j1.toFixed(1)}°`;
+  document.getElementById('v-j2').textContent = `${j2.toFixed(1)}°`;
+  document.getElementById('v-j3').textContent = `电机 ${j3deg.toFixed(0)}° | d₃=${d3.toFixed(1)}mm`;
+  document.getElementById('v-j4').textContent = `${j4.toFixed(1)}°`;
+  ['x','y','z','r'].forEach(k=>{document.getElementById('pv-'+k).textContent=pose[k].toFixed(1);document.getElementById('oi-'+k).textContent=pose[k].toFixed(1);});
+  let ok=true,msgs=[];
+  if(j1<J1_MIN||j1>J1_MAX){ok=false;msgs.push(`J1=${j1.toFixed(1)}°越限`);}
+  if(j2<J2_MIN||j2>J2_MAX){ok=false;msgs.push(`J2=${j2.toFixed(1)}°越限`);}
+  if(d3<D3_MIN||d3>D3_MAX){ok=false;msgs.push(`d₃=${d3.toFixed(1)}mm越限`);}
+  if(j4<J4_MIN||j4>J4_MAX){ok=false;msgs.push(`J4=${j4.toFixed(1)}°越限`);}
+  document.getElementById('limit-dot').className='status-dot '+(ok?'ok':'err');
+  document.getElementById('limit-msg').textContent=ok?'关节限位正常':msgs.join(', ');
+}
+
+// ============================================================
+// UI
+// ============================================================
+window.onJointSlider = () => {
+  const j1=+document.getElementById('s-j1').value, j2=+document.getElementById('s-j2').value;
+  const j3=+document.getElementById('s-j3').value, j4=+document.getElementById('s-j4').value;
+  updateRobot(j1,j2,j3,j4);
+};
+window.resetJoints = () => { ['s-j1','s-j2','s-j3','s-j4'].forEach(id=>document.getElementById(id).value=0); updateRobot(0,0,0,0); };
+window.switchTab = t => {
+  document.getElementById('tab-joint').classList.toggle('active',t==='joint');
+  document.getElementById('tab-cart').classList.toggle('active',t==='cart');
+  document.getElementById('joint-panel').style.display=t==='joint'?'':'none';
+  document.getElementById('cart-panel').style.display=t==='cart'?'':'none';
+};
+window.moveCartesian = () => {
+  const x=+document.getElementById('ci-x').value, y=+document.getElementById('ci-y').value;
+  const z=+document.getElementById('ci-z').value, r=+document.getElementById('ci-r').value;
+  const eu=document.getElementById('ik-elbow').value==='up';
+  const sol=ik(x,y,z,r,eu), st=document.getElementById('ik-status');
+  if(!sol.valid){st.style.display='block';st.textContent='IK失败: '+sol.reason;return;}
+  st.style.display='none';
+  ['s-j1','s-j2','s-j3','s-j4'].forEach((id,i)=>document.getElementById(id).value=[sol.j1,sol.j2,sol.j3deg,sol.j4][i]);
+  updateRobot(sol.j1,sol.j2,sol.j3deg,sol.j4);
+  const p=fk(sol.j1,sol.j2,sol.d3,sol.j4);
+  ['ci-x','ci-y','ci-z','ci-r'].forEach((id,i)=>document.getElementById(id).value=[p.x,p.y,p.z,p.r][i].toFixed(1));
+};
+
+// ============================================================
+// TCP Protocol commands
+// ============================================================
+window.sendCommand = () => {
+  const raw=document.getElementById('cmd-input').value.trim(), ct=document.getElementById('cmd-type').value, re=document.getElementById('cmd-response');
+  let cmd=raw;
+  if(!cmd){cmd=({MovJ:'MovJ(200,50,150,0)',MovL:'MovL(200,50,150,0)',JointMovJ:'JointMovJ(30,-30,0,45)',MovJExt:'MovJExt(300)'})[ct];document.getElementById('cmd-input').value=cmd;}
+  const m=cmd.match(/^(\w+)\((.*)\)$/i);
+  if(!m){re.innerHTML=`<span style="color:#e06c75">-10000,{},${cmd};  [格式无效]</span>`;return;}
+  const nm=m[1], args=m[2].trim()?m[2].split(',').map(s=>+s.trim()):[];
+  if(args.some(isNaN)){re.innerHTML=`<span style="color:#e06c75">-10001,{},${cmd};  [参数错误]</span>`;return;}
+  if(nm==='MovJ'||nm==='MovL'){
+    if(args.length<4){re.innerHTML=`<span style="color:#e06c75">-10002,{},${cmd};  [需X,Y,Z,R]</span>`;return;}
+    const sol=ik(args[0],args[1],args[2],args[3],true);
+    if(!sol.valid){re.innerHTML=`<span style="color:#e06c75">-1,{},${nm}(${args.join(',')}); [IK] ${sol.reason}</span>`;return;}
+    animateTo(sol.j1,sol.j2,sol.j3deg,sol.j4,1200);
+    re.innerHTML=`<span style="color:#98c379">0,{},${nm}(${args.join(',')}); [OK] -> J=(${sol.j1.toFixed(1)}°,${sol.j2.toFixed(1)}°,${sol.j3deg.toFixed(0)}°,${sol.j4.toFixed(1)}°)</span>`;
+    updateRobot(sol.j1,sol.j2,sol.j3deg,sol.j4);
+  }else if(nm==='JointMovJ'){
+    if(args.length<4){re.innerHTML=`<span style="color:#e06c75">-10002,{},${cmd};  [需J1,J2,J3,J4]</span>`;return;}
+    const d3c=j3deg2d3(args[2]);
+    if(args[0]<J1_MIN||args[0]>J1_MAX||args[1]<J2_MIN||args[1]>J2_MAX||args[3]<J4_MIN||args[3]>J4_MAX||d3c<D3_MIN||d3c>D3_MAX){re.innerHTML=`<span style="color:#e06c75">-2,{},${cmd};  [关节限位]</span>`;return;}
+    animateTo(args[0],args[1],args[2],args[3],1200);
+    re.innerHTML=`<span style="color:#98c379">0,{},JointMovJ(${args.join(',')}); [OK]</span>`;
+    updateRobot(args[0],args[1],args[2],args[3]);
+  }else if(nm==='MovJExt'){
+    if(args.length<1){re.innerHTML=`<span style="color:#e06c75">-10002,{},${cmd};  [需目标距离]</span>`;return;}
+    const td3=clamp(args[0],D3_MIN,D3_MAX), tj3=d32j3deg(td3);
+    animateTo(currentJoints.j1,currentJoints.j2,tj3,currentJoints.j4,1200);
+    re.innerHTML=`<span style="color:#98c379">0,{},MovJExt(${args[0]}); [OK] 升降柱->${td3.toFixed(0)}mm</span>`;
+    updateRobot(currentJoints.j1,currentJoints.j2,tj3,currentJoints.j4);
+  }else{re.innerHTML=`<span style="color:#e06c75">-10000,{},${cmd};  [未知指令]</span>`;}
+};
+
+function animateTo(tj1,tj2,tj3,tj4,dur){
+  const s={j1:currentJoints.j1,j2:currentJoints.j2,j3deg:currentJoints.j3deg,j4:currentJoints.j4}, t0=performance.now();
+  (function step(now){
+    const p=Math.min((now-t0)/dur,1), e=p<0.5?2*p*p:-1+(4-2*p)*p;
+    const j1=s.j1+(tj1-s.j1)*e, j2=s.j2+(tj2-s.j2)*e, j3=s.j3deg+(tj3-s.j3deg)*e, j4=s.j4+(tj4-s.j4)*e;
+    document.getElementById('s-j1').value=j1; document.getElementById('s-j2').value=j2;
+    document.getElementById('s-j3').value=j3; document.getElementById('s-j4').value=j4;
+    updateRobot(j1,j2,j3,j4);
+    if(p<1)requestAnimationFrame(step);
+  })(t0);
+}
+
+// ============================================================
+// Render
+// ============================================================
+function resize(){const w=container.clientWidth,h=container.clientHeight;renderer.setSize(w,h);camera.aspect=w/Math.max(h,1);camera.updateProjectionMatrix();}
+window.addEventListener('resize',resize); resize(); updateRobot(0,0,0,0);
+(function render(){requestAnimationFrame(render);controls.update();renderer.render(scene,camera);})();
+
+window.updateRobot=updateRobot; window.fk=fk; window.ik=ik;
+window.j3deg2d3=j3deg2d3; window.d32j3deg=d32j3deg; window.animateTo=animateTo;
+</script>
+</body>
+</html>

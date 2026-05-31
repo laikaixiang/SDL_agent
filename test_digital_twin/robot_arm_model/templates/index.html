@@ -300,6 +300,7 @@ const box=(w,h,d)=>new THREE.BoxGeometry(w,h,d);
 // Joint pivots from STL overlap: J1(209,116), J2(408,116), J4(604,116)
 const robotRoot = new THREE.Group(); robotRoot.position.set(150, 0, -600); scene.add(robotRoot);
 robotRoot.add(wsGroup);
+
 const dobotPivot = new THREE.Group(); dobotPivot.rotation.x = -Math.PI / 2; robotRoot.add(dobotPivot);
 
 const baseGroup    = new THREE.Group(); dobotPivot.add(baseGroup);
@@ -318,6 +319,24 @@ const tcpSphere = new THREE.Mesh(new THREE.SphereGeometry(4,16,16),
 tcpSphere.position.z = -D4; j4Pivot.add(tcpSphere);
 
 const STL_LOADER = new STLLoader();
+// Finger gripper on end effector
+STL_LOADER.load('/models/finger/手指V1.0.STL', (geo) => {
+  geo.computeBoundingBox(); const c = new THREE.Vector3(); geo.boundingBox.getCenter(c);
+  geo.translate(-c.x, -c.y, -c.z); geo.rotateX(-Math.PI/2);
+  const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({color:0x78716c, roughness:0.4, metalness:0.55}));
+  m.position.z = -D4; m.castShadow = true; m.name = 'Finger';
+  j4Pivot.add(m);
+});
+
+// Sample plate on platform near Dobot
+STL_LOADER.load('/models/plates/托盘V3.0(1).STL', (geo) => {
+  geo.computeBoundingBox(); const c = new THREE.Vector3(); geo.boundingBox.getCenter(c);
+  geo.translate(-c.x, -c.y, -c.z);
+  const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({color:0xd0d0d0, roughness:0.5, metalness:0.2}));
+  m.position.set(300, 0.005, -300);
+  m.castShadow = true; m.receiveShadow = true; m.name = 'SamplePlate';
+  scene.add(m);
+});
 
 const DOBOT_PARTS = [
   { file:'M1_AXIS1_1.stl', parent:baseGroup,    cx: 88.48, cy:116.33, cz:343.78, color:0x7a9f6a },

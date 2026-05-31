@@ -125,10 +125,10 @@ input[type=range].z-slider { accent-color:var(--accent2); }
   </div>
 
   <div class="group" id="pipette-joint-panel">
-    <div class="slider-row"><span class="slider-label">X</span><input type="range" id="sp-x" min="200" max="420" value="300.3" step="1" oninput="onPipetteJoint()"><span class="slider-val" id="vp-x">300mm</span></div>
-    <div class="slider-row"><span class="slider-label">Z</span><input type="range" id="sp-z" min="300" max="500" value="416.1" step="1" oninput="onPipetteJoint()"><span class="slider-val" id="vp-z">416mm</span></div>
-    <div class="slider-row"><span class="slider-label">Y1</span><input type="range" id="sp-y1" min="0" max="200" value="123.1" step="1" oninput="onPipetteJoint()"><span class="slider-val" id="vp-y1">123mm</span></div>
-    <div class="slider-row"><span class="slider-label">Y2</span><input type="range" id="sp-y2" min="0" max="200" value="123.1" step="1" oninput="onPipetteJoint()"><span class="slider-val" id="vp-y2">123mm</span></div>
+    <div class="slider-row"><span class="slider-label">X</span><input type="range" id="sp-x" min="44" max="385" value="300.3" step="1" oninput="onPipetteJoint()"><span class="slider-val" id="vp-x">300mm</span></div>
+    <div class="slider-row"><span class="slider-label">Y</span><input type="range" id="sp-y" min="59" max="367" value="213.1" step="1" oninput="onPipetteJoint()"><span class="slider-val" id="vp-y">213mm</span></div>
+    <div class="slider-row"><span class="slider-label">Z1</span><input type="range" id="sp-z1" min="94" max="161" value="123.1" step="1" oninput="onPipetteJoint()"><span class="slider-val" id="vp-z1">123mm</span></div>
+    <div class="slider-row"><span class="slider-label">Z2</span><input type="range" id="sp-z2" min="94" max="161" value="123.1" step="1" oninput="onPipetteJoint()"><span class="slider-val" id="vp-z2">123mm</span></div>
     <div style="display:flex;gap:6px;margin-top:6px">
       <button class="btn btn-sm btn-accent" onclick="resetPipette()">归零</button>
     </div>
@@ -136,9 +136,9 @@ input[type=range].z-slider { accent-color:var(--accent2); }
 
   <div class="group" id="pipette-cart-panel" style="display:none">
     <div class="input-row"><span class="input-label">X</span><input type="number" id="pci-x" value="300.3" step="1"><span class="input-unit">mm</span></div>
-    <div class="input-row"><span class="input-label">Z</span><input type="number" id="pci-z" value="416.1" step="1"><span class="input-unit">mm</span></div>
-    <div class="input-row"><span class="input-label">Y1</span><input type="number" id="pci-y1" value="123.1" step="1"><span class="input-unit">mm</span></div>
-    <div class="input-row"><span class="input-label">Y2</span><input type="number" id="pci-y2" value="123.1" step="1"><span class="input-unit">mm</span></div>
+    <div class="input-row"><span class="input-label">Y</span><input type="number" id="pci-y" value="213.1" step="1"><span class="input-unit">mm</span></div>
+    <div class="input-row"><span class="input-label">Z1</span><input type="number" id="pci-z1" value="123.1" step="1"><span class="input-unit">mm</span></div>
+    <div class="input-row"><span class="input-label">Z2</span><input type="number" id="pci-z2" value="123.1" step="1"><span class="input-unit">mm</span></div>
     <button class="btn btn-sm btn-accent" style="margin-top:6px" onclick="movePipetteCartesian()">移动到目标</button>
   </div>
 
@@ -245,7 +245,7 @@ key.shadow.mapSize.set(2048,2048); key.shadow.camera.near=20; key.shadow.camera.
 key.shadow.camera.left=-200; key.shadow.camera.right=1400;
 key.shadow.camera.top=700; key.shadow.camera.bottom=-200; key.shadow.bias=-0.0003;
 scene.add(key);
-scene.add((l=>{l.position.set(-200,150,-200);return l})(new THREE.DirectionalLight('#aaccff',1.2)));
+scene.add((l=>{l.position.set(-200,150,-200);return l})(new THREE.DirectionalLight('#aaccff',0.8)));
 scene.add((l=>{l.position.set(0,60,-350);return l})(new THREE.DirectionalLight('#ffffff',1.8)));
 
 // Platform: 1600×1600, X≥0
@@ -256,7 +256,7 @@ table.rotation.x=-Math.PI/2; table.position.set(PLATFORM_W/2, 0, 0); table.recei
 
 // Grid on platform + debug axes
 scene.add((g=>{g.position.set(PLATFORM_W/2, 0.015, 0);return g})(new THREE.GridHelper(PLATFORM_W, 32, '#4a4f59', '#2a2d33')));
-// Debug axes + X,Y,Z labels at origin
+// Debug axes with robot coordinate labels (Z=up, matches TCP display)
 scene.add(new THREE.AxesHelper(300));
 try {
   const lbl = (text, x, y, z, color) => {
@@ -268,8 +268,8 @@ try {
     s.position.set(x, y, z); s.scale.set(40, 40, 1); return s;
   };
   scene.add(lbl('X', 330, 0, 0, '#ff4444'));
-  scene.add(lbl('Y', 0, 330, 0, '#44ff44'));
-  scene.add(lbl('Z', 0, 0, 330, '#4488ff'));
+  scene.add(lbl('Z', 0, 330, 0, '#4488ff'));    // Z: World Y (UP, J3 lift direction)
+  scene.add(lbl('Y', 0, 0, 330, '#44ff44'));    // Y: World Z (left)
 } catch(e) { console.warn('Axis labels:', e); }
 
 // Workspace rings
@@ -282,7 +282,7 @@ wsGroup.add(ring(A1+A2,'#61afef',0.28));
 wsGroup.add(ring(Math.abs(A1-A2),'#e06c75',0.28));
 for(let a=0;a<360;a+=30){const ra=D2R(a),i=Math.abs(A1-A2),o=A1+A2;
   wsGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(i*Math.cos(ra),0.03,i*Math.sin(ra)),new THREE.Vector3(o*Math.cos(ra),0.03,o*Math.sin(ra))]),new THREE.LineBasicMaterial({color:'#61afef',transparent:true,opacity:0.12})));}
-scene.add(wsGroup);
+// wsGroup added to robotRoot below
 
 // Materials
 const M=(c,r,m)=>new THREE.MeshStandardMaterial({color:c,roughness:r,metalness:m});
@@ -298,7 +298,8 @@ const box=(w,h,d)=>new THREE.BoxGeometry(w,h,d);
 // ============================================================
 // Dobot M1Pro — STL assembly with kinematic hierarchy
 // Joint pivots from STL overlap: J1(209,116), J2(408,116), J4(604,116)
-const robotRoot = new THREE.Group(); robotRoot.position.set(100, 0, 0); scene.add(robotRoot);
+const robotRoot = new THREE.Group(); robotRoot.position.set(150, 0, -600); scene.add(robotRoot);
+robotRoot.add(wsGroup);
 const dobotPivot = new THREE.Group(); dobotPivot.rotation.x = -Math.PI / 2; robotRoot.add(dobotPivot);
 
 const baseGroup    = new THREE.Group(); dobotPivot.add(baseGroup);
@@ -339,25 +340,25 @@ DOBOT_PARTS.forEach(({file, parent, cx, cy, cz, color}) => {
   }, undefined, (err) => { console.error('[Dobot]', file, err); });
 });
 
-// ---- Pipette arm: same Rx(-90°) as Dobot, kinematic hierarchy ----
+// ---- Pipette arm: no Rx rotation needed, CAD axes align with robot coords ----
+// Robot coords: X=World X, Y=World Z, Z=World Y(UP)
+// CAD: frame long(Z=782mm)→World Z, ADP long(Y=204mm)→World Y(∥Z axis)
 const pipetteRoot = new THREE.Group(); pipetteRoot.name = 'PipetteArm';
-pipetteRoot.position.set(1000, 0, 0); scene.add(pipetteRoot);
+pipetteRoot.position.set(950, 0, -250); pipetteRoot.rotation.y = -Math.PI/2; scene.add(pipetteRoot);
 
-const pipettePivot = new THREE.Group(); pipettePivot.rotation.x = -Math.PI / 2; pipetteRoot.add(pipettePivot);
-
-const pipetteBase = new THREE.Group(); pipettePivot.add(pipetteBase);
-const pipetteZ    = new THREE.Group(); pipetteBase.add(pipetteZ);
-const pipetteX    = new THREE.Group(); pipetteZ.add(pipetteX);
-const pipetteY1   = new THREE.Group(); pipetteX.add(pipetteY1);
-const pipetteY2   = new THREE.Group(); pipetteX.add(pipetteY2);
+const pipetteBase = new THREE.Group(); pipetteRoot.add(pipetteBase);
+const pipetteY    = new THREE.Group(); pipetteBase.add(pipetteY);
+const pipetteX    = new THREE.Group(); pipetteY.add(pipetteX);
+const pipetteZ1   = new THREE.Group(); pipetteX.add(pipetteZ1);
+const pipetteZ2   = new THREE.Group(); pipetteX.add(pipetteZ2);
 
 const PIPETTE_DEFS = [
   { file:'pipette_group1.stl', parent:pipetteBase },
-  { file:'pipette_group2.stl', parent:pipetteZ },
+  { file:'pipette_group2.stl', parent:pipetteY },
   { file:'pipette_group3.stl', parent:pipetteX },
-  { file:'pipette_group4.stl', parent:pipetteY1 },
-  { file:'pipette_group5.stl', parent:pipetteY2 },
-  { file:'pipette_tip.stl',    parent:pipetteY1 },
+  { file:'pipette_group4.stl', parent:pipetteZ1 },
+  { file:'pipette_group5.stl', parent:pipetteZ2 },
+  { file:'pipette_tip.stl',    parent:pipetteZ1 },
 ];
 const pipColor = { group1:0x6a8caf, group2:0x7a9f6a, group3:0x8a6a9f, group4:0xaf8a6a, group5:0x9f6a7a, tip:0xcccccc };
 
@@ -371,27 +372,27 @@ PIPETTE_DEFS.forEach(({file, parent}) => {
 });
 
 // ---- Pipette joint control ----
-let pipJoints = { x:300.3, z:416.1, y1:123.1, y2:123.1 };
+let pipJoints = { x:300.3, y:213.1, z1:123.1, z2:123.1 };
 
-function updatePipette(x, z, y1, y2) {
-  pipJoints = { x, z, y1, y2 };
-  pipetteX.position.x  = x  - 300.3;
-  pipetteZ.position.y  = -(z - 416.1);
-  pipetteY1.position.z = y1 - 123.1;
-  pipetteY2.position.z = y2 - 123.1;
+function updatePipette(x, y, z1, z2) {
+  pipJoints = { x, y, z1, z2 };
+  pipetteX.position.x  = x  - 300.3;    // X: World X (horizontal)
+  pipetteY.position.z  = -(y - 416.1);  // Y: World Z (horizontal, was .y with pivot)
+  pipetteZ1.position.y = z1 - 123.1;    // Z1: World Y (UP = Z axis, was .z)
+  pipetteZ2.position.y = z2 - 123.1;    // Z2: World Y (UP = Z axis, was .z)
   document.getElementById('vp-x').textContent  = x.toFixed(0) + 'mm';
-  document.getElementById('vp-z').textContent  = z.toFixed(0) + 'mm';
-  document.getElementById('vp-y1').textContent = y1.toFixed(0) + 'mm';
-  document.getElementById('vp-y2').textContent = y2.toFixed(0) + 'mm';
+  document.getElementById('vp-y').textContent  = y.toFixed(0) + 'mm';
+  document.getElementById('vp-z1').textContent = z1.toFixed(0) + 'mm';
+  document.getElementById('vp-z2').textContent = z2.toFixed(0) + 'mm';
 }
 
 window.onPipetteJoint = () => {
-  updatePipette(+document.getElementById('sp-x').value, +document.getElementById('sp-z').value,
-                +document.getElementById('sp-y1').value, +document.getElementById('sp-y2').value);
+  updatePipette(+document.getElementById('sp-x').value, +document.getElementById('sp-y').value,
+                +document.getElementById('sp-z1').value, +document.getElementById('sp-z2').value);
 };
 window.resetPipette = () => {
-  ['sp-x','sp-z','sp-y1','sp-y2'].forEach((id,i) => document.getElementById(id).value = [300.3,416.1,123.1,123.1][i]);
-  updatePipette(300.3, 416.1, 123.1, 123.1);
+  ['sp-x','sp-y','sp-z1','sp-z2'].forEach((id,i) => document.getElementById(id).value = [300.3,213.1,123.1,123.1][i]);
+  updatePipette(300.3, 213.1, 123.1, 123.1);
 };
 window.switchPipetteTab = t => {
   document.getElementById('tab-pipette-joint').classList.toggle('active', t==='joint');
@@ -400,8 +401,8 @@ window.switchPipetteTab = t => {
   document.getElementById('pipette-cart-panel').style.display = t==='cart'?'':'none';
 };
 window.movePipetteCartesian = () => {
-  const v = ['pci-x','pci-z','pci-y1','pci-y2'].map(id => +document.getElementById(id).value);
-  ['sp-x','sp-z','sp-y1','sp-y2'].forEach((id,i) => document.getElementById(id).value = v[i]);
+  const v = ['pci-x','pci-y','pci-z1','pci-z2'].map(id => +document.getElementById(id).value);
+  ['sp-x','sp-y','sp-z1','sp-z2'].forEach((id,i) => document.getElementById(id).value = v[i]);
   updatePipette(v[0], v[1], v[2], v[3]);
 };
 // ============================================================
@@ -540,8 +541,8 @@ const moduleDefs = {
   desktop: {
     label: '桌面',
     physical: true,
-    defaultPos: new THREE.Vector3(0, 0, 0),
-    defaultConfig: { gridSize: 50, platformSize: 450 },
+    defaultPos: new THREE.Vector3(550, 0, -250),
+    defaultConfig: { gridSize: 50, platformSize: 800 },
   },
   slideBox: {
     label: '载玻片盒',
@@ -1373,7 +1374,7 @@ function collectConfig() {
     if (!def.physical) continue;
     const cfg = { ...moduleConfigs[type] };
     const positions = modulePositions[type] || [];
-    cfg.positions = positions.map(p => [Math.round(p.x), Math.round(p.z)]);
+    cfg.positions = positions.map((p, i) => [Math.round(p.x), Math.round(p.z)]);
     out[type] = cfg;
   }
   return out;
@@ -1475,7 +1476,7 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 updateRobot(0, 0, 0, 0);
-updatePipette(300.3, 416.1, 123.1, 123.1);
+updatePipette(300.3, 213.1, 123.1, 123.1);
 
 (function render() {
   requestAnimationFrame(render);

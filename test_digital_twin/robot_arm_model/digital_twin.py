@@ -32,6 +32,16 @@ from kinematics import (
     compute_workspace_boundary, compute_workspace_inner,
 )
 
+from kinematics_pipette import (
+    PipetteState, PipettePose, PipetteSolution,
+    forward_kinematics as pipette_fk, fk_compact as pipette_fk_compact,
+    inverse_kinematics as pipette_ik, get_joint_limits as pipette_get_limits,
+    X_MIN as PX_MIN, X_MAX as PX_MAX, X_REF as PX_REF,
+    Y_MIN as PY_MIN, Y_MAX as PY_MAX, Y_REF as PY_REF,
+    Z_MIN as PZ_MIN, Z_MAX as PZ_MAX, Z_REF as PZ_REF,
+    ADP_SPACING_X,
+)
+
 app = Flask(__name__, template_folder='templates')
 
 # -------------------------------------------------------
@@ -269,6 +279,65 @@ def api_save_platform_config():
 
 
 # -------------------------------------------------------
+# Pipette Arm API
+# -------------------------------------------------------
+
+@app.route('/api/pipette/limits', methods=['GET'])
+def api_pipette_limits():
+    """Return XYZZ+dual ADP pipette arm joint limits."""
+    return jsonify({'success': True, 'data': pipette_get_limits()})
+
+
+@app.route('/api/pipette/fk', methods=['POST'])
+def api_pipette_fk():
+    """
+    Forward kinematics: axis values → tip positions.
+    Body: {x, y, z1, z2}  — all in mm (logical axis positions)
+    Returns tip1/tip2 positions in CAD and world coordinates.
+    """
+    data = request.get_json(force=True)
+    try:
+        x = float(data['x'])
+        y = float(data['y'])
+        z1 = float(data['z1'])
+        z2 = float(data['z2'])
+    except (KeyError, ValueError, TypeError) as e:
+        return jsonify({'error': f'Invalid parameters: {e}'}), 400
+
+    state = PipetteState(x=x, y=y, z1=z1, z2=z2)
+    pose = pipette_fk(state)
+    return jsonify({'success': True, 'data': pose.to_dict()})
+
+
+@app.route('/api/pipette/ik', methods=['POST'])
+def api_pipette_ik():
+    """
+    Inverse kinematics: target axis values → clamped values.
+    Body: {x, y, z1, z2}  — target positions in mm
+    Returns clamped values + limit violation warnings.
+    """
+    data = request.get_json(force=True)
+    try:
+        x = float(data['x'])
+        y = float(data['y'])
+        z1 = float(data['z1'])
+        z2 = float(data['z2'])
+    except (KeyError, ValueError, TypeError) as e:
+        return jsonify({'error': f'Invalid parameters: {e}'}), 400
+
+    sol = pipette_ik(x, y, z1, z2)
+    return jsonify({'success': True, 'data': sol.to_dict()})
+
+
+@app.route('/api/pipette/pose', methods=['GET'])
+def api_pipette_pose():
+    """Get current pipette state (stored in server memory)."""
+    return jsonify(app.config.get('pipette_state', {
+        'x': PX_REF, 'y': PY_REF, 'z1': PZ_REF, 'z2': PZ_REF,
+    }))
+
+
+# -------------------------------------------------------
 # Start
 # -------------------------------------------------------
 
@@ -278,5 +347,11 @@ if __name__ == '__main__':
     print(f"  Reach: {abs(A1-A2):.0f}–{A1+A2:.0f}mm")
     print(f"  Z stroke: {Z_MIN}–{Z_MAX}mm | d3=[{D3_MIN}–{D3_MAX}]mm | D3_BASE={D3_BASE}mm (screw lead={SCREW_LEAD}mm/rev)")
     print(f"  J1=[{J1_MIN},{J1_MAX}]°, J2=[{J2_MIN},{J2_MAX}]°, J4=[{J4_MIN},{J4_MAX}]°")
+    print(f"")
+    print(f"[DigitalTwin] XYZZ+dual ADP Pipette Arm")
+    print(f"  X: [{PX_MIN:.0f}, {PX_MAX:.0f}]mm, stroke={PX_MAX-PX_MIN:.0f}mm, ref={PX_REF:.1f}")
+    print(f"  Y: [{PY_MIN:.0f}, {PY_MAX:.0f}]mm, stroke={PY_MAX-PY_MIN:.0f}mm, ref={PY_REF:.1f}")
+    print(f"  Z1/Z2: [{PZ_MIN:.0f}, {PZ_MAX:.0f}]mm, stroke={PZ_MAX-PZ_MIN:.0f}mm, ref={PZ_REF:.1f}")
+    print(f"  ADP spacing: {ADP_SPACING_X:.1f}mm")
     print(f"  Open http://127.0.0.1:5001")
     app.run(host='0.0.0.0', port=5001, debug=True)

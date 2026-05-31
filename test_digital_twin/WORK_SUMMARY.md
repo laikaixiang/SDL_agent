@@ -194,19 +194,29 @@ robotRoot (场景位置)
 6 个零件详细数据见上方表格。
 装配预览: `pipette_assembly_viewer.html`
 
-### Step 4 — 确定运动学参数
-从 STEP 装配体提取：
-- XYZ 各轴行程范围 (mm)
-- 移液头 (ADP) 数量和间距（2个，间距约 30mm X方向）
-- 关节类型（棱柱/旋转）和限位
+### Step 4 — 确定运动学参数 ✅ (2026-06-01)
+从移液臂 STL 装配件包围盒提取机械限位:
 
-### Step 5 — 添加运动学支持
-1. 新建 `kinematics_pipette.py`（参考 `kinematics.py`）
-2. 在 `digital_twin.py` 中添加移液臂 API 路由
-3. 在 `index.html` 中:
-   - 将静态 STL 零件挂载到运动学层级（参考 Dobot 的 `DOBOT_PARTS` 阵列）
-   - 添加移液臂关节控制面板
-   - 绑定关节角度 → STL 零件变换
+| 轴 | 类型 | 机械限位 | 行程 | 参考位 | 方向 |
+|------|------|---------|------|--------|------|
+| X | 棱柱 | [44, 385] mm | 341mm | 300.3 | 水平, 中梁在横梁上滑动 |
+| Y | 棱柱 | [59, 367] mm | 308mm | 213.1 | 水平, 横梁沿框架移动 |
+| Z1 | 棱柱 | [94, 161] mm | 67mm | 123.1 | **垂直↑**, ADP1升降 |
+| Z2 | 棱柱 | [94, 161] mm | 67mm | 123.1 | **垂直↑**, ADP2升降 |
+
+ADP间距: 30.2mm (X方向)
+原Z_ref=416.1超出机械上限49mm，修正为框架中心213.1
+
+### Step 5 — 添加运动学支持 ✅ (2026-06-01)
+1. `kinematics_pipette.py` — 移液臂运动学引擎 (FK/IK/工作空间/限位)
+2. `digital_twin.py` — 新增4个API路由:
+   - `GET /api/pipette/limits` — 四轴限位+ADP间距
+   - `POST /api/pipette/fk` — 正向运动学 (轴值→两tip的CAD/World坐标)
+   - `POST /api/pipette/ik` — 逆向运动学 (clamp到限位+越限警告)
+   - `GET /api/pipette/pose` — 当前状态
+3. `index.html` — 变量重命名 + 滑块范围修正为机械限位
+4. `pipette_kinematic_params.json` — STL分析结果
+5. `extract_pipette_params.py` — STL参数提取脚本
 
 ---
 
@@ -546,7 +556,8 @@ Dobot 需要居中+偏移因为每个零件挂载到不同的旋转节点，必�
 - Dobot M1Pro 是 4 轴 SCARA，STL 零件在装配体世界坐标中
 - 移液臂 STL 原始文件 67MB，已用顶点聚类减面至 ~600KB 适配网页
 - 减面脚本可重复运行: `python simplify_pipette_meshes.py`
-- 移液臂运动学已配置 (X/Z/Y1/Y2 四轴线性)，可在面板上调节
+- 移液臂运动学已配置 (X/Y/Z1/Z2 四轴棱柱)，可在面板上调节
+- 坐标轴已统一: Z=垂直向上 (与Dobot一致), X/Y=水平面
 - 平台模块位置通过 `platform_config.json` 持久化，刷新页面后恢复
 - 编辑模式（勾选"编辑模式"）可修改模块参数和位置
 - 三个页面均含调试坐标轴 (AxesHelper + X/Y/Z sprite 标签)

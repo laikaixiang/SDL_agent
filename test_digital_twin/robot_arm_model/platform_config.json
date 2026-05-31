@@ -1,11 +1,11 @@
 {
   "desktop": {
     "gridSize": 50,
-    "platformSize": 450,
+    "platformSize": 800,
     "positions": [
       [
-       300,
-      -100
+        450,
+        -250
       ]
     ]
   },
@@ -19,8 +19,8 @@
     "slideL": 25,
     "positions": [
       [
-         200,
-         50
+        200,
+        50
       ]
     ]
   },
@@ -31,8 +31,8 @@
     "spacing": 50,
     "positions": [
       [
-         200,
-        -150
+        600,
+        -300
       ]
     ]
   },
@@ -46,8 +46,8 @@
     "rows": 12,
     "positions": [
       [
-        400,
-        -250
+        750,
+        -200
       ]
     ]
   },

@@ -17,14 +17,19 @@ python digital_twin.py
 ## 目录结构
 
 ```
-test_digital_twin/robot_arm_model/
-├── README.md              # 本文件
-├── PLAN.md                # 技术方案文档
-├── kinematics.py          # 运动学引擎
-├── app.py                 # Flask 服务端
-├── templates/
-│   └── index.html         # 3D 交互界面 (Three.js, 自包含)
-└── dobot_protocol.txt     # 越疆 TCP/IP 协议文档 (参考)
+test_digital_twin/
+├── PLAN.md                  # 平台布局数字孪生实现计划
+└── robot_arm_model/
+    ├── README.md            # 本文件
+    ├── PLAN.md              # 技术方案文档 (机械臂本体)
+    ├── kinematics.py        # 运动学引擎
+    ├── app.py               # Flask 服务端
+    ├── digital_twin.py      # 数字孪生启动脚本
+    ├── templates/
+    │   └── index.html       # 3D 交互界面 (Three.js, 自包含)
+    │                        #   - Dobot M1Pro 机械臂
+    │                        #   - 平台布局数字孪生 (4类模块+拖拽吸附)
+    └── dobot_protocol.txt    # 越疆 TCP/IP 协议文档 (参考)
 ```
 
 ---
@@ -281,7 +286,27 @@ SCARA 的 IK 有两个解：肘部在上 (elbow up) 和肘部在下 (elbow down)
 - **硬件控制** (`hardware/tools/`)：注册为 `move_robot_arm` 工具
 - **算法模块** (`software/algorithms/`)：添加路径优化/抓取规划算法
 
-### 6. 前端增强
+### 6. 平台整体布局数字孪生
+
+在 3D 场景中新增平台布局，支持 4 类可拖拽模块：
+
+| 模块 | 尺寸 | 颜色 |
+|------|------|------|
+| 载玻片托盘 (SubstrateTray) | 300×450mm | 浅灰 |
+| 匀胶机 (SpinCoater) | 150×150mm | 蓝绿 |
+| 滴管头盒 (DropperBox) | 100×150mm | 橙色 |
+| 瓶子托盘 (BottleTray) | 100×100mm | 紫色 |
+
+**技术特性：**
+- 9×9 网格底板（50mm/格，总 450×450mm）
+- DragControls 拖拽 + 50mm 网格吸附
+- 边界约束，防止拖出平台
+
+**启动：** `python digital_twin.py` → http://127.0.0.1:5001
+
+详见 `../PLAN.md`。
+
+### 7. 前端增强
 
 - 末端拖拽交互（鼠标拖动 TCP → 实时 IK → 更新关节）
 - VR/AR 预览（WebXR API）

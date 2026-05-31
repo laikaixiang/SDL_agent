@@ -1,0 +1,60 @@
+{
+  "desktop": {
+    "gridSize": 50,
+    "platformSize": 450,
+    "position": [
+      300,
+      -100
+    ]
+  },
+  "slideBox": {
+    "quantity": 25,
+    "distribution": "grid",
+    "size": 0.4,
+    "slideW": 25,
+    "slideL": 25,
+    "hSpacing": 4,
+    "vSpacing": 15,
+    "position": [
+      200,
+      50
+    ]
+  },
+  "spinCoater": {
+    "quantity": 1,
+    "distribution": "single",
+    "size": 0.6,
+    "spacing": 50,
+    "position": [
+      200,
+      -150
+    ]
+  },
+  "dropperBox": {
+    "quantity": 96,
+    "distribution": "grid",
+    "size": 0.4,
+    "cols": 8,
+    "rows": 12,
+    "colSpacing": 4,
+    "rowSpacing": 1,
+    "position": [
+      400,
+      -250
+    ]
+  },
+  "solutionTray": {
+    "quantity": 20,
+    "distribution": "grid",
+    "size": 0.6,
+    "cols": 4,
+    "rows": 5,
+    "colSpacing": 5,
+    "rowSpacing": 5,
+    "bottleDiameter": 20,
+    "position": [
+      300,
+      -250
+    ]
+  }
+}

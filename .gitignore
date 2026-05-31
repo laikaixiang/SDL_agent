@@ -21,6 +21,7 @@ config.json
 # CLAUDE
 .claude/
 .doc/
+.superpowers/
 CLAUDE.md
 
 # Prompt overrides (运行时修改，源文件在 registry 中)

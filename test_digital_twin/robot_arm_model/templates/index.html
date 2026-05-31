@@ -44,6 +44,19 @@ input[type=range].z-slider { accent-color:var(--accent2); }
 .status-dot.err { background:var(--danger); }
 #overlay-info { position:absolute; top:12px; left:12px; background:rgba(0,0,0,0.75); padding:8px 12px; border-radius:6px; font-size:11px; line-height:1.6; color:#ccc; pointer-events:none; font-variant-numeric:tabular-nums; }
 #overlay-info span { color:var(--accent); font-weight:600; }
+
+/* ---- Module config panel ---- */
+.module-tab-row { display:flex; gap:4px; }
+.module-tab { flex:1; padding:6px; background:var(--slider-track); border:1px solid var(--border); color:var(--text); cursor:pointer; border-radius:4px; font-size:11px; text-align:center; }
+.module-tab.active { background:var(--accent); color:#1a1d23; border-color:var(--accent); }
+.config-row { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+.config-row:last-child { margin-bottom:0; }
+.config-label { width:52px; font-size:12px; color:var(--text); flex-shrink:0; }
+.config-row input[type=number] { width:70px; background:var(--bg); border:1px solid var(--border); color:var(--text-bright); padding:3px 6px; border-radius:4px; font-size:12px; }
+.config-row select { flex:1; background:var(--bg); color:var(--text-bright); border:1px solid var(--border); padding:3px 6px; border-radius:4px; font-size:12px; }
+.config-row input[type=range] { flex:1; accent-color:var(--accent); height:4px; }
+.pos-display { font-size:11px; color:var(--accent); font-variant-numeric:tabular-nums; }
+.pos-display span { color:var(--text-bright); }
 </style>
 </head>
 <body>
@@ -104,9 +117,32 @@ input[type=range].z-slider { accent-color:var(--accent2); }
     <div id="cmd-response" style="font-size:11px;margin-top:4px;font-family:monospace;min-height:16px"></div>
   </div>
 
+  <!-- ====== 模块配置（5大模块） ====== -->
+  <div class="group">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <h3 style="margin:0">模块配置</h3>
+      <div style="display:flex;align-items:center;gap:10px">
+        <button class="btn btn-sm btn-accent" onclick="saveConfig()" style="font-size:11px">保存配置</button>
+        <label style="font-size:11px;cursor:pointer;color:var(--text);display:flex;align-items:center;gap:4px">
+          <input type="checkbox" id="edit-mode-toggle" onchange="toggleEditMode()"> 编辑模式
+        </label>
+      </div>
+    </div>
+    <div class="module-tab-row" style="margin-bottom:8px;flex-wrap:wrap;display:none">
+      <button class="module-tab active" id="mtab-robotArm" onclick="switchModuleTab('robotArm')">机械臂</button>
+      <button class="module-tab" id="mtab-desktop" onclick="switchModuleTab('desktop')">桌面</button>
+      <button class="module-tab" id="mtab-slideBox" onclick="switchModuleTab('slideBox')">载玻片盒</button>
+      <button class="module-tab" id="mtab-spinCoater" onclick="switchModuleTab('spinCoater')">匀胶机</button>
+      <button class="module-tab" id="mtab-dropperBox" onclick="switchModuleTab('dropperBox')">滴管头盒</button>
+      <button class="module-tab" id="mtab-solutionTray" onclick="switchModuleTab('solutionTray')">溶液瓶托盘</button>
+    </div>
+    <div id="mod-config-body"></div>
+  </div>
+
   <div style="font-size:11px;color:var(--text);text-align:center;margin-top:auto;padding-top:8px">
     a₁=250mm a₂=150mm | J1±85° J2±130° Z155~455mm J4±360°<br>
-    J3(升降柱)同轴于J1 | 鼠标拖拽旋转 | 滚轮缩放 | 右键平移
+    J3(升降柱)同轴于J1 | 鼠标拖拽旋转 | 滚轮缩放 | 右键平移<br>
+    拖拽模块到网格位置 | 网格间距50mm
   </div>
 </div>
 
@@ -117,6 +153,7 @@ input[type=range].z-slider { accent-color:var(--accent2); }
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+// DragControls replaced with custom module-drag handler (see setupModuleDrag)
 
 // ============================================================
 // Kinematic constants (matches kinematics.py)
@@ -126,7 +163,6 @@ const SCREW_LEAD=10, D3_BASE=300;
 const Z_MIN=155, Z_MAX=455, D3_MIN=150, D3_MAX=450;
 const J1_MIN=-85, J1_MAX=85, J2_MIN=-130, J2_MAX=130, J4_MIN=-360, J4_MAX=360;
 
-// d3 = D3_BASE + (J3_deg/360)*SCREW_LEAD  (positive slope)
 const j3deg2d3 = j3 => D3_BASE + (j3/360)*SCREW_LEAD;
 const d32j3deg = d3 => (d3 - D3_BASE)*360/SCREW_LEAD;
 const D2R = d => d*Math.PI/180;
@@ -134,7 +170,6 @@ const R2D = r => r*180/Math.PI;
 const clamp = (v,lo,hi) => Math.max(lo, Math.min(hi, v));
 const wrap180 = d => { d%=360; if(d>=180)d-=360; if(d<-180)d+=360; return d; };
 
-// FK: z = D1 + d3 - D4  (arm plane rises with d3)
 function fk(j1,j2,d3,j4) {
   const t1=D2R(j1), t12=t1+D2R(j2);
   return { x:A1*Math.cos(t1)+A2*Math.cos(t12), y:A1*Math.sin(t1)+A2*Math.sin(t12), z:D1+d3-D4, r:wrap180(j1+j2+j4) };
@@ -233,37 +268,29 @@ const robotRoot = new THREE.Group(); scene.add(robotRoot);
 // ---- Fixed base (table → D1=85mm) ----
 const baseGroup = new THREE.Group(); robotRoot.add(baseGroup);
 
-// Plate
 const bp = new THREE.Mesh(box(180,24,230),matBaseP); bp.position.y=12; bp.castShadow=true; bp.receiveShadow=true; baseGroup.add(bp);
-
-// Fixed column (short, D1=85mm)
 const fc1 = new THREE.Mesh(cyl(60,50,50),matBase); fc1.position.y=49; fc1.castShadow=true; fc1.receiveShadow=true; baseGroup.add(fc1);
 const fc2 = new THREE.Mesh(cyl(50,44,40),matBase); fc2.position.y=94; fc2.castShadow=true; baseGroup.add(fc2);
 const fcf = new THREE.Mesh(cyl(46,42,10),matBaseA); fcf.position.y=D1+3; fcf.castShadow=true; baseGroup.add(fcf);
 
-// ---- J3 MOTOR (coaxial with lift, at top of fixed column) ----
+// ---- J3 MOTOR ----
 const j3m = new THREE.Mesh(cyl(48,42,28),M('#5a657a',0.3,0.7)); j3m.position.y=D1+16; j3m.castShadow=true; baseGroup.add(j3m);
 const j3r = new THREE.Mesh(new THREE.TorusGeometry(26,2.5,8,32),M('#f59e0b',0.4,0.5)); j3r.rotation.x=Math.PI/2; j3r.position.set(0,D1+28,0); baseGroup.add(j3r);
 const j3c = new THREE.Mesh(cyl(40,48,6),matJoint); j3c.position.y=D1+34; j3c.castShadow=true; baseGroup.add(j3c);
 
-// ---- LIFT CARRIAGE (translates by d3 along Y) ----
+// ---- LIFT CARRIAGE ----
 const liftCarriage = new THREE.Group(); baseGroup.add(liftCarriage);
 
-// Lift shaft (scaled dynamically to d3)
 const liftShaft = new THREE.Mesh(new THREE.CylinderGeometry(22,22,1,24), M('#94a3b8',0.22,0.8));
 liftShaft.castShadow=true; liftCarriage.add(liftShaft);
 
-// Shoulder platform (on top of lift)
 const shoulderPlat = new THREE.Group(); shoulderPlat.position.y=0; liftCarriage.add(shoulderPlat);
 shoulderPlat.add((m=>{m.castShadow=true;return m})(new THREE.Mesh(cyl(52,42,14),matBaseA)));
 
-// J1 motor (on platform, centered)
 const j1m = new THREE.Mesh(cyl(48,44,30),matJoint); j1m.position.y=10; j1m.castShadow=true; shoulderPlat.add(j1m);
-
-// J2 motor (on platform, offset behind)
 const j2m = new THREE.Mesh(cyl(22,20,22,20),matJoint); j2m.position.set(0,8,-36); j2m.castShadow=true; shoulderPlat.add(j2m);
 
-// ===== J1 PIVOT (rotates arm) =====
+// ===== J1 PIVOT =====
 const j1Pivot = new THREE.Group(); shoulderPlat.add(j1Pivot);
 j1Pivot.add((r=>{r.rotation.x=Math.PI/2;r.position.y=24;return r})(new THREE.Mesh(new THREE.TorusGeometry(32,3,16,32),matJoint)));
 
@@ -284,22 +311,15 @@ lnk2.add((m=>{m.castShadow=true;m.receiveShadow=true;return m})(new THREE.Mesh(b
 [-(A2-16)/2+3,(A2-16)/2-3].forEach(x=>{const c=new THREE.Mesh(cyl(16,16,18,16),matArm2);c.rotation.z=Math.PI/2;c.position.set(x,0,0);lnk2.add(c);});
 lnk2.add((m=>{m.position.set(0,11,0);m.castShadow=true;return m})(new THREE.Mesh(box(A2-30,4,10),M('#334155',0.4,0.5))));
 
-// ===== J4 PIVOT (at end of link2) =====
+// ===== J4 PIVOT =====
 const j4Pivot = new THREE.Group(); j4Pivot.position.set(A2,0,0); j2Pivot.add(j4Pivot);
-
-// J4 motor
 j4Pivot.add((m=>{m.position.y=-14;m.castShadow=true;return m})(new THREE.Mesh(cyl(18,16,28),matJ4)));
 j4Pivot.add((r=>{r.rotation.x=Math.PI/2;return r})(new THREE.Mesh(new THREE.TorusGeometry(14,2,12,24),matJoint)));
-
-// Tool flange
 j4Pivot.add((m=>{m.position.y=-30;m.castShadow=true;return m})(new THREE.Mesh(cyl(14,18,10),matTool)));
-
-// Gripper
 j4Pivot.add((m=>{m.position.y=-48;m.castShadow=true;return m})(new THREE.Mesh(box(16,28,20),matGrip)));
 j4Pivot.add((m=>{m.position.set(-6,-68,0);m.castShadow=true;return m})(new THREE.Mesh(box(3,25,6),matFinger)));
 j4Pivot.add((m=>{m.position.set(6,-68,0);m.castShadow=true;return m})(new THREE.Mesh(box(3,25,6),matFinger)));
 
-// TCP
 const tcpSphere = new THREE.Mesh(new THREE.SphereGeometry(4,16,16),matTcp); tcpSphere.position.y=-D4; j4Pivot.add(tcpSphere);
 
 // ============================================================
@@ -310,20 +330,12 @@ let currentJoints = {j1:0,j2:0,j3deg:0,j4:0,d3:D3_BASE};
 function updateRobot(j1,j2,j3deg,j4) {
   const d3 = clamp(j3deg2d3(j3deg), D3_MIN, D3_MAX);
   currentJoints = {j1,j2,j3deg,j4,d3};
-
-  // Lift carriage moves entire arm plane
   liftCarriage.position.y = d3;
-  // Lift shaft spans from table (y=0) up to arm plane (y=d3).
-  // Cylinder height=1 scaled by d3 → extends -d3/2..+d3/2 in local Y.
-  // Position at -d3/2 so bottom=0, top=d3 in world space.
   liftShaft.scale.y = Math.max(d3, 2);
   liftShaft.position.y = -d3 / 2;
-
-  // Rotations
   j1Pivot.rotation.y = D2R(j1);
   j2Pivot.rotation.y = D2R(j2);
   j4Pivot.rotation.y = D2R(j4);
-
   const pose = fk(j1,j2,d3,j4);
   updateUI(j1,j2,j3deg,d3,j4,pose);
   return pose;
@@ -419,14 +431,866 @@ function animateTo(tj1,tj2,tj3,tj4,dur){
 }
 
 // ============================================================
-// Render
+// Platform Layout — 9×9 Grid (GRID_SIZE=50mm per cell)
+// Desktop is now a draggable physical module built via buildDesktop()
 // ============================================================
-function resize(){const w=container.clientWidth,h=container.clientHeight;renderer.setSize(w,h);camera.aspect=w/Math.max(h,1);camera.updateProjectionMatrix();}
-window.addEventListener('resize',resize); resize(); updateRobot(0,0,0,0);
-(function render(){requestAnimationFrame(render);controls.update();renderer.render(scene,camera);})();
+const GRID_SIZE = 50;
+const PLATFORM_SIZE = GRID_SIZE * 9;
 
-window.updateRobot=updateRobot; window.fk=fk; window.ik=ik;
-window.j3deg2d3=j3deg2d3; window.d32j3deg=d32j3deg; window.animateTo=animateTo;
+// ============================================================
+// Platform Modules — 5 modules: 机械臂 | 桌面 | 载玻片盒 | 匀胶机 | 滴管头盒
+// ============================================================
+const draggableModules = [];
+const moduleGroups = {};
+const modulePositions = {};
+
+let activeModuleTab = 'robotArm';
+
+// Module definitions: physical modules have builder + defaultPos
+const moduleOrder = ['robotArm', 'desktop', 'slideBox', 'spinCoater', 'dropperBox', 'solutionTray'];
+
+const moduleDefs = {
+  robotArm: {
+    label: '机械臂',
+    physical: false,
+    defaultConfig: {},
+  },
+  desktop: {
+    label: '桌面',
+    physical: true,
+    defaultPos: new THREE.Vector3(0, 0, 0),
+    defaultConfig: { gridSize: 50, platformSize: 450 },
+  },
+  slideBox: {
+    label: '载玻片盒',
+    physical: true,
+    defaultPos: new THREE.Vector3(100, 0, -50),
+    defaultConfig: { quantity: 25, distribution: 'grid', size: 1.0, hSpacing: 4, vSpacing: 4, slideW: 25, slideL: 25 },
+    sizeRange: [0.1, 2.0, 0.1],
+    spacingRange: [1, 20, 1],
+  },
+  spinCoater: {
+    label: '匀胶机',
+    physical: true,
+    defaultPos: new THREE.Vector3(175, 0, 175),
+    defaultConfig: { quantity: 1, distribution: 'single', size: 1.0, spacing: 50 },
+    sizeRange: [0.5, 2.0, 0.1],
+    spacingRange: [2, 200, 1],
+  },
+  dropperBox: {
+    label: '滴管头盒',
+    physical: true,
+    defaultPos: new THREE.Vector3(-175, 0, 100),
+    defaultConfig: { quantity: 96, distribution: 'grid', size: 0.3, colSpacing: 3, rowSpacing: 3, cols: 8, rows: 12 },
+    sizeRange: [0.1, 1.0, 0.05],
+    spacingRange: [1, 10, 1],
+  },
+  solutionTray: {
+    label: '溶液瓶托盘',
+    physical: true,
+    defaultPos: new THREE.Vector3(-100, 0, -175),
+    defaultConfig: { quantity: 20, distribution: 'grid', size: 1.0, colSpacing: 5, rowSpacing: 5, cols: 4, rows: 5, bottleDiameter: 20 },
+    sizeRange: [0.1, 2.0, 0.1],
+    spacingRange: [1, 30, 1],
+  },
+};
+
+// Runtime config (initialized from defaultConfig)
+const moduleConfigs = {};
+Object.keys(moduleDefs).forEach(type => {
+  moduleConfigs[type] = { ...moduleDefs[type].defaultConfig };
+});
+
+function snapToGrid(val) {
+  return Math.round(val / GRID_SIZE) * GRID_SIZE;
+}
+
+function makeBox(w, h, d, color, roughness = 0.5, metalness = 0.3) {
+  return new THREE.Mesh(
+    new THREE.BoxGeometry(w, h, d),
+    new THREE.MeshStandardMaterial({color, roughness, metalness})
+  );
+}
+
+// ============================================================
+// Parametric module builders
+// ============================================================
+
+function buildSlideBox(cfg) {
+  const s = cfg.size;
+  const group = new THREE.Group();
+  group.name = 'SlideBox';
+
+  const n = cfg.quantity;
+  let cols, rows;
+  if (cfg.distribution === 'line') {
+    rows = 1; cols = n;
+  } else {
+    cols = Math.ceil(Math.sqrt(n));
+    rows = Math.ceil(n / cols);
+  }
+
+  const hSp = (cfg.hSpacing || cfg.spacing || 4) * s;
+  const vSp = (cfg.vSpacing || cfg.spacing || 4) * s;
+  // User-definable slide dimensions (width × length), lying flat
+  const slideW = (cfg.slideW || 25) * s;
+  const slideL = (cfg.slideL || 25) * s;
+  const slideH = 1.2 * s;
+
+  const margin = 8 * s;
+  const wallT = 6 * s;
+  const floorH = 3 * s;
+  const wallH = 14 * s;
+
+  const innerW = cols * slideW + (cols - 1) * hSp + margin * 2;
+  const innerD = rows * slideL + (rows - 1) * vSp + margin * 2;
+  const boxW = innerW + wallT * 2;
+  const boxD = innerD + wallT * 2;
+
+  // Floor
+  const floor = makeBox(boxW, floorH, boxD, '#5a6a7a', 0.5, 0.2);
+  floor.position.y = floorH / 2;
+  floor.castShadow = true; floor.receiveShadow = true;
+  group.add(floor);
+
+  // 4 walls
+  const wallColor = '#4a5a6a';
+  const fw = makeBox(boxW, wallH, wallT, wallColor, 0.4, 0.3);
+  fw.position.set(0, floorH + wallH / 2, innerD / 2 + wallT / 2);
+  fw.castShadow = true; group.add(fw);
+
+  const bw = makeBox(boxW, wallH, wallT, wallColor, 0.4, 0.3);
+  bw.position.set(0, floorH + wallH / 2, -innerD / 2 - wallT / 2);
+  bw.castShadow = true; group.add(bw);
+
+  const lw = makeBox(wallT, wallH, innerD + wallT * 2, wallColor, 0.4, 0.3);
+  lw.position.set(-innerW / 2 - wallT / 2, floorH + wallH / 2, 0);
+  lw.castShadow = true; group.add(lw);
+
+  const rw = makeBox(wallT, wallH, innerD + wallT * 2, wallColor, 0.4, 0.3);
+  rw.position.set(innerW / 2 + wallT / 2, floorH + wallH / 2, 0);
+  rw.castShadow = true; group.add(rw);
+
+  // Glass slides — translucent light blue, lying flat
+  const slideMat = new THREE.MeshStandardMaterial({
+    color: '#b8d8e8', roughness: 0.12, metalness: 0.03,
+    transparent: true, opacity: 0.72
+  });
+
+  for (let i = 0; i < n; i++) {
+    const r = cfg.distribution === 'line' ? 0 : Math.floor(i / cols);
+    const c = cfg.distribution === 'line' ? i : i % cols;
+    const ox = (c - (cols - 1) / 2) * (slideW + hSp);
+    const oz = (r - (rows - 1) / 2) * (slideL + vSp);
+
+    const slide = new THREE.Mesh(
+      new THREE.BoxGeometry(slideW, slideH, slideL),
+      slideMat
+    );
+    slide.position.set(ox, floorH + slideH / 2, oz);
+    slide.castShadow = true;
+    group.add(slide);
+  }
+
+  return group;
+}
+
+function buildSpinCoater(cfg) {
+  const s = cfg.size;
+  const group = new THREE.Group();
+  group.name = 'SpinCoater';
+
+  const n = cfg.quantity;
+  const sp = cfg.spacing * s;
+  let cols, rows;
+  if (cfg.distribution === 'single' || n === 1) {
+    cols = 1; rows = 1;
+  } else if (cfg.distribution === 'line') {
+    cols = n; rows = 1;
+  } else {
+    cols = Math.ceil(Math.sqrt(n));
+    rows = Math.ceil(n / cols);
+  }
+  const bw = 150 * s, bh = 80 * s, bd = 150 * s;
+
+  for (let i = 0; i < n; i++) {
+    const r = Math.floor(i / cols);
+    const c = i % cols;
+    const ox = (c - (cols-1)/2) * (bw + sp);
+    const oz = (r - (rows-1)/2) * (bd + sp);
+
+    const subGroup = new THREE.Group();
+    subGroup.position.set(ox, 0, oz);
+
+    const base = makeBox(bw, bh, bd, '#556278', 0.35, 0.6);
+    base.position.y = bh / 2;
+    base.castShadow = true; base.receiveShadow = true;
+    subGroup.add(base);
+
+    const diskR = 55 * s;
+    const disk = new THREE.Mesh(
+      new THREE.CylinderGeometry(diskR, diskR, 8 * s, 32),
+      new THREE.MeshStandardMaterial({color:'#2563eb',roughness:0.28,metalness:0.55})
+    );
+    disk.position.y = bh + 4 * s;
+    disk.castShadow = true;
+    subGroup.add(disk);
+
+    const chuck = makeBox(30 * s, 6 * s, 30 * s, '#1a1d23', 0.7, 0.3);
+    chuck.position.y = bh + 10 * s;
+    subGroup.add(chuck);
+
+    const ringGeo = new THREE.TorusGeometry(diskR, 3 * s, 8, 32);
+    const ringMesh = new THREE.Mesh(ringGeo,
+      new THREE.MeshStandardMaterial({color:'#61afef',roughness:0.3,emissive:'#61afef',emissiveIntensity:0.1}));
+    ringMesh.rotation.x = Math.PI / 2;
+    ringMesh.position.y = bh + 8 * s;
+    subGroup.add(ringMesh);
+
+    group.add(subGroup);
+  }
+
+  return group;
+}
+
+function buildDropperBox(cfg) {
+  const s = cfg.size;
+  const group = new THREE.Group();
+  group.name = 'DropperBox';
+
+  const n = cfg.quantity;
+  let cols, rows;
+  if (cfg.cols && cfg.rows) {
+    cols = cfg.cols; rows = cfg.rows;
+  } else if (cfg.distribution === 'line') {
+    rows = 1; cols = n;
+  } else {
+    cols = Math.ceil(Math.sqrt(n));
+    rows = Math.ceil(n / cols);
+  }
+
+  const colSp = (cfg.colSpacing || cfg.spacing || 3) * s;
+  const rowSp = (cfg.rowSpacing || cfg.spacing || 3) * s;
+  const holeD = 10 * s; // hole diameter space per cell
+  const bw = Math.max(100 * s, cols * (colSp + holeD) + 20 * s);
+  const bd = Math.max(80 * s, rows * (rowSp + holeD * 1.5) + 20 * s);
+
+  const body = makeBox(bw, 40 * s, bd, '#5a6578', 0.4, 0.5);
+  body.position.y = 20 * s;
+  body.castShadow = true; body.receiveShadow = true;
+  group.add(body);
+
+  const lid = makeBox(bw, 6 * s, bd, '#4a5568', 0.4, 0.5);
+  lid.position.y = 43 * s;
+  lid.castShadow = true;
+  group.add(lid);
+
+  const holeMat = new THREE.MeshStandardMaterial({color:'#1a1d23',roughness:0.9});
+  for (let i = 0; i < n; i++) {
+    const r = cfg.distribution === 'line' ? 0 : Math.floor(i / cols);
+    const c = cfg.distribution === 'line' ? i : i % cols;
+    const ox = (c - (cols-1)/2) * (colSp + holeD);
+    const oz = (r - (rows-1)/2) * (rowSp + holeD * 1.5);
+    const hole = new THREE.Mesh(new THREE.CylinderGeometry(5 * s, 5 * s, 20 * s, 16), holeMat);
+    hole.position.set(ox, 45 * s, oz);
+    group.add(hole);
+  }
+
+  // Label
+  const label = makeBox(Math.min(80 * s, bw - 20 * s), 15 * s, 3 * s, '#e06c75', 0.6);
+  label.position.set(0, 35 * s, bd / 2 + 2);
+  group.add(label);
+
+  return group;
+}
+
+function buildSolutionTray(cfg) {
+  const s = cfg.size;
+  const group = new THREE.Group();
+  group.name = 'SolutionTray';
+
+  const n = cfg.quantity;
+  const cols = cfg.cols || 4;
+  const rows = cfg.rows || 5;
+  const colSp = (cfg.colSpacing || 5) * s;
+  const rowSp = (cfg.rowSpacing || 5) * s;
+  const dia = (cfg.bottleDiameter || 20) * s;
+  const margin = 10 * s;
+  const trayH = 18 * s;
+
+  const innerW = cols * dia + (cols - 1) * colSp + margin * 2;
+  const innerD = rows * dia + (rows - 1) * rowSp + margin * 2;
+
+  // Solid rectangular block — the tray body
+  const body = makeBox(innerW, trayH, innerD, '#5a6a7a', 0.45, 0.25);
+  body.position.y = trayH / 2;
+  body.castShadow = true; body.receiveShadow = true;
+  group.add(body);
+
+  // Circular well depressions — dark disks on top surface of the block
+  const wellMat = new THREE.MeshStandardMaterial({color: '#15171a', roughness: 0.9});
+  for (let i = 0; i < n; i++) {
+    const r = Math.floor(i / cols);
+    const c = i % cols;
+    const ox = (c - (cols - 1) / 2) * (dia + colSp);
+    const oz = (r - (rows - 1) / 2) * (dia + rowSp);
+    const well = new THREE.Mesh(
+      new THREE.CylinderGeometry(dia / 2, dia / 2, 1.5 * s, 40),
+      wellMat
+    );
+    well.position.set(ox, trayH + 0.5 * s, oz);
+    group.add(well);
+  }
+
+  return group;
+}
+
+function buildDesktop(cfg) {
+  const group = new THREE.Group();
+  group.name = 'Desktop';
+
+  const size = cfg.platformSize || PLATFORM_SIZE;
+  const cells = Math.round(size / (cfg.gridSize || GRID_SIZE));
+
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(size, size),
+    new THREE.MeshStandardMaterial({color:'#2a2d33', roughness:0.8, metalness:0.1})
+  );
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = 0.02;
+  mesh.receiveShadow = true;
+  group.add(mesh);
+
+  const gh = new THREE.GridHelper(size, cells, '#4a4f59', '#3a3f4b');
+  gh.position.y = 0.03;
+  group.add(gh);
+
+  const half = size / 2;
+  const pts = [
+    new THREE.Vector3(-half, 0.05, -half),
+    new THREE.Vector3( half, 0.05, -half),
+    new THREE.Vector3( half, 0.05,  half),
+    new THREE.Vector3(-half, 0.05,  half),
+    new THREE.Vector3(-half, 0.05, -half),
+  ];
+  const line = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(pts),
+    new THREE.LineBasicMaterial({color:'#61afef', transparent:true, opacity:0.5})
+  );
+  group.add(line);
+
+  return group;
+}
+
+const builders = {
+  desktop: buildDesktop,
+  slideBox: buildSlideBox,
+  spinCoater: buildSpinCoater,
+  dropperBox: buildDropperBox,
+  solutionTray: buildSolutionTray,
+};
+
+// ============================================================
+// Edit mode
+// ============================================================
+let editModeEnabled = false;
+window.toggleEditMode = () => {
+  editModeEnabled = document.getElementById('edit-mode-toggle').checked;
+  // Show/hide module tab row
+  const tabRow = document.querySelector('.module-tab-row');
+  if (tabRow) tabRow.style.display = editModeEnabled ? '' : 'none';
+  renderModuleConfigUI();
+};
+
+// ============================================================
+// Build / rebuild
+// ============================================================
+
+function rebuildModule(type) {
+  const def = moduleDefs[type];
+  if (!def.physical) return;
+
+  const oldGroup = moduleGroups[type];
+  const savedPos = modulePositions[type] ? modulePositions[type].clone()
+    : (oldGroup ? oldGroup.position.clone() : def.defaultPos.clone());
+
+  if (oldGroup) {
+    scene.remove(oldGroup);
+    const idx = draggableModules.indexOf(oldGroup);
+    if (idx >= 0) draggableModules.splice(idx, 1);
+    disposeGroup(oldGroup);
+  }
+
+  const cfg = moduleConfigs[type];
+  const newGroup = builders[type](cfg);
+  newGroup.position.copy(savedPos);
+  scene.add(newGroup);
+
+  draggableModules.push(newGroup);
+  moduleGroups[type] = newGroup;
+  modulePositions[type] = savedPos;
+
+  rebuildModuleDrag();
+  updateModulePosDisplay(type);
+}
+
+function rebuildModuleDrag() {
+  // drag handler is stateless — just needs to know current draggableModules
+  // (findModuleGroup walks parents at drag time, so no re-setup needed)
+}
+
+function disposeGroup(group) {
+  group.traverse(child => {
+    if (child.geometry) child.geometry.dispose();
+    if (child.material) {
+      if (Array.isArray(child.material)) {
+        child.material.forEach(m => m.dispose());
+      } else {
+        child.material.dispose();
+      }
+    }
+  });
+}
+
+// ============================================================
+// Custom module drag — walks up parent chain to find the module group,
+// so clicking a child (slide, dropper hole) still drags the whole box.
+// ============================================================
+function setupModuleDrag() {
+  const dom = renderer.domElement;
+  const raycaster = new THREE.Raycaster();
+  const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  let selectedGroup = null;
+  let dragOffset = new THREE.Vector3();
+
+  function findModuleGroup(intersects) {
+    for (const hit of intersects) {
+      let obj = hit.object;
+      while (obj) {
+        if (draggableModules.includes(obj)) return obj;
+        obj = obj.parent;
+      }
+    }
+    return null;
+  }
+
+  function getMouse(event) {
+    return new THREE.Vector2(
+      (event.clientX / dom.clientWidth) * 2 - 1,
+      -(event.clientY / dom.clientHeight) * 2 + 1
+    );
+  }
+
+  dom.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    raycaster.setFromCamera(getMouse(event), camera);
+    const intersects = raycaster.intersectObjects(scene.children, true);
+    const group = findModuleGroup(intersects);
+    if (!group) return;
+
+    selectedGroup = group;
+    controls.enabled = false;
+    dom.style.cursor = 'grabbing';
+
+    const hitPoint = new THREE.Vector3();
+    raycaster.ray.intersectPlane(dragPlane, hitPoint);
+    dragOffset.copy(hitPoint).sub(group.position);
+  });
+
+  dom.addEventListener('pointermove', (event) => {
+    if (!selectedGroup) return;
+    raycaster.setFromCamera(getMouse(event), camera);
+    const hitPoint = new THREE.Vector3();
+    if (raycaster.ray.intersectPlane(dragPlane, hitPoint)) {
+      selectedGroup.position.x = hitPoint.x - dragOffset.x;
+      selectedGroup.position.z = hitPoint.z - dragOffset.z;
+    }
+  });
+
+  dom.addEventListener('pointerup', () => {
+    if (!selectedGroup) return;
+
+    const g = selectedGroup;
+    g.position.x = snapToGrid(g.position.x);
+    g.position.z = snapToGrid(g.position.z);
+    const bound = 500;
+    g.position.x = Math.max(-bound, Math.min(bound, g.position.x));
+    g.position.z = Math.max(-bound, Math.min(bound, g.position.z));
+    g.position.y = 0;
+
+    for (const [t, grp] of Object.entries(moduleGroups)) {
+      if (grp === g) {
+        modulePositions[t] = g.position.clone();
+        updateModulePosDisplay(t);
+        break;
+      }
+    }
+    console.log(`[DragEnd] ${g.name} → (${g.position.x}, ${g.position.z})`);
+
+    selectedGroup = null;
+    controls.enabled = true;
+    dom.style.cursor = '';
+  });
+}
+
+// ============================================================
+// Module config UI
+// ============================================================
+
+function updateModulePosDisplay(type) {
+  const elX = document.getElementById('mod-pos-x');
+  const elZ = document.getElementById('mod-pos-z');
+  const pos = modulePositions[type] || moduleGroups[type]?.position;
+  if (elX && pos) elX.value = pos.x.toFixed(0);
+  if (elZ && pos) elZ.value = pos.z.toFixed(0);
+}
+
+function switchModuleTab(type) {
+  activeModuleTab = type;
+  moduleOrder.forEach(t => {
+    document.getElementById('mtab-' + t).classList.toggle('active', t === type);
+  });
+  renderModuleConfigUI();
+}
+
+function renderModuleConfigUI() {
+  const body = document.getElementById('mod-config-body');
+  let html = '';
+
+  if (!editModeEnabled) {
+    // ---- Read-only: show module summary list ----
+    html += `<div style="font-size:12px;color:var(--text);line-height:1.6">`;
+    for (const type of moduleOrder) {
+      const def = moduleDefs[type];
+      if (type === 'robotArm') {
+        html += `<div style="margin-bottom:6px"><b style="color:var(--accent)">机械臂</b> — Dobot M1Pro SCARA | 臂展100–400mm | Z:155–455mm</div>`;
+      } else if (def.physical) {
+        const cfg = moduleConfigs[type];
+        const pos = modulePositions[type] || def.defaultPos;
+        const parts = [];
+        if (cfg.quantity !== undefined && cfg.quantity > 1) parts.push(`${cfg.quantity}个`);
+        if (cfg.cols && cfg.rows) parts.push(`${cfg.cols}×${cfg.rows}`);
+        if (cfg.slideW !== undefined) parts.push(`片${cfg.slideW}×${cfg.slideL}mm`);
+        if (cfg.bottleDiameter !== undefined) parts.push(`瓶径${cfg.bottleDiameter}mm`);
+        const detail = parts.length ? ` (${parts.join(' ')})` : '';
+        html += `<div style="margin-bottom:6px"><b style="color:var(--accent)">${def.label}</b> — ${detail || '已放置'} | 位置 (${pos.x.toFixed(0)}, ${pos.z.toFixed(0)})</div>`;
+      }
+    }
+    html += `<div style="margin-top:4px;font-size:10px;color:var(--text)">勾选「编辑模式」可修改模块参数</div>`;
+    html += `</div>`;
+    body.innerHTML = html;
+    return;
+  }
+
+  // ---- Edit mode: per-module config panel ----
+  const type = activeModuleTab;
+  const cfg = moduleConfigs[type];
+  const def = moduleDefs[type];
+
+  const distOptions = {
+    slideBox: ['grid', 'line'],
+    spinCoater: ['single', 'grid', 'line'],
+    dropperBox: ['grid', 'line'],
+    solutionTray: ['grid', 'line'],
+  };
+  const distLabels = { single: '单台', grid: '网格排列', line: '线性排列' };
+
+  const disabled = ''; // edit mode on, inputs enabled
+
+  if (type === 'robotArm') {
+    html += `<div style="font-size:12px;color:var(--text);line-height:1.8">
+      <div>型号：Dobot M1Pro SCARA</div>
+      <div>构型：4轴 (J1/J2/J4 旋转 + J3 升降柱)</div>
+      <div>臂展：<span style="color:var(--accent)">100–400mm</span> (a₁=250, a₂=150)</div>
+      <div>Z轴行程：<span style="color:var(--accent)">155–455mm</span></div>
+      <div>J1：±85° | J2：±130° | J4：±360°</div>
+      <div style="margin-top:4px">末端位姿由上方<span style="color:var(--accent)">关节控制</span> / <span style="color:var(--accent2)">笛卡尔控制</span>面板调节</div>
+      <div>TCP协议指令见下方<span style="color:var(--accent)">TCP协议模拟</span>区</div>
+    </div>`;
+
+  } else if (type === 'desktop') {
+    html += `<div class="config-row"><span class="config-label">网格尺寸</span><input type="number" id="cfg-gridSize" value="${cfg.gridSize}" min="20" max="200" step="10" onchange="onConfigChange()" ${disabled}><span class="input-unit">mm</span></div>`;
+    html += `<div class="config-row"><span class="config-label">平台尺寸</span><input type="number" id="cfg-platformSize" value="${cfg.platformSize}" min="200" max="900" step="50" onchange="onConfigChange()" ${disabled}><span class="input-unit">mm</span></div>`;
+    html += `<div style="font-size:11px;color:var(--text);margin-top:4px">桌面可拖拽移动。修改尺寸后需重新生成。</div>`;
+    // Position for desktop
+    html += `<div class="config-row"><span class="config-label">位置 X</span><input type="number" id="mod-pos-x" value="${(modulePositions[type] || def.defaultPos).x.toFixed(0)}" step="50" onchange="onSetPosition()"><span class="input-unit">mm</span></div>`;
+    html += `<div class="config-row"><span class="config-label">位置 Z</span><input type="number" id="mod-pos-z" value="${(modulePositions[type] || def.defaultPos).z.toFixed(0)}" step="50" onchange="onSetPosition()"><span class="input-unit">mm</span></div>`;
+
+  } else {
+    // Physical modules (slideBox, spinCoater, dropperBox)
+    const sr = def.sizeRange || [0.5, 2.0, 0.1];
+    const spr = def.spacingRange || [2, 200, 1];
+    const maxQty = type === 'dropperBox' ? 200 : 100;
+
+    html += `<div class="config-row"><span class="config-label">数量</span><input type="number" id="cfg-qty" value="${cfg.quantity}" min="1" max="${maxQty}" step="1" onchange="onConfigChange()" ${disabled}></div>`;
+
+    if (type === 'dropperBox' || type === 'solutionTray') {
+      html += `<div class="config-row"><span class="config-label">列数(cols)</span><input type="number" id="cfg-cols" value="${cfg.cols || 4}" min="1" max="20" step="1" onchange="onConfigChange()" ${disabled}><span class="input-unit"></span></div>`;
+      html += `<div class="config-row"><span class="config-label">行数(rows)</span><input type="number" id="cfg-rows" value="${cfg.rows || 5}" min="1" max="20" step="1" onchange="onConfigChange()" ${disabled}><span class="input-unit"></span></div>`;
+    }
+
+    if (distOptions[type]) {
+      html += `<div class="config-row"><span class="config-label">分布方式</span><select id="cfg-dist" onchange="onConfigChange()" ${disabled}>`;
+      distOptions[type].forEach(d => {
+        html += `<option value="${d}" ${cfg.distribution === d ? 'selected' : ''}>${distLabels[d] || d}</option>`;
+      });
+      html += `</select></div>`;
+    }
+
+    html += `<div class="config-row"><span class="config-label">整体缩放</span><input type="range" id="cfg-size" min="${sr[0]}" max="${sr[1]}" value="${cfg.size}" step="${sr[2]}" oninput="onConfigChange()" ${disabled}><span style="font-size:11px;color:var(--text-bright);width:36px" id="cfg-size-val">${cfg.size.toFixed(2)}x</span></div>`;
+
+    if (type === 'slideBox') {
+      html += `<div class="config-row"><span class="config-label">横间隔</span><input type="number" id="cfg-hSpacing" value="${cfg.hSpacing || 4}" min="${spr[0]}" max="${spr[1]}" step="${spr[2]}" onchange="onConfigChange()" ${disabled}><span class="input-unit">mm (X)</span></div>`;
+      html += `<div class="config-row"><span class="config-label">纵间隔</span><input type="number" id="cfg-vSpacing" value="${cfg.vSpacing || 4}" min="${spr[0]}" max="${spr[1]}" step="${spr[2]}" onchange="onConfigChange()" ${disabled}><span class="input-unit">mm (Z)</span></div>`;
+    } else if (type === 'dropperBox' || type === 'solutionTray') {
+      html += `<div class="config-row"><span class="config-label">列间隔</span><input type="number" id="cfg-colSpacing" value="${cfg.colSpacing || 3}" min="${spr[0]}" max="${spr[1]}" step="${spr[2]}" onchange="onConfigChange()" ${disabled}><span class="input-unit">mm (X)</span></div>`;
+      html += `<div class="config-row"><span class="config-label">行间隔</span><input type="number" id="cfg-rowSpacing" value="${cfg.rowSpacing || 3}" min="${spr[0]}" max="${spr[1]}" step="${spr[2]}" onchange="onConfigChange()" ${disabled}><span class="input-unit">mm (Z)</span></div>`;
+    } else {
+      html += `<div class="config-row"><span class="config-label">间隔</span><input type="number" id="cfg-spacing" value="${cfg.spacing || 2}" min="${spr[0]}" max="${spr[1]}" step="${spr[2]}" onchange="onConfigChange()" ${disabled}><span class="input-unit">mm</span></div>`;
+    }
+
+    // Slide-specific: width × length
+    if (type === 'slideBox') {
+      html += `<div class="config-row"><span class="config-label">载玻片宽</span><input type="number" id="cfg-slideW" value="${cfg.slideW || 25}" min="5" max="100" step="1" onchange="onConfigChange()" ${disabled}><span class="input-unit">mm (X)</span></div>`;
+      html += `<div class="config-row"><span class="config-label">载玻片长</span><input type="number" id="cfg-slideL" value="${cfg.slideL || 25}" min="5" max="150" step="1" onchange="onConfigChange()" ${disabled}><span class="input-unit">mm (Z)</span></div>`;
+    }
+
+    // SolutionTray: bottle diameter
+    if (type === 'solutionTray') {
+      html += `<div class="config-row"><span class="config-label">瓶直径</span><input type="number" id="cfg-bottleDia" value="${cfg.bottleDiameter || 20}" min="5" max="80" step="1" onchange="onConfigChange()" ${disabled}><span class="input-unit">mm</span></div>`;
+    }
+
+    // Position — manual input
+    html += `<div class="config-row"><span class="config-label">位置 X</span><input type="number" id="mod-pos-x" value="${(modulePositions[type] || def.defaultPos).x.toFixed(0)}" step="50" onchange="onSetPosition()"><span class="input-unit">mm</span></div>`;
+    html += `<div class="config-row"><span class="config-label">位置 Z</span><input type="number" id="mod-pos-z" value="${(modulePositions[type] || def.defaultPos).z.toFixed(0)}" step="50" onchange="onSetPosition()"><span class="input-unit">mm</span></div>`;
+    html += `<div style="font-size:10px;color:var(--text)">可直接拖拽模块来调整位置</div>`;
+  }
+
+  body.innerHTML = html;
+}
+
+window.onConfigChange = () => {
+  const type = activeModuleTab;
+  const def = moduleDefs[type];
+
+  if (type === 'robotArm') return;
+
+  if (!editModeEnabled) return; // config changes only in edit mode
+
+  if (type === 'desktop') {
+    const gs = document.getElementById('cfg-gridSize');
+    const ps = document.getElementById('cfg-platformSize');
+    if (gs && ps) {
+      moduleConfigs.desktop.gridSize = Math.max(20, parseInt(gs.value) || 50);
+      moduleConfigs.desktop.platformSize = Math.max(200, parseInt(ps.value) || 450);
+    }
+    rebuildModule('desktop');
+    return;
+  }
+
+  // Physical modules (slideBox, spinCoater, dropperBox)
+  const qtyEl = document.getElementById('cfg-qty');
+  const distEl = document.getElementById('cfg-dist');
+  const sizeEl = document.getElementById('cfg-size');
+  const spEl = document.getElementById('cfg-spacing');
+
+  if (!qtyEl) return;
+
+  const qty = Math.max(1, parseInt(qtyEl.value) || 1);
+  qtyEl.value = qty;
+  const dist = distEl ? distEl.value : moduleConfigs[type].distribution;
+  const size = parseFloat(sizeEl.value);
+  const spacing = spEl ? Math.max(1, parseInt(spEl.value) || 2) : 2;
+  if (spEl) spEl.value = spacing;
+
+  if (document.getElementById('cfg-size-val'))
+    document.getElementById('cfg-size-val').textContent = size.toFixed(2) + 'x';
+
+  const newCfg = { quantity: qty, distribution: dist, size, spacing };
+
+  if (type === 'slideBox') {
+    const swEl = document.getElementById('cfg-slideW');
+    const slEl = document.getElementById('cfg-slideL');
+    const hsEl = document.getElementById('cfg-hSpacing');
+    const vsEl = document.getElementById('cfg-vSpacing');
+    newCfg.slideW = Math.max(5, parseInt(swEl?.value) || 25);
+    newCfg.slideL = Math.max(5, parseInt(slEl?.value) || 25);
+    newCfg.hSpacing = Math.max(1, parseInt(hsEl?.value) || 4);
+    newCfg.vSpacing = Math.max(1, parseInt(vsEl?.value) || 4);
+    if (swEl) swEl.value = newCfg.slideW;
+    if (slEl) slEl.value = newCfg.slideL;
+    if (hsEl) hsEl.value = newCfg.hSpacing;
+    if (vsEl) vsEl.value = newCfg.vSpacing;
+    delete newCfg.spacing;
+  }
+
+  if (type === 'dropperBox' || type === 'solutionTray') {
+    const cEl = document.getElementById('cfg-cols');
+    const rEl = document.getElementById('cfg-rows');
+    const csEl = document.getElementById('cfg-colSpacing');
+    const rsEl = document.getElementById('cfg-rowSpacing');
+    if (cEl && rEl) {
+      newCfg.cols = Math.max(1, parseInt(cEl.value) || (type === 'solutionTray' ? 4 : 8));
+      newCfg.rows = Math.max(1, parseInt(rEl.value) || (type === 'solutionTray' ? 5 : 12));
+      cEl.value = newCfg.cols;
+      rEl.value = newCfg.rows;
+    }
+    newCfg.colSpacing = Math.max(1, parseInt(csEl?.value) || 3);
+    newCfg.rowSpacing = Math.max(1, parseInt(rsEl?.value) || 3);
+    if (csEl) csEl.value = newCfg.colSpacing;
+    if (rsEl) rsEl.value = newCfg.rowSpacing;
+    delete newCfg.spacing;
+
+    if (type === 'solutionTray') {
+      const bdEl = document.getElementById('cfg-bottleDia');
+      newCfg.bottleDiameter = Math.max(5, parseInt(bdEl?.value) || 20);
+      if (bdEl) bdEl.value = newCfg.bottleDiameter;
+    }
+  }
+
+  moduleConfigs[type] = newCfg;
+  rebuildModule(type);
+};
+
+window.onSetPosition = () => {
+  const type = activeModuleTab;
+  const def = moduleDefs[type];
+  if (!def.physical) return;
+
+  const xEl = document.getElementById('mod-pos-x');
+  const zEl = document.getElementById('mod-pos-z');
+  if (!xEl || !zEl) return;
+
+  const bound = 500;
+  const x = snapToGrid(Math.max(-bound, Math.min(bound, parseFloat(xEl.value) || 0)));
+  const z = snapToGrid(Math.max(-bound, Math.min(bound, parseFloat(zEl.value) || 0)));
+  xEl.value = x.toFixed(0);
+  zEl.value = z.toFixed(0);
+
+  const grp = moduleGroups[type];
+  if (grp) {
+    grp.position.set(x, 0, z);
+    modulePositions[type] = new THREE.Vector3(x, 0, z);
+  }
+};
+
+window.switchModuleTab = switchModuleTab;
+
+// ============================================================
+// Config persistence — load from / save to platform_config.json
+// ============================================================
+
+function collectConfig() {
+  const out = {};
+  for (const type of moduleOrder) {
+    const def = moduleDefs[type];
+    if (!def.physical) continue;
+    const cfg = { ...moduleConfigs[type] };
+    const pos = modulePositions[type] || def.defaultPos;
+    cfg.position = [Math.round(pos.x), Math.round(pos.z)];
+    out[type] = cfg;
+  }
+  return out;
+}
+
+function applyConfig(data) {
+  if (!data || typeof data !== 'object') return;
+  for (const type of moduleOrder) {
+    const def = moduleDefs[type];
+    if (!def.physical) continue;
+    const entry = data[type];
+    if (!entry) continue;
+    // Merge loaded values over defaults (preserve keys not in file)
+    Object.assign(moduleConfigs[type], entry);
+    if (entry.position && Array.isArray(entry.position)) {
+      modulePositions[type] = new THREE.Vector3(entry.position[0], 0, entry.position[1]);
+    }
+  }
+}
+
+async function loadConfig() {
+  try {
+    const resp = await fetch('/api/platform_config');
+    const json = await resp.json();
+    if (json.success && json.data) {
+      applyConfig(json.data);
+      console.log('[Config] Loaded from platform_config.json');
+    }
+  } catch (e) {
+    console.log('[Config] Failed to load, using defaults:', e.message);
+  }
+}
+
+window.saveConfig = async () => {
+  const data = collectConfig();
+  try {
+    const resp = await fetch('/api/platform_config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const json = await resp.json();
+    if (json.success) {
+      console.log('[Config] Saved to platform_config.json');
+      alert('配置已保存');
+    } else {
+      alert('保存失败: ' + (json.error || 'unknown'));
+    }
+  } catch (e) {
+    alert('保存失败: ' + e.message);
+  }
+};
+
+// ============================================================
+// Initialize modules (physical only)
+// ============================================================
+async function initModules() {
+  await loadConfig();
+
+  moduleOrder.forEach(type => {
+    const def = moduleDefs[type];
+    if (!def.physical) return;
+    if (!modulePositions[type]) {
+      modulePositions[type] = def.defaultPos.clone();
+    }
+    const group = builders[type](moduleConfigs[type]);
+    group.position.copy(modulePositions[type]);
+    scene.add(group);
+    draggableModules.push(group);
+    moduleGroups[type] = group;
+  });
+
+  setupModuleDrag();
+  renderModuleConfigUI();
+}
+
+initModules();
+
+// ============================================================
+// Resize & render loop
+// ============================================================
+function resize() {
+  const w = container.clientWidth, h = container.clientHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / Math.max(h, 1);
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+resize();
+updateRobot(0, 0, 0, 0);
+
+(function render() {
+  requestAnimationFrame(render);
+  controls.update();
+  renderer.render(scene, camera);
+})();
+
+window.updateRobot = updateRobot;
+window.fk = fk;
+window.ik = ik;
+window.j3deg2d3 = j3deg2d3;
+window.d32j3deg = d32j3deg;
+window.animateTo = animateTo;
 </script>
 </body>
 </html>

@@ -197,6 +197,51 @@ def api_pose():
 
 
 # -------------------------------------------------------
+# Platform Config API
+# -------------------------------------------------------
+
+CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'platform_config.json')
+
+
+def _load_platform_config():
+    """Read platform_config.json, return dict. Returns empty dict on failure."""
+    try:
+        with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        print(f"[Config] Failed to load platform_config.json: {e}")
+        return {}
+
+
+def _save_platform_config(data):
+    """Write platform_config.json. Returns True on success."""
+    try:
+        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        return True
+    except Exception as e:
+        print(f"[Config] Failed to save platform_config.json: {e}")
+        return False
+
+
+@app.route('/api/platform_config', methods=['GET'])
+def api_get_platform_config():
+    """Return platform module configuration."""
+    cfg = _load_platform_config()
+    return jsonify({'success': True, 'data': cfg})
+
+
+@app.route('/api/platform_config', methods=['POST', 'PUT'])
+def api_save_platform_config():
+    """Save platform module configuration (JSON body)."""
+    data = request.get_json(force=True)
+    if not isinstance(data, dict):
+        return jsonify({'success': False, 'error': 'Body must be a JSON object'}), 400
+    ok = _save_platform_config(data)
+    return jsonify({'success': ok, 'error': '' if ok else 'Failed to write file'})
+
+
+# -------------------------------------------------------
 # Start
 # -------------------------------------------------------
 

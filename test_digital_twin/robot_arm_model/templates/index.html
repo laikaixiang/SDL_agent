@@ -438,11 +438,11 @@ const GRID_SIZE = 50;
 const PLATFORM_SIZE = GRID_SIZE * 9;
 
 // ============================================================
-// Platform Modules — 5 modules: 机械臂 | 桌面 | 载玻片盒 | 匀胶机 | 滴管头盒
+// Platform Modules — multi-instance: each type can have N copies
 // ============================================================
-const draggableModules = [];
-const moduleGroups = {};
-const modulePositions = {};
+const draggableModules = [];       // flat list of all 3D groups (for raycasting)
+const moduleGroups = {};           // { type: [group1, group2, ...] }
+const modulePositions = {};        // { type: [Vector3, Vector3, ...] }
 
 let activeModuleTab = 'robotArm';
 
@@ -810,28 +810,87 @@ function rebuildModule(type) {
   const def = moduleDefs[type];
   if (!def.physical) return;
 
-  const oldGroup = moduleGroups[type];
-  const savedPos = modulePositions[type] ? modulePositions[type].clone()
-    : (oldGroup ? oldGroup.position.clone() : def.defaultPos.clone());
+  const oldGroups = moduleGroups[type] || [];
+  const savedPositions = modulePositions[type] || [];
 
-  if (oldGroup) {
-    scene.remove(oldGroup);
-    const idx = draggableModules.indexOf(oldGroup);
+  // Remove all old instances
+  oldGroups.forEach(g => {
+    scene.remove(g);
+    const idx = draggableModules.indexOf(g);
     if (idx >= 0) draggableModules.splice(idx, 1);
-    disposeGroup(oldGroup);
-  }
+    disposeGroup(g);
+  });
 
+  // Rebuild all instances at saved positions
   const cfg = moduleConfigs[type];
-  const newGroup = builders[type](cfg);
-  newGroup.position.copy(savedPos);
-  scene.add(newGroup);
+  const newGroups = [];
+  savedPositions.forEach(pos => {
+    const g = builders[type](cfg);
+    g.position.copy(pos);
+    scene.add(g);
+    draggableModules.push(g);
+    newGroups.push(g);
+  });
 
-  draggableModules.push(newGroup);
-  moduleGroups[type] = newGroup;
-  modulePositions[type] = savedPos;
+  moduleGroups[type] = newGroups;
+  modulePositions[type] = savedPositions;
 
   rebuildModuleDrag();
   updateModulePosDisplay(type);
+}
+
+function addInstance(type, nearPosition) {
+  const def = moduleDefs[type];
+  if (!def.physical) return null;
+  if (type === 'desktop') return null; // only one desktop
+
+  // Offset from near position to avoid stacking
+  const offsetX = 60 * (moduleGroups[type] ? moduleGroups[type].length : 0);
+  const pos = new THREE.Vector3(
+    snapToGrid((nearPosition ? nearPosition.x : def.defaultPos.x) + offsetX),
+    0,
+    snapToGrid((nearPosition ? nearPosition.z : def.defaultPos.z) + offsetX)
+  );
+
+  const cfg = moduleConfigs[type];
+  const g = builders[type](cfg);
+  g.position.copy(pos);
+  scene.add(g);
+  draggableModules.push(g);
+
+  if (!moduleGroups[type]) moduleGroups[type] = [];
+  if (!modulePositions[type]) modulePositions[type] = [];
+  moduleGroups[type].push(g);
+  modulePositions[type].push(pos.clone());
+
+  console.log(`[AddInstance] ${def.label} #${moduleGroups[type].length} → (${pos.x}, ${pos.z})`);
+  renderModuleConfigUI();
+  return g;
+}
+
+function removeLastInstance(type) {
+  const groups = moduleGroups[type];
+  if (!groups || groups.length <= 1) return;
+  removeInstance(type, groups[groups.length - 1]);
+}
+
+function removeInstance(type, group) {
+  const groups = moduleGroups[type];
+  if (!groups) return;
+  const idx = groups.indexOf(group);
+  if (idx < 0) return;
+  if (groups.length <= 1) return; // keep at least 1 instance
+
+  scene.remove(group);
+  const di = draggableModules.indexOf(group);
+  if (di >= 0) draggableModules.splice(di, 1);
+  disposeGroup(group);
+
+  groups.splice(idx, 1);
+  if (modulePositions[type]) modulePositions[type].splice(idx, 1);
+
+  console.log(`[RemoveInstance] ${moduleDefs[type].label} #${idx} removed, ${groups.length} remaining`);
+  return g;
 }
 
 function rebuildModuleDrag() {
@@ -862,6 +921,13 @@ function setupModuleDrag() {
   const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   let selectedGroup = null;
   let dragOffset = new THREE.Vector3();
+
+  function findModuleType(group) {
+    for (const [type, groups] of Object.entries(moduleGroups)) {
+      if (groups && groups.includes(group)) return type;
+    }
+    return null;
+  }
 
   function findModuleGroup(intersects) {
     for (const hit of intersects) {
@@ -897,6 +963,21 @@ function setupModuleDrag() {
     dragOffset.copy(hitPoint).sub(group.position);
   });
 
+  // Right-click on 3D module → delete instance
+  dom.addEventListener('contextmenu', (event) => {
+    raycaster.setFromCamera(getMouse(event), camera);
+    const intersects = raycaster.intersectObjects(scene.children, true);
+    const group = findModuleGroup(intersects);
+    if (!group) return;
+    const type = findModuleType(group);
+    if (!type || type === 'desktop') return;
+    const groups = moduleGroups[type];
+    if (!groups || groups.length <= 1) return; // keep at least 1
+    event.preventDefault();
+    removeInstance(type, group);
+    renderModuleConfigUI();
+  });
+
   dom.addEventListener('pointermove', (event) => {
     if (!selectedGroup) return;
     raycaster.setFromCamera(getMouse(event), camera);
@@ -918,9 +999,10 @@ function setupModuleDrag() {
     g.position.z = Math.max(-bound, Math.min(bound, g.position.z));
     g.position.y = 0;
 
-    for (const [t, grp] of Object.entries(moduleGroups)) {
-      if (grp === g) {
-        modulePositions[t] = g.position.clone();
+    for (const [t, groups] of Object.entries(moduleGroups)) {
+      const idx = groups ? groups.indexOf(g) : -1;
+      if (idx >= 0 && modulePositions[t]) {
+        modulePositions[t][idx] = g.position.clone();
         updateModulePosDisplay(t);
         break;
       }
@@ -940,7 +1022,10 @@ function setupModuleDrag() {
 function updateModulePosDisplay(type) {
   const elX = document.getElementById('mod-pos-x');
   const elZ = document.getElementById('mod-pos-z');
-  const pos = modulePositions[type] || moduleGroups[type]?.position;
+  const positions = modulePositions[type];
+  const pos = (positions && positions.length > 0) ? positions[0]
+    : (moduleGroups[type] && moduleGroups[type].length > 0) ? moduleGroups[type][0].position
+    : null;
   if (elX && pos) elX.value = pos.x.toFixed(0);
   if (elZ && pos) elZ.value = pos.z.toFixed(0);
 }
@@ -966,17 +1051,22 @@ function renderModuleConfigUI() {
         html += `<div style="margin-bottom:6px"><b style="color:var(--accent)">机械臂</b> — Dobot M1Pro SCARA | 臂展100–400mm | Z:155–455mm</div>`;
       } else if (def.physical) {
         const cfg = moduleConfigs[type];
-        const pos = modulePositions[type] || def.defaultPos;
+        const positions = modulePositions[type] || [];
+        const count = positions.length;
         const parts = [];
         if (cfg.quantity !== undefined && cfg.quantity > 1) parts.push(`${cfg.quantity}个`);
         if (cfg.cols && cfg.rows) parts.push(`${cfg.cols}×${cfg.rows}`);
         if (cfg.slideW !== undefined) parts.push(`片${cfg.slideW}×${cfg.slideL}mm`);
         if (cfg.bottleDiameter !== undefined) parts.push(`瓶径${cfg.bottleDiameter}mm`);
         const detail = parts.length ? ` (${parts.join(' ')})` : '';
-        html += `<div style="margin-bottom:6px"><b style="color:var(--accent)">${def.label}</b> — ${detail || '已放置'} | 位置 (${pos.x.toFixed(0)}, ${pos.z.toFixed(0)})</div>`;
+        const posStr = count === 1 ? `位置 (${positions[0].x.toFixed(0)}, ${positions[0].z.toFixed(0)})` : `${count}个实例`;
+        const canAdd = type !== 'desktop';
+        const delBtn = (count > 1 && canAdd) ? `<span onclick="event.stopPropagation();removeLastInstance('${type}');renderModuleConfigUI()" style="cursor:pointer;color:var(--danger);margin-left:4px" title="删除一个实例">×</span>` : '';
+        const dblClick = canAdd ? `ondblclick="addInstance('${type}');renderModuleConfigUI()"` : '';
+        html += `<div ${dblClick} style="margin-bottom:6px;${canAdd ? 'cursor:pointer' : ''}" title="${canAdd ? '双击添加新实例' : ''}"><b style="color:var(--accent)">${def.label}</b> — ${detail || '已放置'} | ${posStr}${delBtn}</div>`;
       }
     }
-    html += `<div style="margin-top:4px;font-size:10px;color:var(--text)">勾选「编辑模式」可修改模块参数</div>`;
+    html += `<div style="margin-top:4px;font-size:10px;color:var(--text)">双击模块名添加实例 · 右键3D模块删除 · 勾选编辑模式修改参数</div>`;
     html += `</div>`;
     body.innerHTML = html;
     return;
@@ -1013,8 +1103,13 @@ function renderModuleConfigUI() {
     html += `<div class="config-row"><span class="config-label">平台尺寸</span><input type="number" id="cfg-platformSize" value="${cfg.platformSize}" min="200" max="900" step="50" onchange="onConfigChange()" ${disabled}><span class="input-unit">mm</span></div>`;
     html += `<div style="font-size:11px;color:var(--text);margin-top:4px">桌面可拖拽移动。修改尺寸后需重新生成。</div>`;
     // Position for desktop
-    html += `<div class="config-row"><span class="config-label">位置 X</span><input type="number" id="mod-pos-x" value="${(modulePositions[type] || def.defaultPos).x.toFixed(0)}" step="50" onchange="onSetPosition()"><span class="input-unit">mm</span></div>`;
-    html += `<div class="config-row"><span class="config-label">位置 Z</span><input type="number" id="mod-pos-z" value="${(modulePositions[type] || def.defaultPos).z.toFixed(0)}" step="50" onchange="onSetPosition()"><span class="input-unit">mm</span></div>`;
+    const positions = modulePositions[type] || [];
+    const firstPos = (positions.length > 0) ? positions[0] : def.defaultPos;
+    html += `<div class="config-row"><span class="config-label">位置 X</span><input type="number" id="mod-pos-x" value="${firstPos.x.toFixed(0)}" step="50" onchange="onSetPosition()"><span class="input-unit">mm</span></div>`;
+    html += `<div class="config-row"><span class="config-label">位置 Z</span><input type="number" id="mod-pos-z" value="${firstPos.z.toFixed(0)}" step="50" onchange="onSetPosition()"><span class="input-unit">mm</span></div>`;
+    if (positions.length > 1) {
+      html += `<div style="font-size:10px;color:var(--accent2)">共${positions.length}个实例，位置输入仅控制第1个</div>`;
+    }
 
   } else {
     // Physical modules (slideBox, spinCoater, dropperBox)
@@ -1061,8 +1156,13 @@ function renderModuleConfigUI() {
     }
 
     // Position — manual input
-    html += `<div class="config-row"><span class="config-label">位置 X</span><input type="number" id="mod-pos-x" value="${(modulePositions[type] || def.defaultPos).x.toFixed(0)}" step="50" onchange="onSetPosition()"><span class="input-unit">mm</span></div>`;
-    html += `<div class="config-row"><span class="config-label">位置 Z</span><input type="number" id="mod-pos-z" value="${(modulePositions[type] || def.defaultPos).z.toFixed(0)}" step="50" onchange="onSetPosition()"><span class="input-unit">mm</span></div>`;
+    const positions = modulePositions[type] || [];
+    const firstPos = (positions.length > 0) ? positions[0] : def.defaultPos;
+    html += `<div class="config-row"><span class="config-label">位置 X</span><input type="number" id="mod-pos-x" value="${firstPos.x.toFixed(0)}" step="50" onchange="onSetPosition()"><span class="input-unit">mm</span></div>`;
+    html += `<div class="config-row"><span class="config-label">位置 Z</span><input type="number" id="mod-pos-z" value="${firstPos.z.toFixed(0)}" step="50" onchange="onSetPosition()"><span class="input-unit">mm</span></div>`;
+    if (positions.length > 1) {
+      html += `<div style="font-size:10px;color:var(--accent2)">共${positions.length}个实例，位置输入仅控制第1个</div>`;
+    }
     html += `<div style="font-size:10px;color:var(--text)">可直接拖拽模块来调整位置</div>`;
   }
 
@@ -1167,14 +1267,18 @@ window.onSetPosition = () => {
   xEl.value = x.toFixed(0);
   zEl.value = z.toFixed(0);
 
-  const grp = moduleGroups[type];
-  if (grp) {
-    grp.position.set(x, 0, z);
-    modulePositions[type] = new THREE.Vector3(x, 0, z);
+  const groups = moduleGroups[type];
+  if (groups && groups.length > 0) {
+    groups[0].position.set(x, 0, z);
+    if (modulePositions[type] && modulePositions[type].length > 0) {
+      modulePositions[type][0] = new THREE.Vector3(x, 0, z);
+    }
   }
 };
 
 window.switchModuleTab = switchModuleTab;
+window.addInstance = addInstance;
+window.removeLastInstance = removeLastInstance;
 
 // ============================================================
 // Config persistence — load from / save to platform_config.json
@@ -1186,8 +1290,8 @@ function collectConfig() {
     const def = moduleDefs[type];
     if (!def.physical) continue;
     const cfg = { ...moduleConfigs[type] };
-    const pos = modulePositions[type] || def.defaultPos;
-    cfg.position = [Math.round(pos.x), Math.round(pos.z)];
+    const positions = modulePositions[type] || [];
+    cfg.positions = positions.map(p => [Math.round(p.x), Math.round(p.z)]);
     out[type] = cfg;
   }
   return out;
@@ -1200,10 +1304,17 @@ function applyConfig(data) {
     if (!def.physical) continue;
     const entry = data[type];
     if (!entry) continue;
-    // Merge loaded values over defaults (preserve keys not in file)
-    Object.assign(moduleConfigs[type], entry);
-    if (entry.position && Array.isArray(entry.position)) {
-      modulePositions[type] = new THREE.Vector3(entry.position[0], 0, entry.position[1]);
+    // Merge loaded values over defaults
+    const cfg = {};
+    for (const [k, v] of Object.entries(entry)) {
+      if (k !== 'positions' && k !== 'position') cfg[k] = v;
+    }
+    Object.assign(moduleConfigs[type], cfg);
+    // Support old single 'position' and new 'positions' array
+    if (entry.positions && Array.isArray(entry.positions)) {
+      modulePositions[type] = entry.positions.map(p => new THREE.Vector3(p[0], 0, p[1]));
+    } else if (entry.position && Array.isArray(entry.position)) {
+      modulePositions[type] = [new THREE.Vector3(entry.position[0], 0, entry.position[1])];
     }
   }
 }
@@ -1250,14 +1361,18 @@ async function initModules() {
   moduleOrder.forEach(type => {
     const def = moduleDefs[type];
     if (!def.physical) return;
-    if (!modulePositions[type]) {
-      modulePositions[type] = def.defaultPos.clone();
+    if (!modulePositions[type] || modulePositions[type].length === 0) {
+      modulePositions[type] = [def.defaultPos.clone()];
     }
-    const group = builders[type](moduleConfigs[type]);
-    group.position.copy(modulePositions[type]);
-    scene.add(group);
-    draggableModules.push(group);
-    moduleGroups[type] = group;
+    moduleGroups[type] = [];
+    const cfg = moduleConfigs[type];
+    modulePositions[type].forEach(pos => {
+      const group = builders[type](cfg);
+      group.position.copy(pos);
+      scene.add(group);
+      draggableModules.push(group);
+      moduleGroups[type].push(group);
+    });
   });
 
   setupModuleDrag();

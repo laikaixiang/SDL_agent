@@ -2,22 +2,26 @@
   "desktop": {
     "gridSize": 50,
     "platformSize": 450,
-    "position": [
-      300,
+    "positions": [
+      [
+       300,
       -100
+      ]
     ]
   },
   "slideBox": {
     "quantity": 25,
     "distribution": "grid",
     "size": 0.4,
-    "slideW": 25,
-    "slideL": 25,
     "hSpacing": 4,
     "vSpacing": 15,
-    "position": [
-      200,
-      50
+    "slideW": 25,
+    "slideL": 25,
+    "positions": [
+      [
+         200,
+         50
+      ]
     ]
   },
   "spinCoater": {
@@ -25,36 +29,42 @@
     "distribution": "single",
     "size": 0.6,
     "spacing": 50,
-    "position": [
-      200,
-      -150
+    "positions": [
+      [
+         200,
+        -150
+      ]
     ]
   },
   "dropperBox": {
     "quantity": 96,
     "distribution": "grid",
-    "size": 0.4,
+    "size": 0.3,
+    "colSpacing": 3,
+    "rowSpacing": 3,
     "cols": 8,
     "rows": 12,
-    "colSpacing": 4,
-    "rowSpacing": 1,
-    "position": [
-      400,
-      -250
+    "positions": [
+      [
+        400,
+        -250
+      ]
     ]
   },
   "solutionTray": {
     "quantity": 20,
     "distribution": "grid",
-    "size": 0.6,
-    "cols": 4,
-    "rows": 5,
+    "size": 1,
     "colSpacing": 5,
     "rowSpacing": 5,
+    "cols": 4,
+    "rows": 5,
     "bottleDiameter": 20,
-    "position": [
-      300,
-      -250
+    "positions": [
+      [
+        300,
+        -250
+      ]
     ]
   }
 }

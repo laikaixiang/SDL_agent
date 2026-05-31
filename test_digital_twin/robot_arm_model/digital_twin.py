@@ -32,7 +32,7 @@ from kinematics import (
     compute_workspace_boundary, compute_workspace_inner,
 )
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder='templates')
 
 # -------------------------------------------------------
 # Serve UI
@@ -41,6 +41,33 @@ app = Flask(__name__)
 @app.route('/')
 def index():
     return render_template('index.html')
+
+
+# -------------------------------------------------------
+# Static file serving for 3D models (.stl, .step, .glb, .gltf)
+# -------------------------------------------------------
+
+@app.route('/models/<path:filename>')
+def serve_model(filename):
+    """Serve 3D model files from templates/models/ directory."""
+    from flask import send_from_directory
+    models_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates', 'models')
+    return send_from_directory(models_dir, filename)
+
+
+@app.route('/viewers/<path:filename>')
+def serve_viewer(filename):
+    """Serve generated HTML viewers from templates/viewers/ or templates/ directory."""
+    from flask import send_from_directory
+    # Check viewers subdirectory first, then templates root
+    viewers_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates', 'viewers')
+    templates_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
+    # Try viewers dir first
+    try:
+        return send_from_directory(viewers_dir, filename)
+    except:
+        # Fall back to templates root
+        return send_from_directory(templates_dir, filename)
 
 
 # -------------------------------------------------------

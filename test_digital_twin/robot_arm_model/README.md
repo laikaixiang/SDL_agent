@@ -23,13 +23,14 @@ test_digital_twin/
     ├── README.md            # 本文件
     ├── PLAN.md              # 技术方案文档 (机械臂本体)
     ├── kinematics.py        # 运动学引擎
-    ├── app.py               # Flask 服务端
-    ├── digital_twin.py      # 数字孪生启动脚本
+    ├── digital_twin.py      # Flask 服务端 + REST API + 配置持久化
+    ├── platform_config.json # 平台模块配置（可手动编辑或通过UI保存）
+    ├── LOG_20260531_lkx.md  # 详细变更日志
     ├── templates/
     │   └── index.html       # 3D 交互界面 (Three.js, 自包含)
     │                        #   - Dobot M1Pro 机械臂
-    │                        #   - 平台布局数字孪生 (4类模块+拖拽吸附)
-    └── dobot_protocol.txt    # 越疆 TCP/IP 协议文档 (参考)
+    │                        #   - 6模块平台布局 + 编辑模式 + 多实例 + 持久化
+    └── dobot_protocol.txt   # 越疆 TCP/IP 协议文档 (参考)
 ```
 
 ---
@@ -227,6 +228,8 @@ Three.js 使用 Y-up 坐标，机器人 Z 轴映射到 Three.js Y 轴。
 | GET | `/api/joint_limits` | — | `{joints:{j1/j2/j3/j4:{min,max,unit,type}}, dh_params, screw}` |
 | POST | `/api/jacobian` | `{j1,j2,j3_deg,j4}` | `{jacobian:4x4, determinant}` |
 | GET | `/api/pose` | — | 服务端缓存的当前状态 |
+| GET | `/api/platform_config` | — | 读取平台模块配置 |
+| POST | `/api/platform_config` | JSON body | 保存平台模块配置到 `platform_config.json` |
 
 ### IK 肘部选择
 
@@ -286,25 +289,54 @@ SCARA 的 IK 有两个解：肘部在上 (elbow up) 和肘部在下 (elbow down)
 - **硬件控制** (`hardware/tools/`)：注册为 `move_robot_arm` 工具
 - **算法模块** (`software/algorithms/`)：添加路径优化/抓取规划算法
 
-### 6. 平台整体布局数字孪生
+### 6. 平台布局数字孪生
 
-在 3D 场景中新增平台布局，支持 4 类可拖拽模块：
+3D 场景中 6 模块系统，支持编辑模式、参数化配置、多实例复制、配置持久化。
 
-| 模块 | 尺寸 | 颜色 |
-|------|------|------|
-| 载玻片托盘 (SubstrateTray) | 300×450mm | 浅灰 |
-| 匀胶机 (SpinCoater) | 150×150mm | 蓝绿 |
-| 滴管头盒 (DropperBox) | 100×150mm | 橙色 |
-| 瓶子托盘 (BottleTray) | 100×100mm | 紫色 |
+#### 模块清单
 
-**技术特性：**
-- 9×9 网格底板（50mm/格，总 450×450mm）
-- DragControls 拖拽 + 50mm 网格吸附
-- 边界约束，防止拖出平台
+| # | 模块 | 物理 | 说明 |
+|---|------|------|------|
+| 1 | 机械臂 | — | 只读信息面板（DH参数、关节限位） |
+| 2 | 桌面 | 可拖拽 | 平台底板 + 网格 + 边界线 |
+| 3 | 载玻片盒 | 可拖拽 | 盒体 + 半透明载玻片，片尺寸W×L可配 |
+| 4 | 匀胶机 | 可拖拽 | 底座 + 转盘 + 卡盘，支持多台 |
+| 5 | 滴管头盒 | 可拖拽 | 盒体 + 滴管孔位(8×12=96)，行列间隔可分别定义 |
+| 6 | 溶液瓶托盘 | 可拖拽 | 实心长方体 + 圆形凹槽(4×5=20)，瓶直径可配 |
 
-**启动：** `python digital_twin.py` → http://127.0.0.1:5001
+#### 交互
 
-详见 `../PLAN.md`。
+| 操作 | 触发方式 |
+|------|---------|
+| 拖拽模块 | 左键拖拽 3D 对象（50mm 网格吸附，范围 ±500mm） |
+| 添加实例 | 编辑模式 OFF → 双击右侧面板模块名 |
+| 删除实例 | 编辑模式 OFF → 右键 3D 模块 / 点击面板 × 按钮 |
+| 编辑参数 | 勾选「编辑模式」→ 切换 tab → 修改参数（即时重建） |
+| 保存/加载 | 「保存配置」按钮 → `platform_config.json`；页面启动自动加载 |
+
+#### 拖动防散架
+
+自定义 `setupModuleDrag()` 替代 Three.js `DragControls`：射线命中子对象（载玻片、滴管孔）时沿 `.parent` 链向上查找，始终拖动顶层模块 Group。
+
+#### 配置持久化
+
+- 文件 `platform_config.json`：存储所有物理模块的模板参数 + `positions` 数组
+- API: `GET /api/platform_config` / `POST /api/platform_config`
+- 前端启动自动加载，点击「保存配置」写入文件
+
+#### 面板布局
+
+```
+面板:
+├── 末端位姿 (TCP) 显示
+├── 关节控制 / 笛卡尔控制 (折叠tab)
+├── TCP 协议模拟
+├── 模块配置
+│   ├── [保存配置] [编辑模式 □]
+│   ├── 编辑OFF: 6模块摘要列表（双击添加，×删除）
+│   └── 编辑ON:  6个tab → 各模块参数面板
+└── 参数信息
+```
 
 ### 7. 前端增强
 

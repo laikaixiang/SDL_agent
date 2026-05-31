@@ -1,0 +1,152 @@
+{
+  "description": "XYZZ+双ADP 移液机械臂 — 运动学参数 (从STL装配体几何提取)",
+  "model": "XYZZ+双ADP 移液机械臂 (2025.03.13)",
+  "coordinate_system": {
+    "cad": "Z=上, X=前, Y=左",
+    "after_rx_neg90": "CAD_X→World_X, CAD_Y→World_Z, CAD_Z→World_-Y",
+    "logical_axes": {
+      "X": "CAD X, World X — 中梁在横梁上水平滑动",
+      "Z": "CAD Y, World Z — 横梁沿框架前后移动",
+      "Y1": "CAD Z, World Y — ADP1 垂直升降",
+      "Y2": "CAD Z, World Y — ADP2 垂直升降"
+    }
+  },
+  "assembly_bounds": {
+    "x": [
+      4.6,
+      427.7
+    ],
+    "y": [
+      3.1,
+      477.3
+    ],
+    "z": [
+      14.8,
+      796.4
+    ],
+    "size_mm": [
+      423.1,
+      474.2,
+      781.6
+    ],
+    "footprint_mm": "423×474",
+    "height_mm": 781.6
+  },
+  "joints": {
+    "X": {
+      "type": "prismatic",
+      "description": "中梁在横梁上沿X方向滑动",
+      "mechanical_range": [
+        44.1,
+        384.9
+      ],
+      "stroke_mm": 340.8,
+      "reference_mm": 300.3
+    },
+    "Z": {
+      "type": "prismatic",
+      "description": "横梁沿框架Y方向移动",
+      "mechanical_range": [
+        59.1,
+        367.1
+      ],
+      "stroke_mm": 308.0,
+      "reference_mm": 416.1
+    },
+    "Y1": {
+      "type": "prismatic",
+      "description": "ADP1模块垂直升降",
+      "mechanical_range": [
+        94.0,
+        160.7
+      ],
+      "stroke_mm": 66.6,
+      "reference_mm": 123.1
+    },
+    "Y2": {
+      "type": "prismatic",
+      "description": "ADP2模块垂直升降",
+      "mechanical_range": [
+        94.0,
+        160.7
+      ],
+      "stroke_mm": 66.6,
+      "reference_mm": 123.1
+    }
+  },
+  "adp_spacing_mm": 30.2,
+  "parts": {
+    "frame": {
+      "center": [
+        383.6,
+        213.1,
+        405.6
+      ],
+      "size": [
+        88.2,
+        419.9,
+        781.6
+      ]
+    },
+    "cross_beam": {
+      "center": [
+        214.5,
+        416.1,
+        124.9
+      ],
+      "size": [
+        419.7,
+        112.0,
+        144.8
+      ]
+    },
+    "mid_beam": {
+      "center": [
+        300.3,
+        349.2,
+        127.3
+      ],
+      "size": [
+        79.0,
+        256.1,
+        136.0
+      ]
+    },
+    "adp1": {
+      "center": [
+        284.6,
+        298.1,
+        123.1
+      ],
+      "size": [
+        22.3,
+        204.0,
+        69.5
+      ]
+    },
+    "adp2": {
+      "center": [
+        314.8,
+        298.8,
+        123.1
+      ],
+      "size": [
+        22.0,
+        202.6,
+        69.5
+      ]
+    },
+    "tip": {
+      "center": [
+        284.8,
+        156.1,
+        112.3
+      ],
+      "size": [
+        7.2,
+        96.0,
+        7.4
+      ]
+    }
+  }
+}

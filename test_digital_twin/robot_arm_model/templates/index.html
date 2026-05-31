@@ -117,6 +117,31 @@ input[type=range].z-slider { accent-color:var(--accent2); }
     <div id="cmd-response" style="font-size:11px;margin-top:4px;font-family:monospace;min-height:16px"></div>
   </div>
 
+  <!-- ====== 移液机械臂控制面板 ====== -->
+  <h2 style="margin-top:4px">XYZZ+双ADP 移液机械臂</h2>
+  <div class="tab-row">
+    <button class="tab-btn active" id="tab-pipette-joint" onclick="switchPipetteTab('joint')">关节控制</button>
+    <button class="tab-btn" id="tab-pipette-cart" onclick="switchPipetteTab('cart')">笛卡尔控制</button>
+  </div>
+
+  <div class="group" id="pipette-joint-panel">
+    <div class="slider-row"><span class="slider-label">X</span><input type="range" id="sp-x" min="200" max="420" value="300.3" step="1" oninput="onPipetteJoint()"><span class="slider-val" id="vp-x">300mm</span></div>
+    <div class="slider-row"><span class="slider-label">Z</span><input type="range" id="sp-z" min="300" max="500" value="416.1" step="1" oninput="onPipetteJoint()"><span class="slider-val" id="vp-z">416mm</span></div>
+    <div class="slider-row"><span class="slider-label">Y1</span><input type="range" id="sp-y1" min="0" max="200" value="123.1" step="1" oninput="onPipetteJoint()"><span class="slider-val" id="vp-y1">123mm</span></div>
+    <div class="slider-row"><span class="slider-label">Y2</span><input type="range" id="sp-y2" min="0" max="200" value="123.1" step="1" oninput="onPipetteJoint()"><span class="slider-val" id="vp-y2">123mm</span></div>
+    <div style="display:flex;gap:6px;margin-top:6px">
+      <button class="btn btn-sm btn-accent" onclick="resetPipette()">归零</button>
+    </div>
+  </div>
+
+  <div class="group" id="pipette-cart-panel" style="display:none">
+    <div class="input-row"><span class="input-label">X</span><input type="number" id="pci-x" value="300.3" step="1"><span class="input-unit">mm</span></div>
+    <div class="input-row"><span class="input-label">Z</span><input type="number" id="pci-z" value="416.1" step="1"><span class="input-unit">mm</span></div>
+    <div class="input-row"><span class="input-label">Y1</span><input type="number" id="pci-y1" value="123.1" step="1"><span class="input-unit">mm</span></div>
+    <div class="input-row"><span class="input-label">Y2</span><input type="number" id="pci-y2" value="123.1" step="1"><span class="input-unit">mm</span></div>
+    <button class="btn btn-sm btn-accent" style="margin-top:6px" onclick="movePipetteCartesian()">移动到目标</button>
+  </div>
+
   <!-- ====== 模块配置（5大模块） ====== -->
   <div class="group">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
@@ -153,8 +178,7 @@ input[type=range].z-slider { accent-color:var(--accent2); }
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-// DragControls replaced with custom module-drag handler (see setupModuleDrag)
-
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 // ============================================================
 // Kinematic constants (matches kinematics.py)
 // ============================================================
@@ -201,15 +225,15 @@ container.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 scene.background=new THREE.Color('#1e2127');
-scene.fog=new THREE.Fog('#1e2127',800,1800);
+// No fog — infinite render distance
 
-const camera = new THREE.PerspectiveCamera(45,1,20,3000);
-camera.position.set(500,350,500);
+const camera = new THREE.PerspectiveCamera(45,1,20,4000);
+camera.position.set(800,500,600);
 
 const controls = new OrbitControls(camera,renderer.domElement);
-controls.target.set(200,140,0);
+controls.target.set(500,200,0);
 controls.enableDamping=true; controls.dampingFactor=0.1;
-controls.minDistance=200; controls.maxDistance=1400;
+controls.minDistance=200; controls.maxDistance=2500;
 controls.maxPolarAngle=Math.PI*0.72;
 controls.update();
 
@@ -218,24 +242,35 @@ scene.add(new THREE.AmbientLight('#8899bb',1.6));
 const key=new THREE.DirectionalLight('#fffef5',4.5);
 key.position.set(350,500,250); key.castShadow=true;
 key.shadow.mapSize.set(2048,2048); key.shadow.camera.near=20; key.shadow.camera.far=1800;
-key.shadow.camera.left=-700; key.shadow.camera.right=700;
+key.shadow.camera.left=-200; key.shadow.camera.right=1400;
 key.shadow.camera.top=700; key.shadow.camera.bottom=-200; key.shadow.bias=-0.0003;
 scene.add(key);
 scene.add((l=>{l.position.set(-200,150,-200);return l})(new THREE.DirectionalLight('#aaccff',1.2)));
 scene.add((l=>{l.position.set(0,60,-350);return l})(new THREE.DirectionalLight('#ffffff',1.8)));
 
-// Table
-const table = new THREE.Mesh(new THREE.PlaneGeometry(1100,1100),
+// Platform: 1600×1600, X≥0
+const PLATFORM_W = 1600;
+const table = new THREE.Mesh(new THREE.PlaneGeometry(PLATFORM_W, PLATFORM_W),
   new THREE.MeshStandardMaterial({color:'#3d424b',roughness:0.65,metalness:0.1}));
-table.rotation.x=-Math.PI/2; table.position.y=0; table.receiveShadow=true; scene.add(table);
+table.rotation.x=-Math.PI/2; table.position.set(PLATFORM_W/2, 0, 0); table.receiveShadow=true; scene.add(table);
 
-// Decal
-const decal = new THREE.Mesh(new THREE.PlaneGeometry(210,250),
-  new THREE.MeshBasicMaterial({color:'#111',transparent:true,opacity:0.35}));
-decal.rotation.x=-Math.PI/2; decal.position.y=0.02; scene.add(decal);
-
-// Grid
-scene.add((g=>{g.position.y=0.015;return g})(new THREE.GridHelper(800,16,'#4a4f59','#2a2d33')));
+// Grid on platform + debug axes
+scene.add((g=>{g.position.set(PLATFORM_W/2, 0.015, 0);return g})(new THREE.GridHelper(PLATFORM_W, 32, '#4a4f59', '#2a2d33')));
+// Debug axes + X,Y,Z labels at origin
+scene.add(new THREE.AxesHelper(300));
+try {
+  const lbl = (text, x, y, z, color) => {
+    const c = document.createElement('canvas'); c.width=128; c.height=128;
+    const t = c.getContext('2d');
+    t.fillStyle=color; t.font='bold 80px Arial'; t.textAlign='center'; t.textBaseline='middle';
+    t.fillText(text, 64, 64);
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({map: new THREE.CanvasTexture(c), depthTest: false}));
+    s.position.set(x, y, z); s.scale.set(40, 40, 1); return s;
+  };
+  scene.add(lbl('X', 330, 0, 0, '#ff4444'));
+  scene.add(lbl('Y', 0, 330, 0, '#44ff44'));
+  scene.add(lbl('Z', 0, 0, 330, '#4488ff'));
+} catch(e) { console.warn('Axis labels:', e); }
 
 // Workspace rings
 function ring(r,color,opacity) {
@@ -261,68 +296,116 @@ const cyl=(rt,rb,h,s=32)=>new THREE.CylinderGeometry(rt,rb,h,s);
 const box=(w,h,d)=>new THREE.BoxGeometry(w,h,d);
 
 // ============================================================
-// Robot hierarchy: J3 base-lift column → entire arm plane moves
-// ============================================================
-const robotRoot = new THREE.Group(); scene.add(robotRoot);
+// Dobot M1Pro — STL assembly with kinematic hierarchy
+// Joint pivots from STL overlap: J1(209,116), J2(408,116), J4(604,116)
+const robotRoot = new THREE.Group(); robotRoot.position.set(100, 0, 0); scene.add(robotRoot);
+const dobotPivot = new THREE.Group(); dobotPivot.rotation.x = -Math.PI / 2; robotRoot.add(dobotPivot);
 
-// ---- Fixed base (table → D1=85mm) ----
-const baseGroup = new THREE.Group(); robotRoot.add(baseGroup);
-
-const bp = new THREE.Mesh(box(180,24,230),matBaseP); bp.position.y=12; bp.castShadow=true; bp.receiveShadow=true; baseGroup.add(bp);
-const fc1 = new THREE.Mesh(cyl(60,50,50),matBase); fc1.position.y=49; fc1.castShadow=true; fc1.receiveShadow=true; baseGroup.add(fc1);
-const fc2 = new THREE.Mesh(cyl(50,44,40),matBase); fc2.position.y=94; fc2.castShadow=true; baseGroup.add(fc2);
-const fcf = new THREE.Mesh(cyl(46,42,10),matBaseA); fcf.position.y=D1+3; fcf.castShadow=true; baseGroup.add(fcf);
-
-// ---- J3 MOTOR ----
-const j3m = new THREE.Mesh(cyl(48,42,28),M('#5a657a',0.3,0.7)); j3m.position.y=D1+16; j3m.castShadow=true; baseGroup.add(j3m);
-const j3r = new THREE.Mesh(new THREE.TorusGeometry(26,2.5,8,32),M('#f59e0b',0.4,0.5)); j3r.rotation.x=Math.PI/2; j3r.position.set(0,D1+28,0); baseGroup.add(j3r);
-const j3c = new THREE.Mesh(cyl(40,48,6),matJoint); j3c.position.y=D1+34; j3c.castShadow=true; baseGroup.add(j3c);
-
-// ---- LIFT CARRIAGE ----
+const baseGroup    = new THREE.Group(); dobotPivot.add(baseGroup);
 const liftCarriage = new THREE.Group(); baseGroup.add(liftCarriage);
+const j1Pivot      = new THREE.Group(); liftCarriage.add(j1Pivot);
+const j2Pivot      = new THREE.Group(); j1Pivot.add(j2Pivot);
+const j4Pivot      = new THREE.Group(); j2Pivot.add(j4Pivot);
 
-const liftShaft = new THREE.Mesh(new THREE.CylinderGeometry(22,22,1,24), M('#94a3b8',0.22,0.8));
-liftShaft.castShadow=true; liftCarriage.add(liftShaft);
+liftCarriage.position.z = D3_BASE;
+j1Pivot.position.set(209, 116, 141);
+j2Pivot.position.set(199, 0, 0);
+j4Pivot.position.set(196, 0, 0);
 
-const shoulderPlat = new THREE.Group(); shoulderPlat.position.y=0; liftCarriage.add(shoulderPlat);
-shoulderPlat.add((m=>{m.castShadow=true;return m})(new THREE.Mesh(cyl(52,42,14),matBaseA)));
+const tcpSphere = new THREE.Mesh(new THREE.SphereGeometry(4,16,16),
+  new THREE.MeshStandardMaterial({color:'#ff3333',emissive:'#cc0000',emissiveIntensity:0.5,roughness:0.25}));
+tcpSphere.position.z = -D4; j4Pivot.add(tcpSphere);
 
-const j1m = new THREE.Mesh(cyl(48,44,30),matJoint); j1m.position.y=10; j1m.castShadow=true; shoulderPlat.add(j1m);
-const j2m = new THREE.Mesh(cyl(22,20,22,20),matJoint); j2m.position.set(0,8,-36); j2m.castShadow=true; shoulderPlat.add(j2m);
+const STL_LOADER = new STLLoader();
 
-// ===== J1 PIVOT =====
-const j1Pivot = new THREE.Group(); shoulderPlat.add(j1Pivot);
-j1Pivot.add((r=>{r.rotation.x=Math.PI/2;r.position.y=24;return r})(new THREE.Mesh(new THREE.TorusGeometry(32,3,16,32),matJoint)));
+const DOBOT_PARTS = [
+  { file:'M1_AXIS1_1.stl', parent:baseGroup,    cx: 88.48, cy:116.33, cz:343.78, color:0x7a9f6a },
+  { file:'M1_AXIS2_1.stl', parent:liftCarriage, cx:189.03, cy:116.33, cz:440.67, color:0x8a6a9f },
+  { file:'M1_AXIS3_1.stl', parent:j1Pivot,      cx:303.98, cy:116.33, cz:418.17, color:0x5a8faf },
+  { file:'M1_AXIS4_1.stl', parent:j2Pivot,      cx:503.98, cy:115.08, cz:381.17, color:0x9f8a6a },
+  { file:'M1_ROTATE_1.stl',parent:j4Pivot,      cx:603.98, cy:116.33, cz:309.17, color:0x6a8caf },
+];
 
-// Link 1
-const lnk1 = new THREE.Group(); lnk1.position.set(A1/2,1,0); j1Pivot.add(lnk1);
-lnk1.add((m=>{m.castShadow=true;m.receiveShadow=true;return m})(new THREE.Mesh(box(A1-20,24,40),matArm1)));
-[-(A1-20)/2+4,(A1-20)/2-4].forEach(x=>{const c=new THREE.Mesh(cyl(21,21,24,16),matArm1);c.rotation.z=Math.PI/2;c.position.set(x,0,0);lnk1.add(c);});
-lnk1.add((m=>{m.position.set(0,14,0);m.castShadow=true;return m})(new THREE.Mesh(box(A1-40,5,14),M('#334155',0.4,0.5))));
+DOBOT_PARTS.forEach(({file, parent, cx, cy, cz, color}) => {
+  STL_LOADER.load('/models/dobot_m1pro/' + file, (geometry) => {
+    geometry.computeBoundingBox();
+    const pc = new THREE.Vector3(); geometry.boundingBox.getCenter(pc);
+    geometry.translate(-pc.x, -pc.y, -pc.z);
+    const pWorld = new THREE.Vector3(); parent.getWorldPosition(pWorld); dobotPivot.worldToLocal(pWorld);
+    const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({color, roughness:0.35, metalness:0.55}));
+    mesh.position.set(cx - pWorld.x, cy - pWorld.y, cz - pWorld.z);
+    mesh.castShadow = true; mesh.receiveShadow = true; mesh.name = file;
+    parent.add(mesh);
+  }, undefined, (err) => { console.error('[Dobot]', file, err); });
+});
 
-// J2 Pivot
-const j2Pivot = new THREE.Group(); j2Pivot.position.set(A1,0,0); j1Pivot.add(j2Pivot);
-j2Pivot.add((m=>{m.castShadow=true;return m})(new THREE.Mesh(cyl(24,24,22),matJoint)));
-j2Pivot.add((r=>{r.rotation.x=Math.PI/2;r.position.y=-1;return r})(new THREE.Mesh(new THREE.TorusGeometry(20,2.5,16,32),matJoint)));
+// ---- Pipette arm: same Rx(-90°) as Dobot, kinematic hierarchy ----
+const pipetteRoot = new THREE.Group(); pipetteRoot.name = 'PipetteArm';
+pipetteRoot.position.set(1000, 0, 0); scene.add(pipetteRoot);
 
-// Link 2
-const lnk2 = new THREE.Group(); lnk2.position.set(A2/2,0,0); j2Pivot.add(lnk2);
-lnk2.add((m=>{m.castShadow=true;m.receiveShadow=true;return m})(new THREE.Mesh(box(A2-16,18,30),matArm2)));
-[-(A2-16)/2+3,(A2-16)/2-3].forEach(x=>{const c=new THREE.Mesh(cyl(16,16,18,16),matArm2);c.rotation.z=Math.PI/2;c.position.set(x,0,0);lnk2.add(c);});
-lnk2.add((m=>{m.position.set(0,11,0);m.castShadow=true;return m})(new THREE.Mesh(box(A2-30,4,10),M('#334155',0.4,0.5))));
+const pipettePivot = new THREE.Group(); pipettePivot.rotation.x = -Math.PI / 2; pipetteRoot.add(pipettePivot);
 
-// ===== J4 PIVOT =====
-const j4Pivot = new THREE.Group(); j4Pivot.position.set(A2,0,0); j2Pivot.add(j4Pivot);
-j4Pivot.add((m=>{m.position.y=-14;m.castShadow=true;return m})(new THREE.Mesh(cyl(18,16,28),matJ4)));
-j4Pivot.add((r=>{r.rotation.x=Math.PI/2;return r})(new THREE.Mesh(new THREE.TorusGeometry(14,2,12,24),matJoint)));
-j4Pivot.add((m=>{m.position.y=-30;m.castShadow=true;return m})(new THREE.Mesh(cyl(14,18,10),matTool)));
-j4Pivot.add((m=>{m.position.y=-48;m.castShadow=true;return m})(new THREE.Mesh(box(16,28,20),matGrip)));
-j4Pivot.add((m=>{m.position.set(-6,-68,0);m.castShadow=true;return m})(new THREE.Mesh(box(3,25,6),matFinger)));
-j4Pivot.add((m=>{m.position.set(6,-68,0);m.castShadow=true;return m})(new THREE.Mesh(box(3,25,6),matFinger)));
+const pipetteBase = new THREE.Group(); pipettePivot.add(pipetteBase);
+const pipetteZ    = new THREE.Group(); pipetteBase.add(pipetteZ);
+const pipetteX    = new THREE.Group(); pipetteZ.add(pipetteX);
+const pipetteY1   = new THREE.Group(); pipetteX.add(pipetteY1);
+const pipetteY2   = new THREE.Group(); pipetteX.add(pipetteY2);
 
-const tcpSphere = new THREE.Mesh(new THREE.SphereGeometry(4,16,16),matTcp); tcpSphere.position.y=-D4; j4Pivot.add(tcpSphere);
+const PIPETTE_DEFS = [
+  { file:'pipette_group1.stl', parent:pipetteBase },
+  { file:'pipette_group2.stl', parent:pipetteZ },
+  { file:'pipette_group3.stl', parent:pipetteX },
+  { file:'pipette_group4.stl', parent:pipetteY1 },
+  { file:'pipette_group5.stl', parent:pipetteY2 },
+  { file:'pipette_tip.stl',    parent:pipetteY1 },
+];
+const pipColor = { group1:0x6a8caf, group2:0x7a9f6a, group3:0x8a6a9f, group4:0xaf8a6a, group5:0x9f6a7a, tip:0xcccccc };
 
+PIPETTE_DEFS.forEach(({file, parent}) => {
+  STL_LOADER.load('/models/pipette_arm/simplified/' + file, (geometry) => {
+    const key = file.replace('pipette_','').replace('.stl','');
+    const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({color: pipColor[key]||0xc0d0e0, roughness:0.4, metalness:0.45}));
+    mesh.castShadow = true; mesh.receiveShadow = true; mesh.name = file;
+    parent.add(mesh);
+  }, undefined, (err) => { console.error('[Pipette]', file, err); });
+});
+
+// ---- Pipette joint control ----
+let pipJoints = { x:300.3, z:416.1, y1:123.1, y2:123.1 };
+
+function updatePipette(x, z, y1, y2) {
+  pipJoints = { x, z, y1, y2 };
+  pipetteX.position.x  = x  - 300.3;
+  pipetteZ.position.y  = -(z - 416.1);
+  pipetteY1.position.z = y1 - 123.1;
+  pipetteY2.position.z = y2 - 123.1;
+  document.getElementById('vp-x').textContent  = x.toFixed(0) + 'mm';
+  document.getElementById('vp-z').textContent  = z.toFixed(0) + 'mm';
+  document.getElementById('vp-y1').textContent = y1.toFixed(0) + 'mm';
+  document.getElementById('vp-y2').textContent = y2.toFixed(0) + 'mm';
+}
+
+window.onPipetteJoint = () => {
+  updatePipette(+document.getElementById('sp-x').value, +document.getElementById('sp-z').value,
+                +document.getElementById('sp-y1').value, +document.getElementById('sp-y2').value);
+};
+window.resetPipette = () => {
+  ['sp-x','sp-z','sp-y1','sp-y2'].forEach((id,i) => document.getElementById(id).value = [300.3,416.1,123.1,123.1][i]);
+  updatePipette(300.3, 416.1, 123.1, 123.1);
+};
+window.switchPipetteTab = t => {
+  document.getElementById('tab-pipette-joint').classList.toggle('active', t==='joint');
+  document.getElementById('tab-pipette-cart').classList.toggle('active', t==='cart');
+  document.getElementById('pipette-joint-panel').style.display = t==='joint'?'':'none';
+  document.getElementById('pipette-cart-panel').style.display = t==='cart'?'':'none';
+};
+window.movePipetteCartesian = () => {
+  const v = ['pci-x','pci-z','pci-y1','pci-y2'].map(id => +document.getElementById(id).value);
+  ['sp-x','sp-z','sp-y1','sp-y2'].forEach((id,i) => document.getElementById(id).value = v[i]);
+  updatePipette(v[0], v[1], v[2], v[3]);
+};
 // ============================================================
+
 // State & update
 // ============================================================
 let currentJoints = {j1:0,j2:0,j3deg:0,j4:0,d3:D3_BASE};
@@ -330,12 +413,11 @@ let currentJoints = {j1:0,j2:0,j3deg:0,j4:0,d3:D3_BASE};
 function updateRobot(j1,j2,j3deg,j4) {
   const d3 = clamp(j3deg2d3(j3deg), D3_MIN, D3_MAX);
   currentJoints = {j1,j2,j3deg,j4,d3};
-  liftCarriage.position.y = d3;
-  liftShaft.scale.y = Math.max(d3, 2);
-  liftShaft.position.y = -d3 / 2;
-  j1Pivot.rotation.y = D2R(j1);
-  j2Pivot.rotation.y = D2R(j2);
-  j4Pivot.rotation.y = D2R(j4);
+  // Inside dobotPivot (Rx(-90°)): local Z = world Y = up
+  liftCarriage.position.z = d3;
+  j1Pivot.rotation.z = D2R(j1);
+  j2Pivot.rotation.z = D2R(j2);
+  j4Pivot.rotation.z = D2R(j4);
   const pose = fk(j1,j2,d3,j4);
   updateUI(j1,j2,j3deg,d3,j4,pose);
   return pose;
@@ -435,7 +517,7 @@ function animateTo(tj1,tj2,tj3,tj4,dur){
 // Desktop is now a draggable physical module built via buildDesktop()
 // ============================================================
 const GRID_SIZE = 50;
-const PLATFORM_SIZE = GRID_SIZE * 9;
+const PLATFORM_SIZE = PLATFORM_W;
 
 // ============================================================
 // Platform Modules — multi-instance: each type can have N copies
@@ -994,8 +1076,8 @@ function setupModuleDrag() {
     const g = selectedGroup;
     g.position.x = snapToGrid(g.position.x);
     g.position.z = snapToGrid(g.position.z);
-    const bound = 500;
-    g.position.x = Math.max(-bound, Math.min(bound, g.position.x));
+    const bound = PLATFORM_W/2;
+    g.position.x = Math.max(0, Math.min(bound, g.position.x));
     g.position.z = Math.max(-bound, Math.min(bound, g.position.z));
     g.position.y = 0;
 
@@ -1261,9 +1343,9 @@ window.onSetPosition = () => {
   const zEl = document.getElementById('mod-pos-z');
   if (!xEl || !zEl) return;
 
-  const bound = 500;
-  const x = snapToGrid(Math.max(-bound, Math.min(bound, parseFloat(xEl.value) || 0)));
-  const z = snapToGrid(Math.max(-bound, Math.min(bound, parseFloat(zEl.value) || 0)));
+  const half = PLATFORM_W/2;
+  const x = snapToGrid(Math.max(0, Math.min(half, parseFloat(xEl.value) || 0)));
+  const z = snapToGrid(Math.max(-half, Math.min(half, parseFloat(zEl.value) || 0)));
   xEl.value = x.toFixed(0);
   zEl.value = z.toFixed(0);
 
@@ -1393,6 +1475,7 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 updateRobot(0, 0, 0, 0);
+updatePipette(300.3, 416.1, 123.1, 123.1);
 
 (function render() {
   requestAnimationFrame(render);
@@ -1401,6 +1484,7 @@ updateRobot(0, 0, 0, 0);
 })();
 
 window.updateRobot = updateRobot;
+window.updatePipette = updatePipette;
 window.fk = fk;
 window.ik = ik;
 window.j3deg2d3 = j3deg2d3;

@@ -67,14 +67,22 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color('#1e2127');
 scene.fog = new THREE.Fog('#1e2127', 1500, 4000);
 
-// Assembly spans X[0.8–635], Y[1–231], Z[0–688], center ~(318, 116, 344)
+// Assembly spans X[0.8–635], Y[1–231], Z[0–688], geometric center ~(318, 116, 344)
+// CAD Z (688mm tallest) → Three.js Y (up) via Rx(-90°) so robot stands perpendicular to ground
+const ASSEMBLY_CENTER = new THREE.Vector3(318, 116, 344);
+const assemblyGroup = new THREE.Group();
+// Position group so rotated base (old Z≈0) lands on Y≈0:
+//   world_y_base = group.y + (0 - 344) = 0 → group.y = 344
+assemblyGroup.position.set(318, 344, 344);
+scene.add(assemblyGroup);
+
 const camera = new THREE.PerspectiveCamera(45, 1, 1, 5000);
-camera.position.set(500, 500, 800);
+camera.position.set(500, 500, 900);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
-controls.target.set(318, 116, 344);
+controls.target.set(318, 344, 344);
 controls.update();
 
 scene.add(new THREE.AmbientLight('#8899bb', 1.8));
@@ -91,13 +99,28 @@ key.shadow.camera.bottom = -400;
 scene.add(key);
 scene.add(new THREE.DirectionalLight('#aaccff', 1.5));
 
-// Ground plane at bottom of assembly
+// Ground plane at Y=0, centered under the assembly
 const grid = new THREE.GridHelper(1000, 20, '#4a4f59', '#2a2d33');
 grid.position.set(318, 0, 344);
 scene.add(grid);
 
 // Axes helper for orientation
-scene.add(new THREE.AxesHelper(200));
+scene.add(new THREE.AxesHelper(300));
+
+// Debug: X,Y,Z labels at axis ends
+(function addAxisLabels() {
+  function lbl(text, x, y, z, color) {
+    const c = document.createElement('canvas'); c.width=128; c.height=128;
+    const t = c.getContext('2d');
+    t.fillStyle=color; t.font='bold 80px Arial'; t.textAlign='center'; t.textBaseline='middle';
+    t.fillText(text, 64, 64);
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c), depthTest:false}));
+    s.position.set(x, y, z); s.scale.set(35, 35, 1); return s;
+  }
+  scene.add(lbl('X', 330, 0, 0, '#ff4444'));
+  scene.add(lbl('Y', 0, 330, 0, '#44ff44'));
+  scene.add(lbl('Z', 0, 0, 330, '#4488ff'));
+})();
 
 // Part definitions — vertices are in assembly world coordinates, NO centering needed
 const parts = [
@@ -133,27 +156,35 @@ document.querySelectorAll('#parts .part').forEach(el => {
 const loader = new STLLoader();
 
 parts.forEach(({ name, color, label }) => {
-  loader.load('../models/' + name + '.stl',
+  loader.load('../models/dobot_m1pro/' + name + '.stl',
     (geometry) => {
-      // NO centering — vertices are already in global assembly coordinates
-      // The STEP assembly was split into parts, each retaining world-space positions
+      // Vertices are in assembly world coordinates from STEP split.
+      // Center geometry at local origin, then position mesh relative to assembly group.
+      geometry.computeBoundingBox();
+      const partCenter = new THREE.Vector3();
+      geometry.boundingBox.getCenter(partCenter);
+      geometry.translate(-partCenter.x, -partCenter.y, -partCenter.z);
 
       const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
         color: color, roughness: 0.3, metalness: 0.7
       }));
 
+      // Position relative to assembly group center
+      mesh.position.copy(partCenter).sub(ASSEMBLY_CENTER);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       mesh.name = name;
 
-      scene.add(mesh);
+      assemblyGroup.add(mesh);
       meshes[name] = mesh;
 
       loadedCount++;
       if (loadedCount === totalParts) {
+        // Rx(-90°): CAD Z-up (688mm tallest axis) maps to Three.js Y-up
+        assemblyGroup.rotation.x = -Math.PI / 2;
         statusEl.textContent = '全部加载完成';
         statusEl.style.color = '#98c379';
-        console.log('[Assembly] All parts loaded:', Object.keys(meshes));
+        console.log('[Assembly] All parts loaded, rotated Y 90°:', Object.keys(meshes));
       } else {
         statusEl.textContent = `已加载 ${loadedCount}/${totalParts}`;
       }

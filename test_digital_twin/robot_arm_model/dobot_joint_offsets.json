@@ -1,0 +1,130 @@
+{
+  "description": "Dobot M1Pro joint offsets from STL assembly geometry",
+  "coordinate_system": "Assembly: X=forward along arm, Y=up/vertical, Z=lateral",
+  "joint_positions_assembly": {
+    "J1_base": [
+      88.5,
+      116.3,
+      343.8
+    ],
+    "J2_elbow": [
+      337.5,
+      116.3,
+      366.2
+    ],
+    "J4_wrist": [
+      486.9,
+      116.3,
+      379.6
+    ]
+  },
+  "joint_positions_centered": {
+    "J1_base": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "J2_elbow": [
+      249.0,
+      0.0,
+      22.4
+    ],
+    "J4_wrist": [
+      398.4,
+      0.0,
+      35.8
+    ]
+  },
+  "part_offsets": {
+    "M1_AXIS1_1": {
+      "parent": "baseGroup",
+      "center_from_j1": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "offset_from_parent_joint": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "bbox_size": [
+        175.3,
+        230.3,
+        687.6
+      ]
+    },
+    "M1_AXIS2_1": {
+      "parent": "j2Pivot",
+      "center_from_j1": [
+        100.5,
+        -0.0,
+        96.9
+      ],
+      "offset_from_parent_joint": [
+        -148.5,
+        -0.0,
+        74.5
+      ],
+      "bbox_size": [
+        130.5,
+        100.0,
+        205.0
+      ]
+    },
+    "M1_AXIS3_1": {
+      "parent": "liftCarriage",
+      "center_from_j1": [
+        215.5,
+        -0.0,
+        74.4
+      ],
+      "offset_from_parent_joint": [
+        215.5,
+        -0.0,
+        74.4
+      ],
+      "bbox_size": [
+        279.6,
+        79.0,
+        142.0
+      ]
+    },
+    "M1_AXIS4_1": {
+      "parent": "j4Pivot",
+      "center_from_j1": [
+        415.5,
+        -1.3,
+        37.4
+      ],
+      "offset_from_parent_joint": [
+        17.1,
+        -1.3,
+        1.6
+      ],
+      "bbox_size": [
+        262.6,
+        64.5,
+        170.0
+      ]
+    },
+    "M1_ROTATE_1": {
+      "parent": "j4Pivot",
+      "center_from_j1": [
+        515.5,
+        -0.0,
+        -34.6
+      ],
+      "offset_from_parent_joint": [
+        117.1,
+        -0.0,
+        -70.4
+      ],
+      "bbox_size": [
+        17.0,
+        16.9,
+        88.0
+      ]
+    }
+  }
+}

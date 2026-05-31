@@ -35,6 +35,33 @@ test_digital_twin/
 
 ---
 
+## 新增功能 (2026-06-01)
+
+### STL 真实模型替换
+
+Dobot M1Pro 和移液臂均使用真实 CAD 导出的 STL 零件替换了简化几何体，零件在装配体世界坐标中，通过 Rx(-90°) 旋转使机器人站立于平台。
+
+### 移液机械臂控制面板
+
+面板位于 Dobot 控制面板下方、"模块配置"上方：
+- **关节控制**: X / Z / Y1 / Y2 四个滑块
+- **笛卡尔控制**: 对应数值输入
+- X: 中梁在横梁上滑动 | Z: 横梁沿框架移动 | Y1/Y2: 两个 ADP 独立升降
+
+### 独立零件预览器 (`templates/viewers/`)
+
+每个 STL 零件有独立 HTML 预览页，加载单个零件居中显示。另有两个装配总览页面，加载所有零件并保持装配位置。
+
+### 平台扩展
+
+平台从 450×450mm 扩展到 1600×1600mm，仅保留 X≥0 半区，拖拽范围同步更新。
+
+### 调试坐标轴
+
+原点处显示 AxesHelper(300) + X(红)/Y(绿)/Z(蓝) 文字标签（sprite），始终可见。index.html 和两个装配预览器均包含。
+
+---
+
 ## 机械臂构型
 
 ### 物理结构
@@ -147,28 +174,47 @@ J3°    = (d₃ - 300) × 360 / 10
 
 丝杆导程 10mm/rev，±5400° = 15 转 → 行程 300mm。
 
-### 3D 场景图层次
+### 3D 场景图层次 (STL 模型)
 
 ```
 scene
-├── table (y=0) + grid + workspace rings
-└── robotRoot
-    └── baseGroup (固定)
-        ├── 底座板 + 固定立柱 (0→85mm)
-        ├── J3 电机 (y≈85-119, z=0)
-        └── liftCarriage ← translateY(d₃)
-            ├── 升降柱杆 (y=0→d₃, 动态伸缩)
-            └── shoulderPlat (臂平面)
-                ├── J1电机 (z=0) + J2电机 (z=-36)
-                └── j1Pivot ← rotateY(θ₁)
-                    ├── link1 (大臂 250mm) + 同步带罩
-                    └── j2Pivot ← rotateY(θ₂)
-                        ├── link2 (小臂 150mm) + 同步带罩
-                        └── j4Pivot ← rotateY(θ₄)
-                            ├── J4电机 + 法兰
-                            ├── 平行爪夹持器
-                            └── TCP 球 + 十字准星 (y=-D4=-80)
+├── table 1600×1600 (y=0, X≥0) + grid + debug axes(XYZ labels)
+├── robotRoot @ (100,0,0)
+│   └── dobotPivot ← rotateX(-90°) [CAD Z→World Y]
+│       ├── baseGroup
+│       │   └── [AXIS1 STL] 基座，固定
+│       └── liftCarriage ← translateZ(d₃)
+│           ├── [AXIS2 STL] 随J3升降
+│           └── j1Pivot ← rotateZ(J1)
+│               ├── [AXIS3 STL] 随J3+J1
+│               └── j2Pivot ← rotateZ(J2), offset(199,0,0)
+│                   ├── [AXIS4 STL] 随J3+J1+J2
+│                   └── j4Pivot ← rotateZ(J4), offset(196,0,0)
+│                       └── [ROTATE STL] 随全部关节, 自转
+└── pipetteRoot @ (1000,0,0)
+    └── pipettePivot ← rotateX(-90°) [同Dobot坐标系]
+        ├── pipetteBase
+        │   └── [pipette_group1] 框架，固定
+        └── pipetteZ ← translateY(-Z) [横梁Z向移动]
+            ├── [pipette_group2] 横梁
+            └── pipetteX ← translateX(X) [中梁X向滑动]
+                ├── [pipette_group3] 中梁
+                ├── pipetteY1 ← translateZ(Y1) [ADP1升降]
+                │   ├── [pipette_group4] ADP1
+                │   └── [pipette_tip] 移液头
+                └── pipetteY2 ← translateZ(Y2) [ADP2升降]
+                    └── [pipette_group5] ADP2
 ```
+
+### 关节位置 (从 STL 重叠区提取)
+
+| 关节 | CAD坐标 (XY) | 来源 |
+|------|-------------|------|
+| J1 | (209, 116) | AXIS2∩AXIS3 重叠区中心 X[164,254] |
+| J2 | (408, 116) | AXIS3∩AXIS4 重叠区中心 X[372,443] |
+| J4 | (604, 116) | ROTATE 自身中心 |
+
+J4 偏移量 (0,0) → ROTATE 绕自身中心自转。
 
 ### 开发方法
 

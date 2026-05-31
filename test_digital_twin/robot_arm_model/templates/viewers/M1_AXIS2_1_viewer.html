@@ -71,7 +71,7 @@ grid.position.y = -0.5;
 scene.add(grid);
 
 const loader = new STLLoader();
-loader.load('../models/M1_AXIS2_1.stl',
+loader.load('../models/dobot_m1pro/M1_AXIS2_1.stl',
   (geometry) => {
     geometry.computeBoundingBox();
     const center = new THREE.Vector3();

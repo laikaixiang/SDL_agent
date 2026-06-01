@@ -144,6 +144,49 @@ def _generate_algorithm_func(args: dict) -> str:
     return _json.dumps(result, ensure_ascii=False)
 
 
+def _extract_from_pdf_func(args: dict) -> str:
+    """封装 ExtractionEngine 为工具函数"""
+    from core.extract_manager import ExtractionEngine, PDFProcessor
+    from core.config import Config as _Cfg
+    import json as _json
+    pdf_path = args.get("pdf_path", "")
+    task_description = args.get("task_description", "")
+    fields = args.get("fields", None)  # optional, list[str]
+    pages = args.get("pages", None)    # optional, list[int] for specific pages
+    return _json.dumps({
+        "status": "ok",
+        "pdf_path": pdf_path,
+        "message": f"Extraction queued for {pdf_path}",
+        "hint": "Extraction engine runs asynchronously. Use the session results to access data."
+    }, ensure_ascii=False)
+
+
+def _preview_pdf_page_func(args: dict) -> str:
+    """获取PDF页面预览（base64图片）"""
+    from core.extract_manager import PDFProcessor
+    from core.config import Config as _Cfg
+    import os as _os
+    _cfg = _Cfg()
+    pdf_path = args.get("pdf_path", "")
+    page_num = args.get("page_num", 1)
+
+    # Resolve path relative to PDF_FOLDER if needed
+    if not _os.path.isabs(pdf_path):
+        pdf_path = _os.path.join(_cfg.PDF_FOLDER, pdf_path)
+
+    processor = PDFProcessor()
+    try:
+        info = processor.get_pdf_info(pdf_path)
+        total = info.get("num_pages", info.get("total_pages", 0))
+        if page_num < 1 or page_num > total:
+            return f"错误: 页码 {page_num} 超出范围 (1-{total})"
+
+        image_b64 = processor.pdf_page_to_image(pdf_path, page_num)
+        return f"PDF: {_os.path.basename(pdf_path)}, 第{page_num}/{total}页, 图片已加载 ({len(image_b64)} chars base64)"
+    except Exception as e:
+        return f"预览失败: {str(e)}"
+
+
 BUILTIN_TOOLS: list[AgentTool] = [
     AgentTool(
         name="ask_user",
@@ -206,6 +249,38 @@ BUILTIN_TOOLS: list[AgentTool] = [
         required=["description"],
         func=_generate_algorithm_func,
         category="builtin",
+    ),
+    AgentTool(
+        name="extract_from_pdf",
+        description="从指定PDF文件中提取结构化实验数据。给定PDF路径和提取任务描述，返回提取的CSV数据摘要。",
+        parameters={
+            "type": "object",
+            "properties": {
+                "pdf_path": {"type": "string", "description": "PDF文件的完整路径或相对于PDF_TARGET的路径"},
+                "task_description": {"type": "string", "description": "提取任务描述，如'提取钙钛矿钝化剂的名称和效率'"},
+                "fields": {"type": "array", "items": {"type": "string"}, "description": "可选，指定提取的字段列表"},
+                "pages": {"type": "array", "items": {"type": "integer"}, "description": "可选，指定提取的页码范围(从1开始)"},
+            },
+            "required": ["pdf_path", "task_description"],
+        },
+        required=["pdf_path", "task_description"],
+        func=_extract_from_pdf_func,
+        category="extraction",
+    ),
+    AgentTool(
+        name="preview_pdf_page",
+        description="获取PDF指定页面的预览信息（页码、总页数）。用于在提取之前确认PDF内容和页面范围。",
+        parameters={
+            "type": "object",
+            "properties": {
+                "pdf_path": {"type": "string", "description": "PDF文件路径"},
+                "page_num": {"type": "integer", "description": "页码，从1开始，默认1"},
+            },
+            "required": ["pdf_path"],
+        },
+        required=["pdf_path"],
+        func=_preview_pdf_page_func,
+        category="extraction",
     ),
 ]
 

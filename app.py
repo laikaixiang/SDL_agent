@@ -318,7 +318,7 @@ def open_browser():
 # Agent engine helpers (Phase 1)
 # =============================================================================
 
-def _spawn_agent_impl(template: str, task: str, context: dict = None, mode: str = "single", siblings: list = None) -> dict:
+def _spawn_agent_impl(template: str, task: str, context: dict = None, mode: str = "single", siblings: list = None, pipeline: list = None) -> dict:
     """
     Implementation of the spawn_agent tool.
     Called by AgentLoop when the LLM decides to spawn a sub-agent.
@@ -328,6 +328,21 @@ def _spawn_agent_impl(template: str, task: str, context: dict = None, mode: str 
     """
     if _agent_orchestrator is None:
         return {"result": "错误: Agent 引擎未启用"}
+
+    if mode == "pipeline" and pipeline:
+        results = _agent_orchestrator.spawn_pipeline(pipeline)
+        summary_parts = []
+        for i, r in enumerate(results):
+            step = pipeline[i] if i < len(pipeline) else {}
+            tmpl = step.get("template", "unknown")
+            if r and not r.get("error"):
+                fm = r.get("final_message", {})
+                content = fm.get("content", "") if fm else str(r)
+                summary_parts.append(f"[{tmpl}]: {str(content)[:200]}")
+            else:
+                err = r.get("error", "unknown") if r else "unknown"
+                summary_parts.append(f"[{tmpl}]: 失败 - {str(err)[:200]}")
+        return {"result": "流水线执行完成:\n" + "\n".join(summary_parts) if summary_parts else "流水线执行完成"}
 
     if mode == "parallel" and siblings:
         tasks = [s.get("task", "") for s in siblings]
@@ -384,8 +399,12 @@ def _make_session_executor() -> UnifiedToolExecutor:
                 },
                 "mode": {
                     "type": "string",
-                    "description": "执行模式: single=单个子Agent, parallel=并行多个",
-                    "enum": ["single", "parallel"]
+                    "description": "执行模式: single=单个子Agent, parallel=并行多个, pipeline=流水线顺序执行",
+                    "enum": ["single", "parallel", "pipeline"]
+                },
+                "pipeline": {
+                    "type": "array",
+                    "description": "流水线模式下步骤列表 [{'template': '...', 'task': '...'}, ...]"
                 },
                 "siblings": {
                     "type": "array",

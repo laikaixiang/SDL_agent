@@ -535,3 +535,39 @@ class AgentOrchestrator:
                     results[idx] = {"error": str(e)}
 
         return results
+
+    def spawn_pipeline(self, steps: list[dict]) -> list[dict]:
+        """
+        Execute agent steps sequentially, each output feeding the next as context.
+
+        Args:
+            steps: [{"template": "literature_searcher", "task": "search for X"},
+                    {"template": "summarizer", "task": "summarize"}]
+
+        Returns:
+            List of result dicts, one per step
+        """
+        results = []
+        accumulated_context = {}
+
+        for i, step in enumerate(steps):
+            template = step.get("template", "")
+            task = step.get("task", "")
+
+            if not template or not task:
+                results.append({"error": f"Step {i}: missing template or task"})
+                continue
+
+            # Feed previous results as context
+            context = accumulated_context.copy() if accumulated_context else None
+
+            result = self.spawn(template, task, context)
+            results.append(result)
+
+            # Extract summary from result for next step
+            if result and not result.get("error"):
+                fm = result.get("final_message", {})
+                content = fm.get("content", "") if fm else str(result)
+                accumulated_context[f"step_{i}_{template}"] = str(content)[:2000]
+
+        return results

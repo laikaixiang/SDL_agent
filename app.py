@@ -2703,6 +2703,28 @@ def chat_agent():
 
     # Build messages from history
     messages = []
+
+    # System prompt: instruct the model to act as an agent
+    templates = _agent_orchestrator.list_templates() if _agent_orchestrator else []
+    messages.append({
+        "role": "system",
+        "content": (
+            "你是 SDL_agent，一个 AI 驱动的实验室自动化助手。\n\n"
+            "你有多种工具可用，包括：文献搜索、文献提取、硬件控制、实验设计、数据分析、算法生成。\n"
+            "用户不会告诉你该调用哪个工具——你需要根据用户的需求自己决定。\n\n"
+            "行为准则：\n"
+            "1. 先理解用户意图，再选择合适的工具。不要急于回复文本，先想清楚需要什么信息。\n"
+            "2. 如果意图明确，直接调用工具获取结果。\n"
+            "3. 如果意图模糊、有多种可行方案、或涉及危险硬件操作，使用 ask_user 工具向用户确认。\n"
+            "4. 禁止用 ask_user 询问系统已定义好的参数范围。\n"
+            "5. 工具返回结果后，用清晰简洁的中文向用户汇报。\n"
+            "6. 如果需要大量文献调研，使用 spawn_agent 创建子 Agent 来执行。\n"
+            f"7. 可用的子 Agent 模板: {templates}。\n"
+            "\n"
+            "每次收到用户消息后，重新评估当前状态，决定下一步行动。"
+        ),
+    })
+
     if history:
         for m in history:
             role = m.get("role", "user")

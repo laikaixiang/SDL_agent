@@ -93,6 +93,57 @@ def _ask_user_func(args: dict) -> str:
     return "__ASK_USER_PENDING__"
 
 
+def _search_literature_func(args: dict) -> str:
+    """封装 SemanticSearch.search() 为工具函数"""
+    from extract.semantic_search import SemanticSearch
+    from extract.embedding_service import create_embedding_service
+    from extract.vector_store import ChromaVectorStore
+    from core.config import Config as _Config
+    _cfg = _Config()
+    emb = create_embedding_service()
+    vs = ChromaVectorStore(persist_dir=_cfg.CHROMADB_PERSIST_DIR)
+    import os as _os
+    sqlite_path = _os.path.join(_cfg.CHROMADB_PERSIST_DIR, "page_metadata.db")
+    ss = SemanticSearch(emb, vs, sqlite_path)
+    query = args.get("query", "")
+    top_k = args.get("top_k", 10)
+    results = ss.search(query, top_k=top_k)
+    if not results:
+        return "未找到相关文献"
+    lines = []
+    for i, r in enumerate(results[:top_k], 1):
+        title = r.get("title", "未知")
+        score = r.get("score", 0)
+        lines.append(f"{i}. {title} (相关度: {score:.2f})")
+    return "\n".join(lines)
+
+
+def _design_experiment_func(args: dict) -> str:
+    """封装 ExperimentDesignAgent 为工具函数"""
+    from core.field_inference import ExperimentDesignAgent
+    agent = ExperimentDesignAgent()
+    description = args.get("description", "")
+    success, result = agent.parse_experiment_design(description)
+    if not success:
+        return f"实验设计失败: {result}"
+    import json as _json
+    return _json.dumps(result, ensure_ascii=False, indent=2)
+
+
+def _generate_algorithm_func(args: dict) -> str:
+    """封装 AlgorithmGuide 为工具函数"""
+    from extract.algorithm_guide import AlgorithmGuide
+    from core.config import Config as _Cfg
+    guide = AlgorithmGuide()
+    description = args.get("description", "")
+    # Start the guide
+    result = guide.start(description)
+    if result.get("error"):
+        return f"算法生成失败: {result['error']}"
+    import json as _json
+    return _json.dumps(result, ensure_ascii=False)
+
+
 BUILTIN_TOOLS: list[AgentTool] = [
     AgentTool(
         name="ask_user",
@@ -104,21 +155,57 @@ BUILTIN_TOOLS: list[AgentTool] = [
         parameters={
             "type": "object",
             "properties": {
-                "question": {
-                    "type": "string",
-                    "description": "向用户提出的问题，用于澄清意图或确认操作",
-                },
-                "options": {
-                    "type": "string",
-                    "description": "可选的 JSON 数组字符串，列出供用户选择的选项",
-                },
+                "question": {"type": "string", "description": "向用户提出的问题"},
+                "options": {"type": "string", "description": "可选的 JSON 数组字符串"},
             },
             "required": ["question"],
         },
         required=["question"],
         func=_ask_user_func,
         category="builtin",
-        dangerous=False,
+    ),
+    AgentTool(
+        name="search_literature",
+        description="在文献库中进行语义搜索，返回相关文献列表及相似度评分。用于查找特定研究方向的PDF文献。",
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "搜索查询关键词"},
+                "top_k": {"type": "integer", "description": "返回结果数量，默认 10"},
+            },
+            "required": ["query"],
+        },
+        required=["query"],
+        func=_search_literature_func,
+        category="builtin",
+    ),
+    AgentTool(
+        name="design_experiment",
+        description="根据自然语言描述自动生成实验设计方案（JSON格式，含步骤列表）。用于实验规划和设计。",
+        parameters={
+            "type": "object",
+            "properties": {
+                "description": {"type": "string", "description": "实验需求的自然语言描述"},
+            },
+            "required": ["description"],
+        },
+        required=["description"],
+        func=_design_experiment_func,
+        category="builtin",
+    ),
+    AgentTool(
+        name="generate_algorithm",
+        description="根据需求描述自动生成Python数据分析算法代码。用于创建新的数据处理算法。",
+        parameters={
+            "type": "object",
+            "properties": {
+                "description": {"type": "string", "description": "算法需求的自然语言描述"},
+            },
+            "required": ["description"],
+        },
+        required=["description"],
+        func=_generate_algorithm_func,
+        category="builtin",
     ),
 ]
 

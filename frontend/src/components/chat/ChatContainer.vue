@@ -1,12 +1,16 @@
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
+import { ref, shallowRef, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import { useChatStore, MODE_PREFIX } from '@/stores/chat'
 import { useAnalysisStore } from '@/stores/analysis'
-import { uploadPDF } from '@/api/chat'
+import { uploadPDF, sendAgentMessage, respondToAgent } from '@/api/chat'
 import MessageBubble from './MessageBubble.vue'
 import InputBar from './InputBar.vue'
+import AgentToolCard from './AgentToolCard.vue'
+import AgentQuestionCard from './AgentQuestionCard.vue'
+import ThinkingBubble from './ThinkingBubble.vue'
+import type { ToolCallInfo, AgentQuestion } from '@/types/chat'
 import { Plus, X } from 'lucide-vue-next'
 
 const { t } = useI18n()
@@ -19,6 +23,14 @@ const chatEl = ref<HTMLDivElement>()
 const newFieldName = ref('')
 const editingFieldIndex = ref<number | null>(null)
 const editFieldValue = ref('')
+
+// Agent state
+const sessionId = ref('')
+const agentActiveToolCalls = shallowRef<Map<number, ToolCallInfo>>(new Map())
+const agentQuestion = ref<AgentQuestion | null>(null)
+const agentThinking = ref('')
+const agentThinkingDuration = ref(0)
+const isAgentResponding = ref(false)
 
 function startEditField(index: number, current: string) {
   editingFieldIndex.value = index
@@ -74,6 +86,103 @@ async function onFileSelected(file: File) {
 async function onCancelExtraction() {
   await store.cancelExtractionTask()
 }
+
+function buildAgentCallbacks() {
+  let currentToolArgs: Record<string, unknown> = {}
+  let thinkingStart = 0
+
+  const cbs: import('@/types/chat').AgentCallbacks = {
+    onThinkingChunk(t: string) {
+      if (!thinkingStart) thinkingStart = Date.now()
+      agentThinking.value = t
+    },
+    onThinkingComplete(t: string) {
+      agentThinking.value = t
+      agentThinkingDuration.value = thinkingStart ? Math.round((Date.now() - thinkingStart) / 1000) : 0
+    },
+    onToolCallStart(i: number, n: string) {
+      const calls = new Map(agentActiveToolCalls.value)
+      calls.set(i, { index: i, name: n, callId: '', arguments: {}, status: 'running' })
+      agentActiveToolCalls.value = calls
+      currentToolArgs = {}
+    },
+    onToolCallArgs(i: number, d: string) {
+      try {
+        const parsed = JSON.parse(d)
+        currentToolArgs = { ...currentToolArgs, ...parsed }
+        const calls = new Map(agentActiveToolCalls.value)
+        const existing = calls.get(i)
+        if (existing) {
+          calls.set(i, { ...existing, arguments: { ...currentToolArgs } })
+          agentActiveToolCalls.value = calls
+        }
+      } catch { /* partial JSON, skip */ }
+    },
+    onToolCallEnd(i: number, n: string, a: Record<string, unknown>) {
+      const calls = new Map(agentActiveToolCalls.value)
+      calls.set(i, { index: i, name: n, callId: '', arguments: a, status: 'running' })
+      agentActiveToolCalls.value = calls
+    },
+    onToolResult(i: number, n: string, r: string, s: string) {
+      const calls = new Map(agentActiveToolCalls.value)
+      calls.set(i, { index: i, name: n, callId: '', arguments: calls.get(i)?.arguments ?? {}, result: r, status: s as 'done' | 'error' })
+      agentActiveToolCalls.value = calls
+    },
+    onAgentQuestion(q: string, o?: string) {
+      agentQuestion.value = { question: q, options: o }
+    },
+    onError(m: string) {
+      store.addMessage('ai', m)
+    },
+    onDone() {
+      isAgentResponding.value = false
+    },
+  }
+  return cbs
+}
+
+async function sendToAgent(message: string) {
+  isAgentResponding.value = true
+  agentActiveToolCalls.value = new Map()
+  agentQuestion.value = null
+  agentThinking.value = ''
+  agentThinkingDuration.value = 0
+
+  const callbacks = buildAgentCallbacks()
+  callbacks.onTextChunk = (t: string) => {
+    store.addMessage('ai', t)
+  }
+  callbacks.onTextComplete = (t: string) => {
+    const msgs = store.messages
+    const last = msgs[msgs.length - 1]
+    if (last && last.role === 'ai') {
+      last.content = t
+    }
+  }
+
+  const history = store.messages.map(m => ({ role: m.role, content: m.content }))
+  await sendAgentMessage({ message, session_id: sessionId.value, history }, callbacks)
+}
+
+async function handleAgentQuestionAnswer(answer: string) {
+  agentQuestion.value = null
+  isAgentResponding.value = true
+
+  store.addMessage('user', answer)
+
+  try {
+    const result = await respondToAgent(sessionId.value, answer)
+    if (result.type === 'agent_continue') {
+      // The agent will send more events, continue listening
+    } else if (result.type === 'text' || result.type === 'reply') {
+      store.addMessage('ai', result.reply)
+    }
+  } catch (err) {
+    store.addMessage('ai', (err as Error).message)
+  } finally {
+    isAgentResponding.value = false
+  }
+}
 </script>
 
 <template>
@@ -88,6 +197,33 @@ async function onCancelExtraction() {
         :thinking-duration="msg.thinking_duration"
         :timestamp="msg.timestamp"
       />
+
+      <!-- Agent thinking bubble -->
+      <template v-if="agentThinking">
+        <ThinkingBubble :text="agentThinking" :duration="agentThinkingDuration" />
+      </template>
+
+      <!-- Agent tool calls -->
+      <template v-if="agentActiveToolCalls.size > 0">
+        <AgentToolCard
+          v-for="[idx, tc] in agentActiveToolCalls"
+          :key="idx"
+          :index="tc.index"
+          :name="tc.name"
+          :args="tc.arguments"
+          :result="tc.result"
+          :status="tc.status"
+        />
+      </template>
+
+      <!-- Agent question -->
+      <template v-if="agentQuestion">
+        <AgentQuestionCard
+          :question="agentQuestion.question"
+          :options="agentQuestion.options"
+          @select="handleAgentQuestionAnswer"
+        />
+      </template>
 
       <!-- Algorithm guide card -->
       <div v-if="showGuide" class="guide-card">
@@ -143,9 +279,10 @@ async function onCancelExtraction() {
     <div class="chat-input-area">
       <InputBar
         v-model="inputText"
-        :disabled="isStreaming"
-        :placeholder="isStreaming ? $t('chat.thinking') : $t('chat.inputPlaceholder')"
-        @send="onSend"
+        :disabled="isStreaming || isAgentResponding"
+        :placeholder="agentQuestion ? '回答 Agent 的问题...' : (isStreaming ? $t('chat.thinking') : $t('chat.inputPlaceholder'))"
+        :agent-question="agentQuestion"
+        @send="agentQuestion ? handleAgentQuestionAnswer($event) : onSend($event)"
         @file-selected="onFileSelected"
         @cancel-extraction="onCancelExtraction"
       />

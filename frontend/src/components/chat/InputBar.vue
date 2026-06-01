@@ -3,12 +3,25 @@ import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Send, Paperclip, MessageSquare, FileText, Cpu, FlaskConical, BarChart3 } from 'lucide-vue-next'
 import { useChatStore, MODE_LABEL, type ChatMode } from '@/stores/chat'
+import type { AgentQuestion } from '@/types/chat'
 
 const { t } = useI18n()
 const store = useChatStore()
 const modelValue = defineModel<string>('modelValue', { default: '' })
-defineProps<{ disabled?: boolean; placeholder?: string }>()
+const props = defineProps<{ disabled?: boolean; placeholder?: string; agentQuestion?: AgentQuestion | null }>()
 const emit = defineEmits<{ send: [text: string]; fileSelected: [file: File]; cancelExtraction: [] }>()
+
+const effectivePlaceholder = computed(() => {
+  if (props.agentQuestion) return '回答 Agent 的问题...'
+  if (props.placeholder) return props.placeholder
+  return t('chat.inputPlaceholderWithShift')
+})
+
+const effectiveDisabled = computed(() => {
+  if (props.agentQuestion) return false
+  if (store.extractionRunning) return true
+  return props.disabled ?? false
+})
 
 const textarea = ref<HTMLTextAreaElement>()
 const fileInput = ref<HTMLInputElement>()
@@ -90,8 +103,8 @@ function onFileChange(e: Event) {
           v-model="modelValue"
           class="input-textarea"
           :class="{ 'with-bubble': store.currentMode !== 'normal' }"
-          :placeholder="store.extractionRunning ? $t('chat.extractionRunning') : (placeholder || (store.currentMode === 'extraction' ? $t('chat.extractionDefaultHint') : $t('chat.inputPlaceholderWithShift')))"
-          :disabled="disabled || store.extractionRunning"
+          :placeholder="store.extractionRunning ? $t('chat.extractionRunning') : effectivePlaceholder"
+          :disabled="effectiveDisabled"
           rows="1"
           @keydown="onKeydown"
           @input="autoResize"
@@ -100,7 +113,7 @@ function onFileChange(e: Event) {
       <button
         class="send-btn"
         :class="{ 'cancel-mode': store.extractionRunning }"
-        :disabled="disabled || (!store.extractionRunning && !modelValue.trim() && store.currentMode === 'normal')"
+        :disabled="effectiveDisabled || (!store.extractionRunning && !modelValue.trim() && store.currentMode === 'normal')"
         @click="submit"
       >
         <div v-if="store.extractionRunning" class="btn-spinner" />

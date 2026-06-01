@@ -145,20 +145,133 @@ def _generate_algorithm_func(args: dict) -> str:
 
 
 def _extract_from_pdf_func(args: dict) -> str:
-    """封装 ExtractionEngine 为工具函数"""
-    from core.extract_manager import ExtractionEngine, PDFProcessor
+    """同步提取 PDF 中指定页面的结构化数据（使用 VL 模型）"""
+    from core.extract_manager import PDFProcessor
     from core.config import Config as _Cfg
+    from core.llm_client import LLMClient
+    from prompts import create_prompt_manager as _get_pm
     import json as _json
+    import os as _os
+
+    _cfg = _Cfg()
     pdf_path = args.get("pdf_path", "")
     task_description = args.get("task_description", "")
-    fields = args.get("fields", None)  # optional, list[str]
-    pages = args.get("pages", None)    # optional, list[int] for specific pages
+    fields = args.get("fields", None)
+    pages = args.get("pages", None)
+
+    # Resolve path
+    if not _os.path.isabs(pdf_path):
+        pdf_path = _os.path.join(_cfg.PDF_FOLDER, pdf_path)
+
+    if not _os.path.isfile(pdf_path):
+        return _json.dumps({"error": f"PDF 文件不存在: {pdf_path}"}, ensure_ascii=False)
+
+    processor = PDFProcessor()
+
+    # Get PDF info
+    info = processor.get_pdf_info(pdf_path)
+    if not info:
+        return _json.dumps({"error": f"无法读取 PDF: {pdf_path}"}, ensure_ascii=False)
+
+    num_pages = info.get("num_pages", 0)
+    filename = _os.path.basename(pdf_path)
+
+    # Determine pages to extract
+    if pages and isinstance(pages, list):
+        target_pages = [p - 1 for p in pages if 1 <= p <= num_pages]  # convert to 0-based
+    else:
+        # Default: first 3 pages
+        target_pages = list(range(min(3, num_pages)))
+
+    if not target_pages:
+        return _json.dumps({"error": "没有有效的目标页面"}, ensure_ascii=False)
+
+    # Infer fields if not provided
+    if not fields or not isinstance(fields, list) or len(fields) == 0:
+        from core.field_inference import FieldInference
+        fi = FieldInference()
+        ok, inferred = fi.infer_fields(task_description)
+        if ok and isinstance(inferred, list):
+            fields = inferred
+        else:
+            fields = ["提取结果"]
+
+    # Prepare VL LLM client
+    vl_client = LLMClient(
+        api_key=_cfg.VL_API_KEY,
+        api_url=_cfg.VL_API_URL,
+        extra_body=_cfg.get_extra_body("VL"),
+    )
+
+    pm = _get_pm(lang="zh")
+    example_item = {f: "提取的内容" for f in fields}
+    example_json = _json.dumps({"data": [example_item]}, ensure_ascii=False)
+
+    sys_prompt = pm.get(
+        "extraction_system_vision",
+        task_description=task_description,
+        fields=str(fields),
+        example_json=example_json,
+    )
+
+    all_records: list[dict] = []
+    errors: list[str] = []
+
+    for page_idx in target_pages:
+        page_num = page_idx + 1  # 1-based for display
+        try:
+            img_b64 = processor.pdf_page_to_image(pdf_path, page_idx)
+            if not img_b64:
+                errors.append(f"第 {page_num} 页: 图片转换失败")
+                continue
+
+            messages = [
+                {"role": "system", "content": sys_prompt},
+                {"role": "user", "content": [
+                    {"type": "image_url",
+                     "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}}
+                ]},
+            ]
+
+            result = vl_client.call_api(
+                model=_cfg.MODEL_NAME_VL,
+                messages=messages,
+                temperature=0.1,
+                timeout=120,
+            )
+
+            if result:
+                content = result["choices"][0]["message"]["content"].strip()
+                content = content.replace("```json", "").replace("```", "").strip()
+                try:
+                    parsed = _json.loads(content)
+                    data_list = parsed.get("data", [parsed] if isinstance(parsed, dict) else [])
+                    for item in data_list:
+                        if isinstance(item, dict):
+                            item["_source_doc"] = filename
+                            item["_source_page"] = page_num
+                            all_records.append(item)
+                except _json.JSONDecodeError:
+                    # Partial extraction: store raw text as a record
+                    all_records.append({
+                        "_source_doc": filename,
+                        "_source_page": page_num,
+                        "_raw": content[:500],
+                    })
+            else:
+                errors.append(f"第 {page_num} 页: API 调用失败")
+        except Exception as e:
+            errors.append(f"第 {page_num} 页: {str(e)}")
+
     return _json.dumps({
-        "status": "ok",
-        "pdf_path": pdf_path,
-        "message": f"Extraction queued for {pdf_path}",
-        "hint": "Extraction engine runs asynchronously. Use the session results to access data."
-    }, ensure_ascii=False)
+        "filename": filename,
+        "total_pages": num_pages,
+        "extracted_pages": len(target_pages),
+        "records": len(all_records),
+        "fields": fields,
+        "data": all_records[:20],  # limit to 20 records to avoid huge responses
+        "errors": errors if errors else None,
+    }, ensure_ascii=False, indent=2)
 
 
 def _preview_pdf_page_func(args: dict) -> str:

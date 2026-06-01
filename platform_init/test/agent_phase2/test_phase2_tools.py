@@ -78,7 +78,7 @@ def test_extraction_tool_schemas():
 
 
 def test_extract_from_pdf_dispatch():
-    """extract_from_pdf 可正常 dispatch"""
+    """extract_from_pdf 对于不存在的文件返回 error JSON"""
     print("\n=== test_extract_from_pdf_dispatch ===")
     tool = next(t for t in BUILTIN_TOOLS if t.name == "extract_from_pdf")
     executor = UnifiedToolExecutor([tool])
@@ -86,8 +86,9 @@ def test_extract_from_pdf_dispatch():
         "pdf_path": "test.pdf",
         "task_description": "提取钙钛矿参数",
     })
-    # 应返回 JSON 字符串
-    assert "ok" in result or "status" in result.lower()
+    # 文件不存在 → 返回包含 error 的 JSON
+    assert isinstance(result, str)
+    assert "error" in result.lower(), f"Expected error for nonexistent file, got: {result[:120]}"
     print(f"  Result: {result[:120]}")
     print("PASS")
 

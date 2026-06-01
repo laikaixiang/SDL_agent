@@ -221,6 +221,25 @@ def test_ask_user_is_noop():
     print("PASS")
 
 
+def test_extraction_tools():
+    """Phase 2: extract_from_pdf 和 preview_pdf_page 已注册"""
+    print("\n=== test_extraction_tools ===")
+    names = {t.name for t in BUILTIN_TOOLS}
+    assert "extract_from_pdf" in names, f"Missing extract_from_pdf in {names}"
+    assert "preview_pdf_page" in names, f"Missing preview_pdf_page in {names}"
+    print(f"  Extraction tools present: extract_from_pdf, preview_pdf_page")
+    print("PASS")
+
+
+def test_extraction_tool_category():
+    """Phase 2 提取工具的 category 为 'extraction'"""
+    print("\n=== test_extraction_tool_category ===")
+    for t in BUILTIN_TOOLS:
+        if t.name in ("extract_from_pdf", "preview_pdf_page"):
+            assert t.category == "extraction", f"{t.name} category should be 'extraction', got '{t.category}'"
+    print("PASS")
+
+
 # =============================================================================
 if __name__ == "__main__":
     passed = 0
@@ -240,6 +259,8 @@ if __name__ == "__main__":
         test_executor_names_property,
         test_create_main_executor,
         test_ask_user_is_noop,
+        test_extraction_tools,
+        test_extraction_tool_category,
     ]
 
     for test in tests:

@@ -297,6 +297,49 @@ def test_agent_orchestrator_spawn_nonexistent():
     print("PASS")
 
 
+def test_agent_orchestrator_pipeline():
+    """pipeline 模式：两步顺序执行，第二步收到第一步的 context"""
+    print("\n=== test_agent_orchestrator_pipeline ===")
+    orch = AgentOrchestrator()
+    steps = [
+        {"template": "summarizer", "task": "summarize: data = 'hello world'"},
+        {"template": "summarizer", "task": "summarize the previous step results"},
+    ]
+    results = orch.spawn_pipeline(steps)
+    assert len(results) == 2, f"Expected 2 results, got {len(results)}"
+    # First step should succeed
+    assert results[0].get("error") is None, f"Step 0 error: {results[0].get('error')}"
+    # Second step should also succeed (receives context)
+    assert results[1].get("error") is None, f"Step 1 error: {results[1].get('error')}"
+    print("PASS")
+
+
+def test_agent_orchestrator_pipeline_error():
+    """pipeline 中某步模板不存在，返回 error 但不崩溃"""
+    print("\n=== test_agent_orchestrator_pipeline_error ===")
+    orch = AgentOrchestrator()
+    steps = [
+        {"template": "nonexistent_template_xyz", "task": "do something"},
+        {"template": "summarizer", "task": "summarize"},
+    ]
+    results = orch.spawn_pipeline(steps)
+    assert len(results) == 2
+    assert results[0].get("error") is not None  # first step failed
+    assert results[1].get("error") is None      # second step still ran
+    print("PASS")
+
+
+def test_extraction_templates():
+    """Phase 2: extraction pipeline 模板已创建"""
+    print("\n=== test_extraction_templates ===")
+    orch = AgentOrchestrator()
+    templates = orch.list_templates()
+    assert "literature_extractor" in templates, f"Missing literature_extractor in {templates}"
+    assert "extraction_pipeline" in templates, f"Missing extraction_pipeline in {templates}"
+    print(f"  Templates: {sorted(templates)}")
+    print("PASS")
+
+
 # =============================================================================
 if __name__ == "__main__":
     passed = 0
@@ -313,6 +356,9 @@ if __name__ == "__main__":
         test_agent_loop_reasoning_visible,
         test_agent_orchestrator_list_templates,
         test_agent_orchestrator_spawn_nonexistent,
+        test_agent_orchestrator_pipeline,
+        test_agent_orchestrator_pipeline_error,
+        test_extraction_templates,
     ]
 
     for test in tests:

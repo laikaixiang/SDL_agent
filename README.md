@@ -3,17 +3,99 @@
 <div align="center">
   <img src="https://img.shields.io/badge/Python-3.10+-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/Flask-2.3.3-green.svg" alt="Flask">
-  <img src="https://img.shields.io/badge/LongCat-Flash-orange.svg" alt="LongCat">
+  <img src="https://img.shields.io/badge/Agent-Tool_Use-purple.svg" alt="Agent">
+  <img src="https://img.shields.io/badge/tests-119_passing-brightgreen.svg" alt="Tests">
 </div>
 <br>
 
-SDL_agent 是一套集**学术文献PDF数据智能提取**、**AI算法自动生成**、**实验设计规划**、**自动化硬件控制**于一体的智能代理系统，实现"文献数据提取→AI生成算法→实验设计→自动化硬件执行→数据分析"的全流程闭环，适用于材料科学、化学等领域的实验室自动化场景。
+SDL_agent 是一套**AI Agent 驱动的实验室自动化系统**。基于 Multi-Agent 架构和 tool-use 循环，LLM 自主选择 22 个工具完成文献检索、PDF数据提取、AI算法生成、实验设计规划、自动化硬件控制和数据分析，实现"对话→理解意图→编排Agent→执行→汇报"的全流程闭环，适用于材料科学、化学等领域的实验室自动化场景。
 
 <div align="center">
   <img src="figures\mind_map.svg" alt="SDL Agent UI Preview" width="85%" style="border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
   <br>
   <p><i>图: 流程图</i></p>
 </div>
+
+---
+
+## 零、v2.5 Agentic 改造（2026-06）
+
+SDL_agent 已从**前缀驱动的 chatbot** 升级为**真正的 AI Agent**——LLM 通过 tool-use 循环自主决定何时调用哪个功能模块，无需用户手动输入前缀。
+
+### 核心变化
+
+| 旧（v2.3） | 新（v2.5） |
+|-----------|-----------|
+| 用户输入 `帮我搜寻：xxx` 触发提取 | Agent 理解意图后自动调用 `search_literature` |
+| 用户输入 `硬件控制：xxx` 操作硬件 | Agent 自动选择硬件工具并确认危险操作 |
+| 用户输入 `实验设计：xxx` 生成实验 | Agent 自动 spawn 实验设计子 Agent |
+| 用户在 sidebar 手动切换模式 | Agent 根据对话上下文自动编排多工具调用 |
+
+### Multi-Agent 架构
+
+```
+用户
+ │
+ ├── 主 Agent (Orchestrator, ~2K tokens)
+ │    ├── 22 个工具：文献搜索/提取/实验设计/硬件控制/数据分析/算法生成
+ │    ├── ask_user：中断询问用户意图
+ │    └── spawn_agent：动态创建子 Agent Team
+ │
+ ├── 子 Agent 模板（6 个，prompts/zh/agents/）
+ │    ├── literature_searcher    文献检索（search_literature + ask_user）
+ │    ├── literature_extractor   文献提取（preview_pdf_page + extract_from_pdf + ask_user）
+ │    ├── experiment_designer    实验设计（design_experiment + ask_user）
+ │    ├── data_analyst           数据分析（3 算法 + ask_user）
+ │    ├── summarizer             数据总结（纯文本）
+ │    └── extraction_pipeline    提取流水线（search + preview + spawn_agent）
+ │
+ └── Agent Team 编排
+      ├── parallel：并行执行同构子 Agent（如 3 个检索 Agent 并行搜索不同关键词）
+      ├── pipeline：串行流水线（检索→提取→总结，上游输出=下游输入）
+      └── single：单 Agent 任务委托
+```
+
+### Tool-Use 循环
+
+```
+用户消息 → /api/chat/agent (SSE)
+  → AgentLoop: while turn < max_turns:
+       LLM(stream=True, tools=22个)
+         → reasoning_content → SSE: thinking_*
+         → content             → SSE: text_delta
+         → tool_calls (delta)  → 累积拼接 → SSE: tool_call_*
+       ┌─ finish_reason="stop" → agent_done
+       └─ finish_reason="tool_calls"
+            ├─ ask_user → 暂停，等用户回答
+            ├─ spawn_agent → 创建子 Agent → 执行 → 返回摘要
+            └─ 其他 → executor.dispatch() → 结果追加到 messages → 继续
+```
+
+### 关键文件
+
+| 文件 | 说明 |
+|------|------|
+| `core/agent_tools.py` | 22 个统一工具注册（6 builtin + 10 hardware + 6 software） |
+| `core/agent_loop.py` | AgentLoop 流式 tool-use 引擎 + AgentOrchestrator 编排器 + SubAgent 模板加载 |
+| `utils/stream_adapter.py` | SSE 事件类型：thinking/text/tool_call/team 状态转换 |
+| `app.py` → `/api/chat/agent` | Agent 对话端点（SSE），与现有 `/api/chat` 并存 |
+| `app.py` → `/api/chat/agent/respond` | ask_user 响应端点 |
+| `prompts/zh/agents/*.yaml` | 6 个子 Agent 模板（system_prompt + tools + max_turns） |
+| `frontend/src/components/chat/AgentToolCard.vue` | 工具调用状态卡片（running→done→error） |
+| `frontend/src/components/chat/AgentTeamCard.vue` | Agent Team 进度卡片（并行/流水线可视化） |
+| `frontend/src/components/chat/AgentQuestionCard.vue` | ask_user 问题卡片（含选项按钮） |
+| `frontend/src/components/chat/ThinkingBubble.vue` | 可折叠思考过程气泡 |
+| `platform_init/test/agent_system/` | 52 个系统测试 |
+
+### 测试覆盖
+
+| 测试目录 | 文件 | 测试数 | 覆盖范围 |
+|---------|------|--------|---------|
+| `platform_init/test/agent/` | 3 | 35 | Phase 1: 工具注册、StreamAdapter、AgentLoop |
+| `platform_init/test/agent_phase2/` | 3 | 20 | Phase 2: 提取工具、pipeline 编排、集成流程 |
+| `platform_init/test/agent_phase3/` | 1 | 12 | Phase 3: 子 Agent 模板加载、工具子集筛选 |
+| `platform_init/test/agent_system/` | 5 | 52 | 系统级：注册表、SSE 协议、生命周期、编排器、端到端 |
+| **合计** | **12** | **119** | |
 
 ---
 

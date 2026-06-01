@@ -63,11 +63,6 @@ app = Flask(__name__, static_folder='frontend/dist', static_url_path='/static')
 app.secret_key = os.urandom(24)  # 用于session管理
 app.register_blueprint(prompts_bp)
 
-# Agent engine (initialized in __main__)
-_agent_executor = None
-_agent_orchestrator = None
-_agent_ask_queues: dict = {}  # session_id -> queue.Queue
-
 # 初始化核心组件
 config = Config()
 
@@ -81,6 +76,21 @@ field_inference = FieldInference()
 algorithm_parser = AlgorithmParser(llm_client)    # 算法解析器
 hardware_controller = HardwareController()
 task_manager = TaskManager()
+
+# Agent engine（Phase 1 — 启动时初始化）
+_agent_executor = None
+_agent_orchestrator = None
+_agent_ask_queues: dict = {}  # session_id -> queue.Queue
+if config.AGENT_ENABLED:
+    try:
+        _agent_executor = create_main_executor()
+        _agent_orchestrator = AgentOrchestrator(executor=_agent_executor)
+        print(f"[Agent]   Tools: {len(_agent_executor.names)} registered")
+        print(f"[Agent]   Templates: {_agent_orchestrator.list_templates()}")
+    except Exception as e:
+        print(f"[Agent] 初始化失败: {e}，Agent 功能不可用")
+        _agent_executor = None
+        _agent_orchestrator = None
 
 # Phase 3: 语义搜索基础设施（提前初始化，供 ExtractionEngine 复用）
 _semantic_search_instance = None

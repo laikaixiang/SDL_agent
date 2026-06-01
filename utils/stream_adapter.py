@@ -17,6 +17,9 @@ TEXT_END = "text_end"
 THINKING_START = "thinking_start"
 THINKING_DELTA = "thinking_delta"
 THINKING_END = "thinking_end"
+TOOL_CALL_START = "tool_call_start"
+TOOL_CALL_ARGS = "tool_call_args"
+TOOL_CALL_END = "tool_call_end"
 ERROR = "error"
 DONE = "done"
 
@@ -38,6 +41,8 @@ class StreamAdapter:
         self._text_buf = ""
         self._thinking_started = False
         self._text_started = False
+        self._pending_tool_calls: list[dict] = []  # [{index, id, name, args_buf, started}]
+        self._tool_call_in_progress = False
 
     def adapt(self, raw_lines: Generator[str, None, None]) -> Generator[dict, None, None]:
         """
@@ -59,11 +64,10 @@ class StreamAdapter:
 
                 reasoning = delta.get("reasoning_content", "")
                 content = delta.get("content", "")
+                tool_calls = delta.get("tool_calls")
 
-                # TODO: tool_calls 事件
-                # tool_calls = delta.get("tool_calls")
-                # if tool_calls:
-                #     yield from self._handle_tool_calls(tool_calls)
+                if tool_calls:
+                    yield from self._handle_tool_calls(tool_calls)
 
                 if reasoning:
                     yield from self._handle_reasoning(reasoning)
@@ -127,6 +131,79 @@ class StreamAdapter:
         self._text_buf += content
         yield make_event(TEXT_DELTA, self._text_buf)
 
+    def _handle_tool_calls(self, tool_calls: list) -> Generator[dict, None, None]:
+        """Handle tool_call deltas from streaming response."""
+        # Flush any active thinking or text buffer first
+        if self._thinking_started:
+            yield make_event(THINKING_END, self._thinking_buf)
+            self._thinking_started = False
+            self._thinking_buf = ""
+        if self._text_started:
+            yield make_event(TEXT_END, self._text_buf)
+            self._text_started = False
+            self._text_buf = ""
+
+        for tc in tool_calls:
+            idx = tc.get("index", 0)
+
+            # Ensure slot exists in _pending_tool_calls
+            while len(self._pending_tool_calls) <= idx:
+                self._pending_tool_calls.append({
+                    "index": len(self._pending_tool_calls),
+                    "id": "",
+                    "name": "",
+                    "args_buf": "",
+                    "started": False,
+                })
+
+            slot = self._pending_tool_calls[idx]
+
+            # Accumulate id
+            if tc.get("id"):
+                slot["id"] = tc["id"]
+
+            # Accumulate function name and arguments
+            fn = tc.get("function", {})
+            if fn.get("name"):
+                slot["name"] = fn["name"]
+            if fn.get("arguments"):
+                slot["args_buf"] += fn["arguments"]
+
+            # On first appearance of name, emit TOOL_CALL_START
+            if slot["name"] and not slot["started"]:
+                slot["started"] = True
+                self._tool_call_in_progress = True
+                yield make_event(TOOL_CALL_START,
+                                 index=slot["index"],
+                                 name=slot["name"],
+                                 call_id=slot["id"])
+
+            # Emit TOOL_CALL_ARGS for arguments delta
+            if fn.get("arguments"):
+                yield make_event(TOOL_CALL_ARGS,
+                                 index=slot["index"],
+                                 delta=fn["arguments"])
+
+    def _flush_tool_calls(self) -> Generator[dict, None, None]:
+        """Flush all pending tool calls, emitting TOOL_CALL_END for each."""
+        for slot in self._pending_tool_calls:
+            if not slot["started"]:
+                continue
+            try:
+                arguments = json.loads(slot["args_buf"])
+            except (json.JSONDecodeError, TypeError):
+                arguments = {"_raw": slot["args_buf"]}
+            yield make_event(TOOL_CALL_END,
+                             index=slot["index"],
+                             name=slot["name"],
+                             call_id=slot["id"],
+                             arguments=arguments)
+        self._tool_call_in_progress = False
+
+    def get_pending_tool_calls(self) -> list[dict]:
+        """Return current pending tool calls for AgentLoop to check."""
+        return self._pending_tool_calls
+
     def _flush(self) -> Generator[dict, None, None]:
         """flush 所有未完结的 thinking 或 text buffer"""
         if self._thinking_started:
@@ -137,3 +214,4 @@ class StreamAdapter:
             yield make_event(TEXT_END, self._text_buf)
             self._text_started = False
             self._text_buf = ""
+        yield from self._flush_tool_calls()

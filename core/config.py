@@ -212,6 +212,10 @@ class Config:
     METADATA_EXTRACTION_TIMEOUT: int = _external.get("METADATA_EXTRACTION_TIMEOUT", 120)
     METADATA_RETRY_ATTEMPTS: int = _external.get("METADATA_RETRY_ATTEMPTS", 2)
 
+    # ======================== Agent 配置 ========================
+    AGENT_MAX_TURNS: int = _external.get("AGENT_MAX_TURNS", 15)
+    AGENT_ENABLED: bool = _external.get("AGENT_ENABLED", True)
+
     @classmethod
     def get_config(cls, key: str) -> Optional[str]:
         """

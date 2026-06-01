@@ -44,6 +44,15 @@ class StreamAdapter:
         self._pending_tool_calls: list[dict] = []  # [{index, id, name, args_buf, started}]
         self._tool_call_in_progress = False
 
+    def _reset_state(self):
+        """Reset all internal state for a fresh stream (Issue 4)."""
+        self._thinking_buf = ""
+        self._text_buf = ""
+        self._thinking_started = False
+        self._text_started = False
+        self._pending_tool_calls = []
+        self._tool_call_in_progress = False
+
     def adapt(self, raw_lines: Generator[str, None, None]) -> Generator[dict, None, None]:
         """
         消费原始 SSE 行，产出 StreamEvent 字典。
@@ -56,6 +65,7 @@ class StreamAdapter:
 
         TODO: 检测 delta 中的 tool_calls → 产出 tool_call_start / tool_call_delta / tool_call_end 事件
         """
+        self._reset_state()
         try:
             for line in raw_lines:
                 delta = self._parse_line(line)
@@ -80,8 +90,8 @@ class StreamAdapter:
             yield make_event(DONE)
 
         except GeneratorExit:
-            yield from self._flush()
-            yield make_event(DONE)
+            self._reset_state()
+            raise
         except Exception as e:
             yield from self._flush()
             yield make_event(ERROR, str(e))
@@ -144,6 +154,9 @@ class StreamAdapter:
             self._text_buf = ""
 
         for tc in tool_calls:
+            # Guard against non-dict entries in tool_calls list
+            if not isinstance(tc, dict):
+                continue
             idx = tc.get("index", 0)
 
             # Ensure slot exists in _pending_tool_calls
@@ -163,7 +176,8 @@ class StreamAdapter:
                 slot["id"] = tc["id"]
 
             # Accumulate function name and arguments
-            fn = tc.get("function", {})
+            # Use "or {}" to guard against null values (Issue 2)
+            fn = tc.get("function") or {}
             if fn.get("name"):
                 slot["name"] = fn["name"]
             if fn.get("arguments"):
@@ -178,8 +192,8 @@ class StreamAdapter:
                                  name=slot["name"],
                                  call_id=slot["id"])
 
-            # Emit TOOL_CALL_ARGS for arguments delta
-            if fn.get("arguments"):
+            # Emit TOOL_CALL_ARGS only after START has been emitted (Issue 3)
+            if fn.get("arguments") and slot["started"]:
                 yield make_event(TOOL_CALL_ARGS,
                                  index=slot["index"],
                                  delta=fn["arguments"])

@@ -1,4 +1,4 @@
-import type { Message } from '@/types/chat'
+import type { Message, AgentEvent, AgentCallbacks, AgentResult } from '@/types/chat'
 import i18n from '@/i18n'
 
 interface ChatRequest {
@@ -145,5 +145,102 @@ export async function uploadPDF(file: File): Promise<{ success: boolean; filenam
   const formData = new FormData()
   formData.append('file', file)
   const resp = await fetch('/api/upload', { method: 'POST', body: formData })
+  return resp.json()
+}
+
+export async function sendAgentMessage(
+  body: { message: string; session_id: string; history?: Pick<Message, 'role' | 'content'>[] },
+  callbacks: AgentCallbacks,
+  signal?: AbortSignal,
+): Promise<AgentResult> {
+  const resp = await fetch('/api/chat/agent', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  })
+
+  if (!resp.ok || resp.headers.get('Content-Type')?.includes('application/json')) {
+    const data = await resp.json()
+    callbacks.onError?.(data.reply || `HTTP ${resp.status}`)
+    return { text: '', error: data.reply }
+  }
+
+  // SSE stream — same pattern as existing sendChatMessage()
+  let fullText = ''
+  const reader = resp.body?.getReader()
+  if (!reader) return { text: '' }
+
+  const decoder = new TextDecoder('utf-8')
+  let buffer = ''
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        try {
+          const event: AgentEvent = JSON.parse(line.slice(6))
+
+          switch (event.type) {
+            case 'text_start': fullText = ''; break
+            case 'text_delta': fullText = event.text || ''; callbacks.onTextChunk?.(fullText); break
+            case 'text_end': fullText = event.text || fullText; callbacks.onTextComplete?.(fullText); break
+            case 'thinking_start': break
+            case 'thinking_delta': callbacks.onThinkingChunk?.(event.text || ''); break
+            case 'thinking_end': callbacks.onThinkingComplete?.(event.text || ''); break
+            case 'tool_call_start':
+              callbacks.onToolCallStart?.(event.index ?? 0, event.name ?? '', event.call_id ?? '')
+              break
+            case 'tool_call_args':
+              callbacks.onToolCallArgs?.(event.index ?? 0, event.delta ?? '')
+              break
+            case 'tool_call_end':
+              callbacks.onToolCallEnd?.(event.index ?? 0, event.name ?? '', event.arguments ?? {})
+              break
+            case 'tool_result':
+              callbacks.onToolResult?.(event.index ?? 0, event.name ?? '', event.result ?? '', event.status ?? 'done')
+              break
+            case 'agent_question':
+              callbacks.onAgentQuestion?.(event.question ?? '', event.options)
+              break
+            case 'agent_error':
+              callbacks.onError?.(event.message ?? '')
+              break
+            case 'agent_done':
+              callbacks.onDone?.()
+              break
+          }
+        } catch { /* skip malformed */ }
+      }
+    }
+  } catch (err) {
+    if ((err as Error).name === 'AbortError') {
+      fullText += '\n[已停止]'
+      callbacks.onTextChunk?.(fullText)
+    } else {
+      throw err
+    }
+  } finally {
+    reader.releaseLock()
+  }
+  return { text: fullText }
+}
+
+export async function respondToAgent(
+  sessionId: string,
+  answer: string,
+): Promise<{ type: string; reply: string }> {
+  const resp = await fetch('/api/chat/agent/respond', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId, answer }),
+  })
   return resp.json()
 }

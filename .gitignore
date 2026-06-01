@@ -14,9 +14,15 @@ __pycache__/
 # 敏感配置（包含 API Key 等，由用户从 config.example.json 复制）
 config.json
 
+# .step
+*.STEP
+*.step
+*.stp
+
 # IDE
 .idea/
 .vscode/
+.superpowers
 
 # CLAUDE
 .claude/

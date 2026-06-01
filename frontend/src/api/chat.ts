@@ -210,6 +210,27 @@ export async function sendAgentMessage(
             case 'agent_question':
               callbacks.onAgentQuestion?.(event.question ?? '', event.options)
               break
+            case 'team_spawn':
+              callbacks.onTeamSpawn?.(
+                event.mode ?? 'single',
+                (event.agents ?? []).map((a: Record<string, unknown>) => ({
+                  id: String(a.id ?? ''),
+                  template: String(a.template ?? ''),
+                  task: String(a.task ?? ''),
+                  status: 'running' as const,
+                }))
+              )
+              break
+            case 'team_progress':
+              callbacks.onTeamProgress?.(
+                String(event.agent_id ?? ''),
+                String(event.status ?? 'running'),
+                event.summary ? String(event.summary) : undefined,
+              )
+              break
+            case 'team_done':
+              callbacks.onTeamDone?.(event.mode ?? 'single', (event.results ?? []) as unknown[])
+              break
             case 'agent_error':
               callbacks.onError?.(event.message ?? '')
               break

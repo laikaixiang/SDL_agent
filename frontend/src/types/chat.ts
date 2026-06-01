@@ -50,6 +50,16 @@ export interface AgentEvent {
   mode?: string
   agents?: Array<{ id: string; template: string; task: string }>
   results?: unknown[]
+  agent_id?: string
+  summary?: string
+}
+
+export interface TeamAgentInfo {
+  id: string
+  template: string
+  task: string
+  status: 'spawning' | 'running' | 'done' | 'error'
+  summary?: string
 }
 
 export interface AgentCallbacks {
@@ -62,6 +72,9 @@ export interface AgentCallbacks {
   onToolCallEnd?: (i: number, n: string, a: Record<string, unknown>) => void
   onToolResult?: (i: number, n: string, r: string, s: string) => void
   onAgentQuestion?: (q: string, o?: string) => void
+  onTeamSpawn?: (mode: string, agents: TeamAgentInfo[]) => void
+  onTeamProgress?: (agentId: string, status: string, summary?: string) => void
+  onTeamDone?: (mode: string, results: unknown[]) => void
   onError?: (m: string) => void
   onDone?: () => void
 }

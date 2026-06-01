@@ -31,6 +31,12 @@ const agentQuestion = ref<AgentQuestion | null>(null)
 const agentThinking = ref('')
 const agentThinkingDuration = ref(0)
 const isAgentResponding = ref(false)
+const agentTeamMode = ref<'parallel' | 'pipeline' | 'single'>('single')
+const agentTeamAgents = ref<TeamAgentInfo[]>([])
+const agentTeamCollapsed = ref(false)
+
+import type { TeamAgentInfo } from '@/types/chat'
+import AgentTeamCard from '@/components/chat/AgentTeamCard.vue'
 
 function startEditField(index: number, current: string) {
   editingFieldIndex.value = index
@@ -131,6 +137,25 @@ function buildAgentCallbacks() {
     onAgentQuestion(q: string, o?: string) {
       agentQuestion.value = { question: q, options: o }
     },
+    onTeamSpawn(mode: string, agents: TeamAgentInfo[]) {
+      agentTeamMode.value = mode as 'parallel' | 'pipeline' | 'single'
+      agentTeamAgents.value = agents
+      agentTeamCollapsed.value = false
+    },
+    onTeamProgress(agentId: string, status: string, summary?: string) {
+      const idx = agentTeamAgents.value.findIndex(a => a.id === agentId)
+      if (idx !== -1) {
+        const updated = [...agentTeamAgents.value]
+        updated[idx] = { ...updated[idx], status: status as TeamAgentInfo['status'], ...(summary ? { summary } : {}) }
+        agentTeamAgents.value = updated
+      }
+    },
+    onTeamDone(_mode: string, _results: unknown[]) {
+      agentTeamAgents.value = agentTeamAgents.value.map(a => ({
+        ...a,
+        status: a.status === 'running' ? 'done' : a.status,
+      }))
+    },
     onError(m: string) {
       store.addMessage('ai', m)
     },
@@ -144,6 +169,7 @@ function buildAgentCallbacks() {
 async function sendToAgent(message: string) {
   isAgentResponding.value = true
   agentActiveToolCalls.value = new Map()
+  agentTeamAgents.value = []
   agentQuestion.value = null
   agentThinking.value = ''
   agentThinkingDuration.value = 0
@@ -213,6 +239,16 @@ async function handleAgentQuestionAnswer(answer: string) {
           :args="tc.arguments"
           :result="tc.result"
           :status="tc.status"
+        />
+      </template>
+
+      <!-- Agent team card -->
+      <template v-if="agentTeamAgents.length > 0">
+        <AgentTeamCard
+          :mode="agentTeamMode"
+          :agents="agentTeamAgents"
+          :collapsed="agentTeamCollapsed"
+          @toggle="agentTeamCollapsed = !agentTeamCollapsed"
         />
       </template>
 

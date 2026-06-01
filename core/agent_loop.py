@@ -226,12 +226,8 @@ class AgentLoop:
                         status = "success"
                     else:
                         # ---- 常规工具分发 ----
-                        try:
-                            result = self.executor.dispatch(tool_name, arguments)
-                            status = "success"
-                        except Exception as e:
-                            result = f"工具执行错误: {str(e)}"
-                            status = "error"
+                        result = self.executor.dispatch(tool_name, arguments)
+                        status = "error" if "错误" in result or "未找到" in result else "success"
 
                     # ---- 发送 tool_result 事件 ----
                     if event_callback:

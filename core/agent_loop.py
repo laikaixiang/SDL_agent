@@ -14,7 +14,7 @@ Agent 循环引擎 (core/agent_loop.py)
 import json
 import os
 import queue
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
 from dataclasses import dataclass
 
 import yaml
@@ -95,6 +95,7 @@ class AgentLoop:
         messages: list[dict],
         event_callback=None,
         ask_user_queue=None,
+        timeout: float | None = None,
     ) -> dict:
         """
         执行 agent tool-use 循环。
@@ -103,6 +104,7 @@ class AgentLoop:
             messages: OpenAI-format 消息列表（会被原地修改）
             event_callback: 可选回调 callable(event_dict)，用于 SSE 事件转发
             ask_user_queue: 可选 queue.Queue，用于 ask_user 阻塞等待用户输入
+            timeout: 可选整体超时秒数，None 表示无限制；超时后返回 error dict
 
         Returns:
             {
@@ -113,167 +115,172 @@ class AgentLoop:
         """
         tool_turns: list[AgentTurn] = []
 
-        for turn in range(self.max_turns):
-            # ---- 1. 流式调用 LLM ----
-            try:
-                raw_lines = self.llm.stream_raw(
-                    model=self.model,
-                    messages=messages,
-                    tools=self.executor.build_openai_tools(),
-                    extra_body=self.extra_body,
-                )
-            except Exception as e:
-                return {
-                    "final_message": None,
-                    "tool_turns": tool_turns,
-                    "error": f"LLM 流式调用失败: {str(e)}",
-                }
-
-            # ---- 2. StreamAdapter 处理流式输出 ----
-            adapter = StreamAdapter()
-            accumulated_text = ""
-
-            for event in adapter.adapt(raw_lines):
-                # 捕获正文内容，用于构建 final_message
-                if event.get("type") in ("text_delta", "text_end"):
-                    accumulated_text = event.get("text", accumulated_text)
-
-                # 转发事件到回调
-                if event_callback:
-                    try:
-                        event_callback(event)
-                    except Exception:
-                        pass  # 回调异常不中断主循环
-
-            # ---- 3. 检查是否有 tool_calls ----
-            pending = adapter.get_pending_tool_calls()
-            active_slots = [s for s in pending if s.get("started")]
-
-            if not active_slots:
-                # 纯文本响应 — 循环结束
-                content = accumulated_text if accumulated_text else None
-                final_message = {"role": "assistant", "content": content}
-                return {
-                    "final_message": final_message,
-                    "tool_turns": tool_turns,
-                    "error": None,
-                }
-
-            # ---- 4. Flush: 为每个活跃 slot 发送 TOOL_CALL_END 事件 ----
-            # （StreamAdapter._flush 已在迭代末尾发送过，此处为显式兜底）
-            parsed_tool_calls: list[dict] = []
-            for slot in active_slots:
+        def _run_loop() -> dict:
+            """线程安全的主体循环封装"""
+            for turn in range(self.max_turns):
+                # ---- 1. 流式调用 LLM ----
                 try:
-                    arguments = json.loads(slot["args_buf"])
-                except (json.JSONDecodeError, TypeError):
-                    arguments = {"_raw": slot["args_buf"]}
+                    raw_lines = self.llm.stream_raw(
+                        model=self.model,
+                        messages=messages,
+                        tools=self.executor.build_openai_tools(),
+                        extra_body=self.extra_body,
+                    )
+                except Exception as e:
+                    return {
+                        "final_message": None,
+                        "tool_turns": tool_turns,
+                        "error": f"LLM 流式调用失败: {str(e)}",
+                    }
 
-                parsed_tool_calls.append({
-                    "id": slot["id"],
-                    "name": slot["name"],
-                    "index": slot["index"],
-                    "arguments": arguments,
-                })
+                # ---- 2. StreamAdapter 处理流式输出 ----
+                adapter = StreamAdapter()
+                accumulated_text = ""
 
-                # 发送 TOOL_CALL_END 事件
-                if event_callback:
+                for event in adapter.adapt(raw_lines):
+                    # 捕获正文内容，用于构建 final_message
+                    if event.get("type") in ("text_delta", "text_end"):
+                        accumulated_text = event.get("text", accumulated_text)
+
+                    # 转发事件到回调
+                    if event_callback:
+                        try:
+                            event_callback(event)
+                        except Exception:
+                            pass  # 回调异常不中断主循环
+
+                # ---- 3. 检查是否有 tool_calls ----
+                pending = adapter.get_pending_tool_calls()
+                active_slots = [s for s in pending if s.get("started")]
+
+                if not active_slots:
+                    # 纯文本响应 — 循环结束
+                    content = accumulated_text if accumulated_text else None
+                    final_message = {"role": "assistant", "content": content}
+                    return {
+                        "final_message": final_message,
+                        "tool_turns": tool_turns,
+                        "error": None,
+                    }
+
+                # ---- 4. 构建 parsed_tool_calls（TOOL_CALL_END 已由 StreamAdapter._flush 在迭代中发送）----
+                parsed_tool_calls: list[dict] = []
+                for slot in active_slots:
                     try:
-                        event_callback({
-                            "type": "tool_call_end",
-                            "index": slot["index"],
-                            "name": slot["name"],
-                            "call_id": slot["id"],
-                            "arguments": arguments,
-                        })
-                    except Exception:
-                        pass
+                        arguments = json.loads(slot["args_buf"])
+                    except (json.JSONDecodeError, TypeError):
+                        arguments = {"_raw": slot["args_buf"]}
 
-            # ---- 5. 构建 assistant 消息（含 tool_calls 数组） ----
-            tool_calls_payload = []
-            for tc in parsed_tool_calls:
-                tool_calls_payload.append({
-                    "id": tc["id"],
-                    "type": "function",
-                    "function": {
-                        "name": tc["name"],
-                        "arguments": json.dumps(tc["arguments"], ensure_ascii=False),
-                    },
-                })
+                    parsed_tool_calls.append({
+                        "id": slot["id"],
+                        "name": slot["name"],
+                        "index": slot["index"],
+                        "arguments": arguments,
+                    })
 
-            assistant_msg = {
-                "role": "assistant",
-                "content": accumulated_text if accumulated_text else None,
-                "tool_calls": tool_calls_payload,
-            }
-            messages.append(assistant_msg)
+                # ---- 5. 构建 assistant 消息（含 tool_calls 数组） ----
+                tool_calls_payload = []
+                for tc in parsed_tool_calls:
+                    tool_calls_payload.append({
+                        "id": tc["id"],
+                        "type": "function",
+                        "function": {
+                            "name": tc["name"],
+                            "arguments": json.dumps(tc["arguments"], ensure_ascii=False),
+                        },
+                    })
 
-            # ---- 6. 逐个执行工具 ----
-            for i, tc in enumerate(parsed_tool_calls):
-                tool_name = tc["name"]
-                arguments = tc["arguments"]
+                assistant_msg = {
+                    "role": "assistant",
+                    "content": accumulated_text if accumulated_text else None,
+                    "tool_calls": tool_calls_payload,
+                }
+                messages.append(assistant_msg)
 
-                # ---- ask_user 特殊处理 ----
-                if tool_name == "ask_user" and ask_user_queue is not None:
-                    question = arguments.get("question", "")
-                    options = arguments.get("options", "")
+                # ---- 6. 逐个执行工具 ----
+                for i, tc in enumerate(parsed_tool_calls):
+                    tool_name = tc["name"]
+                    arguments = tc["arguments"]
 
-                    # 发送 agent_question 事件
+                    # ---- ask_user 特殊处理 ----
+                    if tool_name == "ask_user" and ask_user_queue is not None:
+                        question = arguments.get("question", "")
+                        options = arguments.get("options", "")
+
+                        # 发送 agent_question 事件
+                        if event_callback:
+                            try:
+                                event_callback({
+                                    "type": "agent_question",
+                                    "question": question,
+                                    "options": options,
+                                })
+                            except Exception:
+                                pass
+
+                        # 阻塞等待用户回答（5 分钟超时）
+                        try:
+                            result = ask_user_queue.get(timeout=300)
+                        except queue.Empty:
+                            result = "用户未在超时时间内响应（5分钟）"
+                        status = "success"
+                    else:
+                        # ---- 常规工具分发 ----
+                        try:
+                            result = self.executor.dispatch(tool_name, arguments)
+                            status = "success"
+                        except Exception as e:
+                            result = f"工具执行错误: {str(e)}"
+                            status = "error"
+
+                    # ---- 发送 tool_result 事件 ----
                     if event_callback:
                         try:
                             event_callback({
-                                "type": "agent_question",
-                                "question": question,
-                                "options": options,
+                                "type": "tool_result",
+                                "index": i,
+                                "name": tool_name,
+                                "result": result,
+                                "status": status,
                             })
                         except Exception:
                             pass
 
-                    # 阻塞等待用户回答
-                    result = ask_user_queue.get()
-                    status = "success"
-                else:
-                    # ---- 常规工具分发 ----
-                    try:
-                        result = self.executor.dispatch(tool_name, arguments)
-                        status = "success"
-                    except Exception as e:
-                        result = f"工具执行错误: {str(e)}"
-                        status = "error"
+                    # ---- 追加 tool 结果消息 ----
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": str(result),
+                    })
 
-                # ---- 发送 tool_result 事件 ----
-                if event_callback:
-                    try:
-                        event_callback({
-                            "type": "tool_result",
-                            "index": i,
-                            "name": tool_name,
-                            "result": result,
-                            "status": status,
-                        })
-                    except Exception:
-                        pass
+                    # ---- 记录 AgentTurn ----
+                    tool_turns.append(AgentTurn(
+                        tool_name=tool_name,
+                        arguments=arguments,
+                        result=str(result),
+                        status=status,
+                    ))
 
-                # ---- 追加 tool 结果消息 ----
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc["id"],
-                    "content": str(result),
-                })
+            # ---- 7. 达到最大轮次 ----
+            return {
+                "final_message": None,
+                "tool_turns": tool_turns,
+                "error": f"达到最大循环轮次 ({self.max_turns})，工具调用未收敛",
+            }
 
-                # ---- 记录 AgentTurn ----
-                tool_turns.append(AgentTurn(
-                    tool_name=tool_name,
-                    arguments=arguments,
-                    result=str(result),
-                    status=status,
-                ))
-
-        # ---- 7. 达到最大轮次 ----
-        return {
-            "final_message": None,
-            "tool_turns": tool_turns,
-            "error": f"达到最大循环轮次 ({self.max_turns})，工具调用未收敛",
-        }
+        # ---- 超时控制 ----
+        if timeout is not None:
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(_run_loop)
+                try:
+                    return future.result(timeout=timeout)
+                except TimeoutError:
+                    return {
+                        "final_message": None,
+                        "tool_turns": tool_turns,
+                        "error": f"Agent loop timed out after {timeout} seconds",
+                    }
+        return _run_loop()
 
 
 # =============================================================================
@@ -432,15 +439,17 @@ class AgentOrchestrator:
         )
     """
 
-    def __init__(self, templates_dir: str = "prompts/zh/agents"):
+    def __init__(self, templates_dir: str = "prompts/zh/agents", executor: UnifiedToolExecutor = None):
         """
         Args:
             templates_dir: 模板目录，相对于项目根目录的路径
+            executor: 可选 UnifiedToolExecutor，传递给子 agent 用于构建子集工具
         """
         # 计算项目根目录（core/ 的上两级）
         _core_dir = os.path.dirname(os.path.abspath(__file__))
         _project_root = os.path.dirname(_core_dir)
         self.templates_dir = os.path.join(_project_root, templates_dir)
+        self._executor = executor
 
     def list_templates(self) -> list[str]:
         """
@@ -482,7 +491,7 @@ class AgentOrchestrator:
                 return {"error": f"Agent 模板不存在: {template}.yaml (已检查 .yaml 和 .yml)"}
 
         try:
-            sub = SubAgent(template_path)
+            sub = SubAgent(template_path, executor=self._executor)
             return sub.run(task, context)
         except Exception as e:
             return {"error": f"子 agent 启动失败: {str(e)}"}
@@ -510,7 +519,7 @@ class AgentOrchestrator:
 
         def _run_one(task: str) -> dict:
             try:
-                sub = SubAgent(template_path)
+                sub = SubAgent(template_path, executor=self._executor)
                 return sub.run(task)
             except Exception as e:
                 return {"error": f"子 agent 启动失败: {str(e)}"}

@@ -54,11 +54,19 @@ from extract.semantic_search import SemanticSearch
 from extract.literature_indexer import LiteratureIndexer
 from utils import CSVWriter
 from prompts.api import prompts_bp
+from core.agent_tools import create_main_executor, AgentTool, UnifiedToolExecutor
+from core.agent_loop import AgentLoop, AgentOrchestrator
+import queue as queue_module
 
 # 初始化Flask应用，static 文件夹指向 Vue 前端构建产物
 app = Flask(__name__, static_folder='frontend/dist', static_url_path='/static')
 app.secret_key = os.urandom(24)  # 用于session管理
 app.register_blueprint(prompts_bp)
+
+# Agent engine (initialized in __main__)
+_agent_executor = None
+_agent_orchestrator = None
+_agent_ask_queues: dict = {}  # session_id -> queue.Queue
 
 # 初始化核心组件
 config = Config()
@@ -294,6 +302,96 @@ software_manager = SoftwareManager(
 def open_browser():
     """打开浏览器 — 默认打开 Vue 前端"""
     webbrowser.open("http://127.0.0.1:5000/")
+
+
+# =============================================================================
+# Agent engine helpers (Phase 1)
+# =============================================================================
+
+def _spawn_agent_impl(template: str, task: str, context: dict = None, mode: str = "single", siblings: list = None) -> dict:
+    """
+    Implementation of the spawn_agent tool.
+    Called by AgentLoop when the LLM decides to spawn a sub-agent.
+
+    Returns:
+        {"result": "summary string"}
+    """
+    if _agent_orchestrator is None:
+        return {"result": "错误: Agent 引擎未启用"}
+
+    if mode == "parallel" and siblings:
+        tasks = [s.get("task", "") for s in siblings]
+        results = _agent_orchestrator.spawn_parallel(template, tasks)
+        summary_parts = []
+        for i, r in enumerate(results):
+            if r and not r.get("error"):
+                fm = r.get("final_message", {})
+                content = fm.get("content", "") if fm else str(r)
+                summary_parts.append(f"[{template}_{i}]: {str(content)[:200]}")
+        return {"result": "并行执行完成:\n" + "\n".join(summary_parts) if summary_parts else "并行执行完成"}
+
+    # mode == "single"
+    result = _agent_orchestrator.spawn(template, task, context)
+    if result.get("error"):
+        return {"result": f"子 Agent 执行失败: {result['error']}"}
+    fm = result.get("final_message", {})
+    content = fm.get("content", "") if fm else str(result)
+    return {"result": str(content)}
+
+
+def _make_session_executor() -> UnifiedToolExecutor:
+    """Create a per-session executor with spawn_agent added."""
+    if _agent_executor is None:
+        return UnifiedToolExecutor([])
+
+    # Get available templates
+    templates_list = _agent_orchestrator.list_templates() if _agent_orchestrator else []
+
+    # Build spawn_agent tool
+    spawn_tool = AgentTool(
+        name="spawn_agent",
+        description=(
+            "创建一个子 Agent 来执行专门任务。子 Agent 有自己的工具集，独立于主对话历史运行，完成后返回结果摘要。"
+            "用于需要大量上下文或长时间运行的任务（如文献检索、数据提取、实验设计）。"
+            "mode='single' 创建单个子 Agent，'parallel' 并行创建多个。"
+            f"可用模板: {templates_list}"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "template": {
+                    "type": "string",
+                    "description": f"Agent 模板名。可用模板: {templates_list}",
+                    "enum": templates_list if templates_list else ["literature_searcher"]
+                },
+                "task": {
+                    "type": "string",
+                    "description": "子 Agent 的任务描述"
+                },
+                "context": {
+                    "type": "object",
+                    "description": "可选的上下文数据字典"
+                },
+                "mode": {
+                    "type": "string",
+                    "description": "执行模式: single=单个子Agent, parallel=并行多个",
+                    "enum": ["single", "parallel"]
+                },
+                "siblings": {
+                    "type": "array",
+                    "description": "并行模式下额外的任务列表 [{'task': '...'}, ...]"
+                },
+            },
+            "required": ["template", "task"],
+        },
+        required=["template", "task"],
+        func=lambda args: _spawn_agent_impl(**args),
+        category="builtin",
+    )
+
+    # Merge with main executor's tools
+    all_tools = list(_agent_executor._tools.values()) + [spawn_tool]
+    return UnifiedToolExecutor(all_tools)
 
 
 @app.route('/')
@@ -2575,6 +2673,144 @@ def api_literature_detail(unique_id):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+# =============================================================================
+# Agent tool-use API (Phase 1)
+# =============================================================================
+
+@app.route('/api/chat/agent', methods=['POST'])
+def chat_agent():
+    """Agent tool-use 对话端点 — SSE 流式响应"""
+    if _agent_executor is None:
+        return jsonify({"type": "error", "reply": "Agent 模式未启用"}), 400
+
+    data = request.get_json(silent=True) or {}
+    user_message = data.get('message', '').strip()
+    session_id = data.get('session_id', 'default')
+    history = data.get('history', [])
+
+    if not user_message:
+        return jsonify({"type": "error", "reply": "消息不能为空"}), 400
+
+    # Build messages from history
+    messages = []
+    if history:
+        for m in history:
+            role = m.get("role", "user")
+            content = m.get("content", "")
+            if not content:
+                continue
+            api_role = "assistant" if role == "ai" else "user"
+            msg = {"role": api_role, "content": content}
+            if role == "ai" and m.get("reasoning_content"):
+                msg["reasoning_content"] = m["reasoning_content"]
+            messages.append(msg)
+    messages.append({"role": "user", "content": user_message})
+
+    # Create per-session executor with spawn_agent
+    session_executor = _make_session_executor()
+
+    # Create ask_user queue for this session
+    ask_queue = queue_module.Queue()
+    _agent_ask_queues[session_id] = ask_queue
+
+    # Create LLM client
+    _talk_extra = config.get_extra_body("TALK")
+    agent_llm = LLMClient(
+        api_key=config.TALK_API_KEY,
+        api_url=config.TALK_API_URL,
+        extra_body=_talk_extra,
+    )
+
+    # Create AgentLoop
+    loop = AgentLoop(
+        llm=agent_llm,
+        executor=session_executor,
+        model=config.MODEL_NAME_TALK,
+        max_turns=config.AGENT_MAX_TURNS,
+        extra_body=_talk_extra,
+    )
+
+    # Event queue for SSE streaming
+    event_queue = []
+    loop_done = threading.Event()
+    result_container = {}
+
+    def event_callback(event: dict):
+        event_queue.append(event)
+
+    def run_loop():
+        try:
+            result = loop.run(
+                messages=messages,
+                event_callback=event_callback,
+                ask_user_queue=ask_queue,
+            )
+            result_container["result"] = result
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            result_container["error"] = str(e)
+        finally:
+            loop_done.set()
+
+    # Run agent in daemon thread
+    loop_thread = threading.Thread(target=run_loop, daemon=True)
+    loop_thread.start()
+
+    def agent_sse_stream():
+        idx = 0
+        while not loop_done.is_set() or idx < len(event_queue):
+            while idx < len(event_queue):
+                event = event_queue[idx]
+                idx += 1
+                if event.get("type") in ("done", "error"):
+                    continue
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+            if not loop_done.is_set() and idx >= len(event_queue):
+                import time
+                time.sleep(0.05)
+
+        # Cleanup
+        _agent_ask_queues.pop(session_id, None)
+
+        # Emit final event
+        result = result_container.get("result", {})
+        if result.get("error"):
+            error_event = {"type": "agent_error", "message": result["error"]}
+            yield f"data: {json.dumps(error_event, ensure_ascii=False)}\n\n"
+        else:
+            yield f"data: {json.dumps({'type': 'agent_done'}, ensure_ascii=False)}\n\n"
+
+    return Response(
+        agent_sse_stream(),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+@app.route('/api/chat/agent/respond', methods=['POST'])
+def chat_agent_respond():
+    """用户响应 ask_user 问题"""
+    data = request.get_json(silent=True) or {}
+    session_id = data.get('session_id', 'default')
+    answer = data.get('answer', '').strip()
+
+    if not answer:
+        return jsonify({"type": "error", "reply": "回答不能为空"}), 400
+
+    ask_queue = _agent_ask_queues.get(session_id)
+    if ask_queue is None:
+        return jsonify({"type": "error", "reply": "没有等待中的问题，或会话已过期"}), 404
+
+    ask_queue.put(answer)
+    return jsonify({"type": "ok", "reply": "回答已接收"})
+
+
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='SDL Agent - AI-driven lab automation')
@@ -2586,6 +2822,18 @@ if __name__ == '__main__':
     from utils.i18n import init_i18n
     init_i18n(default_lang=args.default_language)
     print(f"[i18n] Default language: {args.default_language}")
+
+    # ---- Initialize Agent Engine (Phase 1) ----
+    if config.AGENT_ENABLED:
+        print("[Agent] Initializing agent toolkit...")
+        _agent_executor = create_main_executor()
+        _agent_orchestrator = AgentOrchestrator(executor=_agent_executor)
+        print(f"[Agent]   Tools: {len(_agent_executor.names)} registered")
+        print(f"[Agent]   Templates: {_agent_orchestrator.list_templates()}")
+    else:
+        _agent_executor = None
+        _agent_orchestrator = None
+        print("[Agent] Agent mode disabled (AGENT_ENABLED=false)")
 
     print("服务即将启动...")
     Timer(1.5, open_browser).start()

@@ -22,7 +22,7 @@ from flask import Flask, request, jsonify, render_template
 # Add project root for kinematics import
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
 
-from kinematics import (
+from kinematics_M1Pro import (
     JointState, CartesianPose, IKSolution,
     forward_kinematics, inverse_kinematics, fk_compact,
     compute_jacobian, j3_deg_to_d3, d3_to_j3_deg,
@@ -107,6 +107,14 @@ def api_fk():
     # Check joint limits
     limits_ok = (J1_MIN <= j1 <= J1_MAX and J2_MIN <= j2 <= J2_MAX and
                  D3_MIN <= d3 <= D3_MAX and J4_MIN <= j4 <= J4_MAX)
+
+    # Persist to dobot_state.json
+    from datetime import datetime
+    _save_dobot_state({
+        "joint": {"j1": j1, "j2": j2, "j3_deg": j3_deg, "j4": j4, "d3_mm": round(d3, 3)},
+        "tcp": {"x": round(pose.x, 3), "y": round(pose.y, 3), "z": round(pose.z, 3), "r": round(pose.r, 3)},
+        "updated_at": datetime.now().isoformat(timespec='seconds'),
+    })
 
     return jsonify({
         'x': round(pose.x, 3),
@@ -237,7 +245,11 @@ def api_pose():
 # Platform Config API
 # -------------------------------------------------------
 
-CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'platform_config.json')
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, 'data')
+CONFIG_PATH = os.path.join(DATA_DIR, 'config', 'platform_config.json')
+DOBOT_STATE_PATH = os.path.join(DATA_DIR, 'runtime', 'dobot_state.json')
+PIPETTE_STATE_PATH = os.path.join(DATA_DIR, 'runtime', 'pipette_state.json')
 
 
 def _load_platform_config():
@@ -306,8 +318,15 @@ def api_pipette_fk():
 
     state = PipetteState(x=x, y=y, z1=z1, z2=z2)
     pose = pipette_fk(state)
+    # Persist to pipette_state.json
+    from datetime import datetime
+    _save_pipette_state({
+        "axis": {"x": x, "y": y, "z1": z1, "z2": z2},
+        "tip1": pose.tip1.to_dict(),
+        "tip2": pose.tip2.to_dict(),
+        "updated_at": datetime.now().isoformat(timespec='seconds'),
+    })
     return jsonify({'success': True, 'data': pose.to_dict()})
-
 
 @app.route('/api/pipette/ik', methods=['POST'])
 def api_pipette_ik():
@@ -335,6 +354,111 @@ def api_pipette_pose():
     return jsonify(app.config.get('pipette_state', {
         'x': PX_REF, 'y': PY_REF, 'z1': PZ_REF, 'z2': PZ_REF,
     }))
+
+
+# -------------------------------------------------------
+# Runtime state — two JSON files: dobot_state.json + pipette_state.json
+# -------------------------------------------------------
+
+def _load_dobot_state():
+    default = {
+        "joint": {"j1": 0.0, "j2": 0.0, "j3_deg": 0.0, "j4": 0.0, "d3_mm": D3_BASE},
+        "tcp": {"x": A1 + A2, "y": 0.0, "z": D1 + D3_BASE - D4, "r": 0.0},
+        "updated_at": "",
+    }
+    try:
+        with open(DOBOT_STATE_PATH, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return default
+
+
+def _save_dobot_state(state):
+    try:
+        with open(DOBOT_STATE_PATH, 'w', encoding='utf-8') as f:
+            json.dump(state, f, indent=2, ensure_ascii=False)
+        return True
+    except Exception as e:
+        print(f"[DobotState] Failed to save: {e}")
+        return False
+
+
+def _load_pipette_state():
+    default = {
+        "axis": {"x": PX_REF, "y": PY_REF, "z1": PZ_REF, "z2": PZ_REF},
+        "tip1": {"x": 0.0, "y": 0.0, "z": 0.0},
+        "tip2": {"x": 0.0, "y": 0.0, "z": 0.0},
+        "updated_at": "",
+    }
+    try:
+        with open(PIPETTE_STATE_PATH, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return default
+
+
+def _save_pipette_state(state):
+    try:
+        with open(PIPETTE_STATE_PATH, 'w', encoding='utf-8') as f:
+            json.dump(state, f, indent=2, ensure_ascii=False)
+        return True
+    except Exception as e:
+        print(f"[PipetteState] Failed to save: {e}")
+        return False
+
+
+@app.route('/api/runtime/dobot_state', methods=['GET'])
+def api_get_dobot_state():
+    return jsonify({'success': True, 'data': _load_dobot_state()})
+
+
+@app.route('/api/runtime/dobot_state', methods=['POST', 'PUT'])
+def api_set_dobot_state():
+    data = request.get_json(force=True)
+    state = _load_dobot_state()
+    try:
+        if 'joint' in data:
+            for k in ('j1', 'j2', 'j3_deg', 'j4'):
+                if k in data['joint']:
+                    state['joint'][k] = float(data['joint'][k])
+                    if k == 'j3_deg':
+                        state['joint']['d3_mm'] = j3_deg_to_d3(state['joint'][k])
+        if 'tcp' in data:
+            for k in ('x', 'y', 'z', 'r'):
+                if k in data['tcp']:
+                    state['tcp'][k] = float(data['tcp'][k])
+    except (TypeError, ValueError) as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    from datetime import datetime
+    state['updated_at'] = datetime.now().isoformat(timespec='seconds')
+    _save_dobot_state(state)
+    return jsonify({'success': True, 'data': state})
+
+
+@app.route('/api/runtime/pipette_state', methods=['GET'])
+def api_get_pipette_state():
+    return jsonify({'success': True, 'data': _load_pipette_state()})
+
+
+@app.route('/api/runtime/pipette_state', methods=['POST', 'PUT'])
+def api_set_pipette_state():
+    data = request.get_json(force=True)
+    state = _load_pipette_state()
+    try:
+        if 'axis' in data:
+            for k in ('x', 'y', 'z1', 'z2'):
+                if k in data['axis']:
+                    state['axis'][k] = float(data['axis'][k])
+    except (TypeError, ValueError) as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    # Recompute tips from axes
+    pose = pipette_fk(PipetteState(**state['axis']))
+    state['tip1'] = pose.tip1.to_dict()
+    state['tip2'] = pose.tip2.to_dict()
+    from datetime import datetime
+    state['updated_at'] = datetime.now().isoformat(timespec='seconds')
+    _save_pipette_state(state)
+    return jsonify({'success': True, 'data': state})
 
 
 # -------------------------------------------------------

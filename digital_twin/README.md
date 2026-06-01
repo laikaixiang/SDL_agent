@@ -5,7 +5,7 @@
 ## 快速启动
 
 ```bash
-cd test_digital_twin/robot_arm_model
+cd digital_twin/robot_arm_model
 python digital_twin.py
 # 浏览器打开 http://127.0.0.1:5001
 ```
@@ -19,17 +19,37 @@ python digital_twin.py
 ```
 test_digital_twin/
 ├── PLAN.md                  # 平台布局数字孪生实现计划
+├── WORK_SUMMARY.md          # 工作记录与变更总览
 └── robot_arm_model/
     ├── README.md            # 本文件
     ├── PLAN.md              # 技术方案文档 (机械臂本体)
-    ├── kinematics.py        # 运动学引擎
+    ├── kinematics.py        # Dobot M1Pro 运动学引擎 (FK/IK/Jacobian)
+    ├── kinematics_pipette.py # 移液臂运动学引擎 (X/Y/Z1/Z2 棱柱)
+    ├── pipette_kinematic_params.json # 移液臂运动学参数 (STL分析)
+    ├── extract_pipette_params.py    # 移液臂 STL 参数提取脚本
     ├── digital_twin.py      # Flask 服务端 + REST API + 配置持久化
     ├── platform_config.json # 平台模块配置（可手动编辑或通过UI保存）
     ├── LOG_20260531_lkx.md  # 详细变更日志
     ├── templates/
-    │   └── index.html       # 3D 交互界面 (Three.js, 自包含)
-    │                        #   - Dobot M1Pro 机械臂
-    │                        #   - 6模块平台布局 + 编辑模式 + 多实例 + 持久化
+    │   ├── index.html       # 3D 交互界面 (Three.js, 自包含)
+    │   │                    #   - Dobot M1Pro SCARA
+    │   │                    #   - 移液臂 XYZZ+双ADP
+    │   │                    #   - 800×800 桌面模块 + 托盘
+    │   │                    #   - 手指 (Dobot 末端)
+    │   │                    #   - 6模块平台布局 + 编辑模式 + 多实例 + 持久化
+    │   ├── models/
+    │   │   ├── dobot_m1pro/      # Dobot STL 零件
+    │   │   ├── pipette_arm/      # 移液臂 STL 零件 + 减面版本
+    │   │   ├── finger/           # 末端手指模型
+    │   │   └── plates/           # 样品托盘模型
+    │   └── viewers/          # 各零件的独立 HTML 预览页
+    │       ├── M1_*_viewer.html
+    │       ├── pipette_group*_viewer.html
+    │       ├── pipette_tip_viewer.html
+    │       ├── pipette_assembly_viewer.html
+    │       ├── assembly_viewer.html
+    │       ├── finger_viewer.html  # 手指
+    │       └── plate_viewer.html   # 托盘
     └── dobot_protocol.txt   # 越疆 TCP/IP 协议文档 (参考)
 ```
 
@@ -221,7 +241,7 @@ J4 偏移量 (0,0) → ROTATE 绕自身中心自转。
 **运动学调试** — 独立运行 kinematics.py 验证 FK/IK：
 
 ```bash
-python test_digital_twin/robot_arm_model/kinematics.py
+python digital_twin/robot_arm_model/kinematics_M1Pro.py
 ```
 
 **API 调试** — 通过 Flask test client 或 curl 测试：
@@ -263,7 +283,7 @@ Three.js 使用 Y-up 坐标，机器人 Z 轴映射到 Three.js Y 轴。
 
 ## API 参考
 
-所有端点返回 JSON。运动学计算由 `kinematics.py` 完成，前端 3D 渲染使用同逻辑的 JS 实现（60fps，不依赖后端）。
+所有端点返回 JSON。Dobot 运动学由 `kinematics.py` 完成，移液臂运动学由 `kinematics_pipette.py` 完成，前端 3D 渲染使用同逻辑的 JS 实现（60fps，不依赖后端）。
 
 | 方法 | 路由 | 输入 | 输出 |
 |------|------|------|------|
@@ -274,6 +294,12 @@ Three.js 使用 Y-up 坐标，机器人 Z 轴映射到 Three.js Y 轴。
 | GET | `/api/joint_limits` | — | `{joints:{j1/j2/j3/j4:{min,max,unit,type}}, dh_params, screw}` |
 | POST | `/api/jacobian` | `{j1,j2,j3_deg,j4}` | `{jacobian:4x4, determinant}` |
 | GET | `/api/pose` | — | 服务端缓存的当前状态 |
+| **移液臂运动学** | | | |
+| GET | `/api/pipette/limits` | — | `{x, y, z1, z2, adp_spacing_x_mm}` |
+| POST | `/api/pipette/fk` | `{x, y, z1, z2}` | `{tip1, tip2} CAD+World坐标` |
+| POST | `/api/pipette/ik` | `{x, y, z1, z2}` | `{x,y,z1,z2, valid, limit_violations}` |
+| GET | `/api/pipette/pose` | — | 服务端缓存的当前状态 |
+| **平台配置** | | | |
 | GET | `/api/platform_config` | — | 读取平台模块配置 |
 | POST | `/api/platform_config` | JSON body | 保存平台模块配置到 `platform_config.json` |
 

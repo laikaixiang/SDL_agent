@@ -333,7 +333,7 @@ STL_LOADER.load('/models/plates/托盘V3.0(1).STL', (geo) => {
   geo.computeBoundingBox(); const c = new THREE.Vector3(); geo.boundingBox.getCenter(c);
   geo.translate(-c.x, -c.y, -c.z);
   const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({color:0xd0d0d0, roughness:0.5, metalness:0.2}));
-  m.position.set(300, 0.005, -300);
+  m.position.set(300, 0.005, -300); m.rotation.y = -Math.PI/2;
   m.castShadow = true; m.receiveShadow = true; m.name = 'SamplePlate';
   scene.add(m);
 });

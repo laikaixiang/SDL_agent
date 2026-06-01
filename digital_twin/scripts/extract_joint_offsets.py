@@ -8,7 +8,7 @@ import json
 
 MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates', 'models', 'dobot_m1pro')
 
-# DH parameters (from kinematics.py)
+# DH parameters (from kinematics_M1Pro.py)
 A1, A2 = 250.0, 150.0  # link lengths (mm)
 D1, D4 = 85.0, 80.0    # base height, tool offset (mm)
 

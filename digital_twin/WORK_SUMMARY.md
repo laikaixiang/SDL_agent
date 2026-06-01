@@ -70,7 +70,7 @@ test_digital_twin/robot_arm_model/
 ## 启动方式
 
 ```bash
-cd D:/PycharmProjects/sdl_agent/test_digital_twin/robot_arm_model
+cd D:/PycharmProjects/sdl_agent/digital_twin/robot_arm_model
 python digital_twin.py
 # 打开 http://127.0.0.1:5001
 ```
@@ -561,3 +561,40 @@ Dobot 需要居中+偏移因为每个零件挂载到不同的旋转节点，必�
 - 平台模块位置通过 `platform_config.json` 持久化，刷新页面后恢复
 - 编辑模式（勾选"编辑模式"）可修改模块参数和位置
 - 三个页面均含调试坐标轴 (AxesHelper + X/Y/Z sprite 标签)
+
+---
+
+## Phase 4: 末端手指 + 托盘集成 (2026-06-01)
+
+### 完成内容
+1. **手指 STL 集成到 Dobot 末端** (`templates/models/finger/手指V1.0.STL`)
+   - 8.5×29.6×22.0mm 末端夹爪
+   - 通过 `geometry.rotateX(-PI/2)` 朝向下方
+   - 挂在 `j4Pivot` 上跟随 J4 旋转
+2. **样品托盘 STL 集成到平台** (`templates/models/plates/托盘V3.0(1).STL`)
+   - 128×10×86mm 平放式样品托盘
+   - CAD Y (10mm 厚度) 自然朝上
+   - 位置 (300, 0.005, -300)，`rotation.y = -PI/2` 调整朝向
+3. **新增 viewer 页面**
+   - `templates/viewers/finger_viewer.html`
+   - `templates/viewers/plate_viewer.html`
+
+### 场景布局（最终状态）
+| 项目 | 坐标 | 旋转 | 说明 |
+|------|------|------|------|
+| 底板 | 1600×1600 mm | 0° | 桌面 (X≥0) |
+| 桌面模块 | 800×800 mm | 0° | 中心 (550, -250) |
+| Dobot 机械臂 | (150, 0, -600) | 0° | SCARA, 左下 |
+| 移液臂 | (950, 0, -250) | rotY=-90° | 龙门, 右上对角 |
+| 手指 (Dobot 末端) | j4Pivot (-D4) | J4 联动 | 朝下 |
+| 样品托盘 | (300, 0.005, -300) | rotY=-90° | 桌面附近 |
+
+### 坐标系统一 (Phase 4 完整版)
+
+| 轴 | 含义 | 调试标签 | Dobot | 移液臂 |
+|----|------|---------|-------|--------|
+| X | 水平 (World X) | 红色 | 臂展方向 | 中梁滑动 |
+| Y | 水平 (World Z) | 绿色 | 横向 | 横梁移动 |
+| Z | 垂直 (World Y=UP) | 蓝色 | J3 升降 | Z1/Z2 ADP升降 |
+
+**统一规则**: 所有运动学引擎的 Z 轴 = 垂直向上 = J3 让 d3 变大的方向 = World Y。

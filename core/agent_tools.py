@@ -37,7 +37,7 @@ class AgentTool:
     name: str
     description: str
     parameters: dict              # OpenAI JSON Schema object
-    required: list                # list[str] — 必填参数名
+    required: list[str]           # 必填参数名
     func: Callable[[dict], str]   # 接收 args dict，返回结果字符串
     category: str                 # "builtin" | "hardware" | "software"
     dangerous: bool = False       # 是否为危险操作（硬件工具默认 True）

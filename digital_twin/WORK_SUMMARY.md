@@ -598,3 +598,123 @@ Dobot 需要居中+偏移因为每个零件挂载到不同的旋转节点，必�
 | Z | 垂直 (World Y=UP) | 蓝色 | J3 升降 | Z1/Z2 ADP升降 |
 
 **统一规则**: 所有运动学引擎的 Z 轴 = 垂直向上 = J3 让 d3 变大的方向 = World Y。
+
+---
+
+## Phase 5: JSON 配置驱动 — Slider 限位动态同步 (2026-06-02)
+
+### 目标
+
+前端 slider 的 min/max/value 不再硬编码在 HTML 中，而是由 JSON 配置文件驱动：
+- 修改 `pipette_kinematic_params.json` → 移液臂 slider 范围自动更新
+- 修改 `dobot_joint_offsets.json` → Dobot slider 范围自动更新
+- 运行时状态读写 `data/runtime/*.json`，刷新页面后恢复上次位置
+
+### 数据流
+
+```
+data/offsets/pipette_kinematic_params.json
+         │
+         ▼
+kinematics_pipette.py  (Python 模块加载时读取)
+         │
+         ├─→ X_MIN/X_MAX/Y_MIN/Y_MAX/Z_MIN/Z_MAX 等常量
+         │
+         └─→ /api/kinematic_params  (Flask)
+                   │
+                   ▼
+         index.html (页面加载时 fetch)
+                   │
+                   ▼
+         slider min/max/value 属性动态设置
+```
+
+```
+data/offsets/dobot_joint_offsets.json
+         │
+         ▼
+kinematics_M1Pro.py  (Python 模块加载时读取)
+         │
+         └─→ /api/kinematic_params  (Flask, 同上)
+```
+
+```
+data/runtime/pipette_state.json   ← load_state() / save_state()
+data/runtime/dobot_state.json     ← load_state() / save_state()
+         ▲                    │
+         └──── 页面刷新后自动恢复上次位置 ──┘
+```
+
+### 涉及文件变更
+
+| 文件 | 变更 |
+|------|------|
+| `kinematics_pipette.py` | 模块加载时读 `pipette_kinematic_params.json`；新增 `load_state()` / `save_state()` |
+| `kinematics_M1Pro.py` | 模块加载时读 `dobot_joint_offsets.json`；新增 `load_state()` / `save_state()` |
+| `digital_twin.py` | 新增 `/api/kinematic_params` GET 端点 |
+| `templates/index.html` | 页面加载时 `fetch('/api/kinematic_params')` 动态设置 slider 属性 |
+| `data/runtime/pipette_state.json` | 移液臂运行时状态（轴值 + tip 坐标 + 时间戳） |
+| `data/runtime/dobot_state.json` | Dobot 运行时状态（关节值 + TCP 坐标 + 时间戳） |
+
+### API 端点
+
+`GET /api/kinematic_params` 返回：
+
+```json
+{
+  "dobot": {
+    "j1":  { "min": -85.0,  "max": 85.0,   "unit": "deg" },
+    "j2":  { "min": -130.0, "max": 130.0,  "unit": "deg" },
+    "j3_deg": { "min": 5580.0, "max": -5220.0 },
+    "j4":  { "min": -360.0, "max": 360.0,  "unit": "deg" },
+    "d3_mm": { "min": 155.0,  "max": 455.0, "unit": "mm" }
+  },
+  "pipette": {
+    "x":  { "min": 44.1, "max": 384.9, "ref": 300.3, "unit": "mm" },
+    "y":  { "min": 59.1, "max": 367.1, "ref": 416.1, "ref_stl": 416.1, "unit": "mm" },
+    "z1": { "min": 94.0, "max": 160.7, "ref": 123.1, "unit": "mm" },
+    "z2": { "min": 94.0, "max": 160.7, "ref": 123.1, "unit": "mm" }
+  }
+}
+```
+
+### 运行时状态文件格式
+
+**data/runtime/pipette_state.json**：
+```json
+{
+  "axis": { "x": 310.0, "y": 250.0, "z1": 140.0, "z2": 135.0 },
+  "tip1": { "x": 294.1, "y": 322.2, "z": 129.2 },
+  "tip2": { "x": 324.3, "y": 322.2, "z": 124.2 },
+  "updated_at": "2026-06-01T12:26:02"
+}
+```
+
+**data/runtime/dobot_state.json**：
+```json
+{
+  "joint": { "j1": 30.0, "j2": -30.0, "j3_deg": 1000.0, "j4": 45.0, "d3_mm": 327.778 },
+  "tcp":   { "x": 366.506, "y": 125.0, "z": 332.778, "r": 45.0 },
+  "updated_at": "2026-06-01T12:26:02"
+}
+```
+
+### 前端初始化流程 (index.html)
+
+```javascript
+// 1. fetch /api/kinematic_params
+// 2. 设置 Dobot 滑块: s-j1/min/max, s-j2/min/max, s-j3/min/max, s-j4/min/max
+// 3. 设置 Pipette 滑块: sp-x/min/max/value=ref, sp-y/min/max/value=ref,
+//                       sp-z1/min/max/value=ref, sp-z2/min/max/value=ref
+// 4. updateRobot(...values) + updatePipette(...values)
+// 5. fallback: 若 fetch 失败, 使用 HTML 中硬编码的默认值
+```
+
+### 运行时状态持久化 API
+
+| 方法 | 路由 | 功能 |
+|------|------|------|
+| GET | `/api/runtime/dobot_state` | 读取 `data/runtime/dobot_state.json` |
+| POST | `/api/runtime/dobot_state` | 写入 `data/runtime/dobot_state.json` |
+| GET | `/api/runtime/pipette_state` | 读取 `data/runtime/pipette_state.json` |
+| POST | `/api/runtime/pipette_state` | 写入 `data/runtime/pipette_state.json` |

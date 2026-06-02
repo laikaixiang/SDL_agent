@@ -185,6 +185,38 @@ def api_workspace():
     })
 
 
+@app.route('/api/kinematic_params', methods=['GET'])
+def api_kinematic_params():
+    """Return kinematic limits and reference positions from JSON config files."""
+    import kinematics_M1Pro as km
+    import kinematics_pipette as kp
+
+    # Dobot limits (from kinematics_M1Pro which already reads from JSON)
+    dob_limits = {
+        'j1': {'min': km.J1_MIN, 'max': km.J1_MAX, 'unit': 'deg'},
+        'j2': {'min': km.J2_MIN, 'max': km.J2_MAX, 'unit': 'deg'},
+        'j3_deg': {
+            'min': round(km.d3_to_j3_deg(km.Z_MAX), 1),
+            'max': round(km.d3_to_j3_deg(km.Z_MIN), 1),
+        },
+        'j4': {'min': km.J4_MIN, 'max': km.J4_MAX, 'unit': 'deg'},
+        'd3_mm': {'min': km.Z_MIN, 'max': km.Z_MAX, 'unit': 'mm'},
+    }
+
+    # Pipette limits (from kinematics_pipette which already reads from JSON)
+    pip_limits = {
+        'x':  {'min': kp.X_MIN, 'max': kp.X_MAX, 'ref': kp.X_REF, 'unit': 'mm'},
+        'y':  {'min': kp.Y_MIN, 'max': kp.Y_MAX, 'ref': kp.Y_REF, 'ref_stl': kp.Y_REF_STL, 'unit': 'mm'},
+        'z1': {'min': kp.Z_MIN, 'max': kp.Z_MAX, 'ref': kp.Z_REF, 'unit': 'mm'},
+        'z2': {'min': kp.Z_MIN, 'max': kp.Z_MAX, 'ref': kp.Z_REF, 'unit': 'mm'},
+    }
+
+    return jsonify({
+        'dobot': dob_limits,
+        'pipette': pip_limits,
+    })
+
+
 @app.route('/api/joint_limits', methods=['GET'])
 def api_joint_limits():
     """Return joint limits and DH parameters."""

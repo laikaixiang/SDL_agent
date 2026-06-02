@@ -1,0 +1,1515 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dobot M1Pro 数字孪生 — SCARA 机械臂</title>
+<style>
+:root { --bg:#1a1d23; --panel-bg:#21252b; --border:#333842; --text:#abb2bf; --text-bright:#e5e5e5; --accent:#61afef; --accent2:#e5c07b; --danger:#e06c75; --success:#98c379; --slider-track:#3a3f4b; }
+* { box-sizing:border-box; margin:0; padding:0; }
+body { font-family: -apple-system,'Segoe UI','Microsoft YaHei',sans-serif; background:var(--bg); color:var(--text); overflow:hidden; height:100vh; display:flex; }
+#canvas-container { flex:1; position:relative; min-width:0; }
+#canvas-container canvas { display:block; }
+#panel { width:380px; background:var(--panel-bg); border-left:1px solid var(--border); display:flex; flex-direction:column; overflow-y:auto; padding:16px; gap:12px; }
+h2 { color:var(--text-bright); font-size:15px; font-weight:600; margin-bottom:4px; }
+h3 { color:var(--text-bright); font-size:13px; margin-bottom:6px; }
+.tab-row { display:flex; gap:4px; }
+.tab-btn { flex:1; padding:8px; background:var(--slider-track); border:1px solid var(--border); color:var(--text); cursor:pointer; border-radius:4px 4px 0 0; font-size:13px; }
+.tab-btn.active { background:var(--panel-bg); border-bottom-color:transparent; color:var(--accent); }
+.group { background:#282c34; border:1px solid var(--border); border-radius:6px; padding:12px; }
+.slider-row { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+.slider-row:last-child { margin-bottom:0; }
+.slider-label { width:32px; font-size:12px; color:var(--accent); font-weight:600; flex-shrink:0; }
+.slider-label.z-label { color:var(--accent2); }
+.slider-val { width:142px; text-align:right; font-size:12px; color:var(--text-bright); font-variant-numeric:tabular-nums; flex-shrink:0; }
+input[type=range] { flex:1; accent-color:var(--accent); height:6px; }
+input[type=range].z-slider { accent-color:var(--accent2); }
+.input-row { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+.input-label { width:20px; font-size:12px; color:var(--accent); font-weight:600; flex-shrink:0; text-align:center; }
+.input-label.r-label { color:var(--accent2); }
+.input-row input[type=number] { width:100px; background:var(--bg); border:1px solid var(--border); color:var(--text-bright); padding:4px 8px; border-radius:4px; font-size:13px; }
+.input-unit { font-size:11px; color:var(--text); width:40px; flex-shrink:0; }
+.btn { padding:8px 14px; border-radius:4px; border:none; cursor:pointer; font-size:13px; font-weight:500; }
+.btn-accent { background:var(--accent); color:#1a1d23; }
+.btn-accent:hover { opacity:0.85; }
+.btn-sm { padding:4px 10px; font-size:12px; }
+.pose-display { display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:6px; }
+.pose-item { text-align:center; background:var(--bg); border-radius:4px; padding:6px 4px; }
+.pose-item .val { font-size:16px; font-weight:700; color:var(--accent); }
+.pose-item .lbl { font-size:10px; color:var(--text); margin-top:2px; }
+.status-row { display:flex; align-items:center; gap:8px; font-size:12px; }
+.status-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.status-dot.ok { background:var(--success); }
+.status-dot.warn { background:var(--accent2); }
+.status-dot.err { background:var(--danger); }
+#overlay-info { position:absolute; top:12px; left:12px; background:rgba(0,0,0,0.75); padding:8px 12px; border-radius:6px; font-size:11px; line-height:1.6; color:#ccc; pointer-events:none; font-variant-numeric:tabular-nums; }
+#overlay-info span { color:var(--accent); font-weight:600; }
+
+/* ---- Module config panel ---- */
+.module-tab-row { display:flex; gap:4px; }
+.module-tab { flex:1; padding:6px; background:var(--slider-track); border:1px solid var(--border); color:var(--text); cursor:pointer; border-radius:4px; font-size:11px; text-align:center; }
+.module-tab.active { background:var(--accent); color:#1a1d23; border-color:var(--accent); }
+.config-row { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+.config-row:last-child { margin-bottom:0; }
+.config-label { width:52px; font-size:12px; color:var(--text); flex-shrink:0; }
+.config-row input[type=number] { width:70px; background:var(--bg); border:1px solid var(--border); color:var(--text-bright); padding:3px 6px; border-radius:4px; font-size:12px; }
+.config-row select { flex:1; background:var(--bg); color:var(--text-bright); border:1px solid var(--border); padding:3px 6px; border-radius:4px; font-size:12px; }
+.config-row input[type=range] { flex:1; accent-color:var(--accent); height:4px; }
+.pos-display { font-size:11px; color:var(--accent); font-variant-numeric:tabular-nums; }
+.pos-display span { color:var(--text-bright); }
+</style>
+</head>
+<body>
+
+<div id="canvas-container">
+  <div id="overlay-info">末端 X:<span id="oi-x">--</span> Y:<span id="oi-y">--</span> Z:<span id="oi-z">--</span> R:<span id="oi-r">--</span>°</div>
+</div>
+
+<div id="panel">
+  <h2>Dobot M1Pro SCARA 数字孪生</h2>
+  <div class="group">
+    <h3>末端位姿 (TCP)</h3>
+    <div class="pose-display">
+      <div class="pose-item"><div class="val" id="pv-x">--</div><div class="lbl">X mm</div></div>
+      <div class="pose-item"><div class="val" id="pv-y">--</div><div class="lbl">Y mm</div></div>
+      <div class="pose-item"><div class="val" id="pv-z">--</div><div class="lbl">Z mm</div></div>
+      <div class="pose-item"><div class="val" id="pv-r">--</div><div class="lbl">R °</div></div>
+    </div>
+    <div class="status-row" style="margin-top:6px">
+      <div class="status-dot ok" id="limit-dot"></div><span id="limit-msg">关节限位正常</span>
+    </div>
+  </div>
+
+  <div class="tab-row">
+    <button class="tab-btn active" id="tab-joint" onclick="switchTab('joint')">关节控制 (电机)</button>
+    <button class="tab-btn" id="tab-cart" onclick="switchTab('cart')">笛卡尔控制 (XYZR)</button>
+  </div>
+
+  <div class="group" id="joint-panel">
+    <div class="slider-row"><span class="slider-label">J1</span><input type="range" id="s-j1" min="-85" max="85" value="0" step="0.1" oninput="onJointSlider()"><span class="slider-val" id="v-j1">0.0°</span></div>
+    <div class="slider-row"><span class="slider-label">J2</span><input type="range" id="s-j2" min="-130" max="130" value="0" step="0.1" oninput="onJointSlider()"><span class="slider-val" id="v-j2">0.0°</span></div>
+    <div class="slider-row"><span class="slider-label z-label">J3</span><input type="range" class="z-slider" id="s-j3" min="-5400" max="5400" value="0" step="1" oninput="onJointSlider()"><span class="slider-val" id="v-j3">电机 0° | d₃=300mm</span></div>
+    <div class="slider-row"><span class="slider-label">J4</span><input type="range" id="s-j4" min="-360" max="360" value="0" step="0.1" oninput="onJointSlider()"><span class="slider-val" id="v-j4">0.0°</span></div>
+    <button class="btn btn-sm btn-accent" style="margin-top:4px" onclick="resetJoints()">归零 (Home)</button>
+  </div>
+
+  <div class="group" id="cart-panel" style="display:none">
+    <div class="input-row"><span class="input-label">X</span><input type="number" id="ci-x" value="400" step="1"><span class="input-unit">mm</span></div>
+    <div class="input-row"><span class="input-label">Y</span><input type="number" id="ci-y" value="0" step="1"><span class="input-unit">mm</span></div>
+    <div class="input-row"><span class="input-label">Z</span><input type="number" id="ci-z" value="305" step="1"><span class="input-unit">mm</span></div>
+    <div class="input-row"><span class="input-label r-label">R</span><input type="number" id="ci-r" value="0" step="1"><span class="input-unit">deg</span></div>
+    <div style="display:flex;gap:6px;margin-top:6px">
+      <select id="ik-elbow" style="flex:1;background:var(--bg);color:var(--text);border:1px solid var(--border);padding:4px;border-radius:4px"><option value="up">肘部在上</option><option value="down">肘部在下</option></select>
+      <button class="btn btn-sm btn-accent" onclick="moveCartesian()">IK求解→移动</button>
+    </div>
+    <div id="ik-status" style="font-size:11px;margin-top:4px;color:var(--danger);display:none"></div>
+  </div>
+
+  <div class="group">
+    <h3>TCP 协议模拟 (30003端口)</h3>
+    <textarea id="cmd-input" rows="2" style="width:100%;background:var(--bg);color:var(--text-bright);border:1px solid var(--border);padding:6px;border-radius:4px;font-size:12px;font-family:monospace;resize:vertical" placeholder="输入运动指令...">MovJ(200, 50, 150, 0)</textarea>
+    <div style="display:flex;gap:6px;margin-top:4px">
+      <button class="btn btn-sm btn-accent" onclick="sendCommand()">发送</button>
+      <select id="cmd-type" style="background:var(--bg);color:var(--text);border:1px solid var(--border);padding:4px;border-radius:4px;font-size:12px">
+        <option value="MovJ">MovJ (笛卡尔关节运动)</option><option value="MovL">MovL (笛卡尔直线)</option><option value="JointMovJ">JointMovJ (关节空间)</option><option value="MovJExt">MovJExt (Z直线电机)</option>
+      </select>
+    </div>
+    <div id="cmd-response" style="font-size:11px;margin-top:4px;font-family:monospace;min-height:16px"></div>
+  </div>
+
+  <!-- ====== 移液机械臂控制面板 ====== -->
+  <h2 style="margin-top:4px">XYZZ+双ADP 移液机械臂</h2>
+  <div class="tab-row">
+    <button class="tab-btn active" id="tab-pipette-joint" onclick="switchPipetteTab('joint')">关节控制</button>
+    <button class="tab-btn" id="tab-pipette-cart" onclick="switchPipetteTab('cart')">笛卡尔控制</button>
+  </div>
+
+  <div class="group" id="pipette-joint-panel">
+    <div class="slider-row"><span class="slider-label">X</span><input type="range" id="sp-x" min="44" max="385" value="300.3" step="1" oninput="onPipetteJoint()"><span class="slider-val" id="vp-x">300mm</span></div>
+    <div class="slider-row"><span class="slider-label">Y</span><input type="range" id="sp-y" min="59" max="367" value="213.1" step="1" oninput="onPipetteJoint()"><span class="slider-val" id="vp-y">213mm</span></div>
+    <div class="slider-row"><span class="slider-label">Z1</span><input type="range" id="sp-z1" min="94" max="161" value="123.1" step="1" oninput="onPipetteJoint()"><span class="slider-val" id="vp-z1">123mm</span></div>
+    <div class="slider-row"><span class="slider-label">Z2</span><input type="range" id="sp-z2" min="94" max="161" value="123.1" step="1" oninput="onPipetteJoint()"><span class="slider-val" id="vp-z2">123mm</span></div>
+    <div style="display:flex;gap:6px;margin-top:6px">
+      <button class="btn btn-sm btn-accent" onclick="resetPipette()">归零</button>
+    </div>
+  </div>
+
+  <div class="group" id="pipette-cart-panel" style="display:none">
+    <div class="input-row"><span class="input-label">X</span><input type="number" id="pci-x" value="300.3" step="1"><span class="input-unit">mm</span></div>
+    <div class="input-row"><span class="input-label">Y</span><input type="number" id="pci-y" value="213.1" step="1"><span class="input-unit">mm</span></div>
+    <div class="input-row"><span class="input-label">Z1</span><input type="number" id="pci-z1" value="123.1" step="1"><span class="input-unit">mm</span></div>
+    <div class="input-row"><span class="input-label">Z2</span><input type="number" id="pci-z2" value="123.1" step="1"><span class="input-unit">mm</span></div>
+    <button class="btn btn-sm btn-accent" style="margin-top:6px" onclick="movePipetteCartesian()">移动到目标</button>
+  </div>
+
+  <!-- ====== 模块配置（5大模块） ====== -->
+  <div class="group">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <h3 style="margin:0">模块配置</h3>
+      <div style="display:flex;align-items:center;gap:10px">
+        <button class="btn btn-sm btn-accent" onclick="saveConfig()" style="font-size:11px">保存配置</button>
+        <label style="font-size:11px;cursor:pointer;color:var(--text);display:flex;align-items:center;gap:4px">
+          <input type="checkbox" id="edit-mode-toggle" onchange="toggleEditMode()"> 编辑模式
+        </label>
+      </div>
+    </div>
+    <div class="module-tab-row" style="margin-bottom:8px;flex-wrap:wrap;display:none">
+      <button class="module-tab active" id="mtab-robotArm" onclick="switchModuleTab('robotArm')">机械臂</button>
+      <button class="module-tab" id="mtab-desktop" onclick="switchModuleTab('desktop')">桌面</button>
+      <button class="module-tab" id="mtab-slideBox" onclick="switchModuleTab('slideBox')">载玻片盒</button>
+      <button class="module-tab" id="mtab-spinCoater" onclick="switchModuleTab('spinCoater')">匀胶机</button>
+      <button class="module-tab" id="mtab-dropperBox" onclick="switchModuleTab('dropperBox')">滴管头盒</button>
+      <button class="module-tab" id="mtab-solutionTray" onclick="switchModuleTab('solutionTray')">溶液瓶托盘</button>
+    </div>
+    <div id="mod-config-body"></div>
+  </div>
+
+  <div style="font-size:11px;color:var(--text);text-align:center;margin-top:auto;padding-top:8px">
+    a₁=250mm a₂=150mm | J1±85° J2±130° Z155~455mm J4±360°<br>
+    J3(升降柱)同轴于J1 | 鼠标拖拽旋转 | 滚轮缩放 | 右键平移<br>
+    拖拽模块到网格位置 | 网格间距50mm
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+// ============================================================
+// Kinematic constants (matches kinematics.py)
+// ============================================================
+const A1=250, A2=150, D1=85, D4=80;
+const SCREW_LEAD=10, D3_BASE=300;
+const Z_MIN=155, Z_MAX=455, D3_MIN=150, D3_MAX=450;
+const J1_MIN=-85, J1_MAX=85, J2_MIN=-130, J2_MAX=130, J4_MIN=-360, J4_MAX=360;
+
+const j3deg2d3 = j3 => D3_BASE + (j3/360)*SCREW_LEAD;
+const d32j3deg = d3 => (d3 - D3_BASE)*360/SCREW_LEAD;
+const D2R = d => d*Math.PI/180;
+const R2D = r => r*180/Math.PI;
+const clamp = (v,lo,hi) => Math.max(lo, Math.min(hi, v));
+const wrap180 = d => { d%=360; if(d>=180)d-=360; if(d<-180)d+=360; return d; };
+
+function fk(j1,j2,d3,j4) {
+  const t1=D2R(j1), t12=t1+D2R(j2);
+  return { x:A1*Math.cos(t1)+A2*Math.cos(t12), y:A1*Math.sin(t1)+A2*Math.sin(t12), z:D1+d3-D4, r:wrap180(j1+j2+j4) };
+}
+
+function ik(x,y,z,r,elbowUp) {
+  const d3 = z - D1 + D4;
+  if(d3<D3_MIN||d3>D3_MAX) return {valid:false, reason:`d₃=${d3.toFixed(0)}mm超限[${D3_MIN},${D3_MAX}]`};
+  const c2=(x*x+y*y-A1*A1-A2*A2)/(2*A1*A2);
+  if(c2<-1.0001||c2>1.0001) return {valid:false, reason:`(${x.toFixed(0)},${y.toFixed(0)})不可达`};
+  const q2=elbowUp?Math.acos(clamp(c2,-1,1)):-Math.acos(clamp(c2,-1,1));
+  const q1=Math.atan2(y,x)-Math.atan2(A2*Math.sin(q2),A1+A2*Math.cos(q2));
+  const j1=R2D(q1), j2=R2D(q2), j4=wrap180(r-j1-j2);
+  if(j1<J1_MIN-0.01||j1>J1_MAX+0.01) return {valid:false, reason:`J1=${j1.toFixed(1)}°超限`};
+  if(j2<J2_MIN-0.01||j2>J2_MAX+0.01) return {valid:false, reason:`J2=${j2.toFixed(1)}°超限`};
+  if(j4<J4_MIN-0.01||j4>J4_MAX+0.01) return {valid:false, reason:`J4=${j4.toFixed(1)}°超限`};
+  return {valid:true, j1, j2, d3, j4, j3deg:d32j3deg(d3), elbowUp};
+}
+
+// ============================================================
+// Three.js setup
+// ============================================================
+const container = document.getElementById('canvas-container');
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.1;
+container.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background=new THREE.Color('#1e2127');
+// No fog — infinite render distance
+
+const camera = new THREE.PerspectiveCamera(45,1,20,4000);
+camera.position.set(800,500,600);
+
+const controls = new OrbitControls(camera,renderer.domElement);
+controls.target.set(500,200,0);
+controls.enableDamping=true; controls.dampingFactor=0.1;
+controls.minDistance=200; controls.maxDistance=2500;
+controls.maxPolarAngle=Math.PI*0.72;
+controls.update();
+
+// Lighting
+scene.add(new THREE.AmbientLight('#8899bb',1.6));
+const key=new THREE.DirectionalLight('#fffef5',4.5);
+key.position.set(350,500,250); key.castShadow=true;
+key.shadow.mapSize.set(2048,2048); key.shadow.camera.near=20; key.shadow.camera.far=1800;
+key.shadow.camera.left=-200; key.shadow.camera.right=1400;
+key.shadow.camera.top=700; key.shadow.camera.bottom=-200; key.shadow.bias=-0.0003;
+scene.add(key);
+scene.add((l=>{l.position.set(-200,150,-200);return l})(new THREE.DirectionalLight('#aaccff',0.8)));
+scene.add((l=>{l.position.set(0,60,-350);return l})(new THREE.DirectionalLight('#ffffff',1.8)));
+
+// Platform: 1600×1600, X≥0
+const PLATFORM_W = 1600;
+const table = new THREE.Mesh(new THREE.PlaneGeometry(PLATFORM_W, PLATFORM_W),
+  new THREE.MeshStandardMaterial({color:'#3d424b',roughness:0.65,metalness:0.1}));
+table.rotation.x=-Math.PI/2; table.position.set(PLATFORM_W/2, 0, 0); table.receiveShadow=true; scene.add(table);
+
+// Grid on platform + debug axes
+scene.add((g=>{g.position.set(PLATFORM_W/2, 0.015, 0);return g})(new THREE.GridHelper(PLATFORM_W, 32, '#4a4f59', '#2a2d33')));
+// Debug axes with robot coordinate labels (Z=up, matches TCP display)
+scene.add(new THREE.AxesHelper(300));
+try {
+  const lbl = (text, x, y, z, color) => {
+    const c = document.createElement('canvas'); c.width=128; c.height=128;
+    const t = c.getContext('2d');
+    t.fillStyle=color; t.font='bold 80px Arial'; t.textAlign='center'; t.textBaseline='middle';
+    t.fillText(text, 64, 64);
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({map: new THREE.CanvasTexture(c), depthTest: false}));
+    s.position.set(x, y, z); s.scale.set(40, 40, 1); return s;
+  };
+  scene.add(lbl('X', 330, 0, 0, '#ff4444'));
+  scene.add(lbl('Z', 0, 330, 0, '#4488ff'));    // Z: World Y (UP, J3 lift direction)
+  scene.add(lbl('Y', 0, 0, 330, '#44ff44'));    // Y: World Z (left)
+} catch(e) { console.warn('Axis labels:', e); }
+
+// Workspace rings
+function ring(r,color,opacity) {
+  const pts=[]; for(let i=0;i<=160;i++){const a=(i/160)*Math.PI*2; pts.push(new THREE.Vector3(r*Math.cos(a),0.04,r*Math.sin(a)));}
+  return new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({color,transparent:true,opacity,depthTest:true}));
+}
+const wsGroup = new THREE.Group();
+wsGroup.add(ring(A1+A2,'#61afef',0.28));
+wsGroup.add(ring(Math.abs(A1-A2),'#e06c75',0.28));
+for(let a=0;a<360;a+=30){const ra=D2R(a),i=Math.abs(A1-A2),o=A1+A2;
+  wsGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(i*Math.cos(ra),0.03,i*Math.sin(ra)),new THREE.Vector3(o*Math.cos(ra),0.03,o*Math.sin(ra))]),new THREE.LineBasicMaterial({color:'#61afef',transparent:true,opacity:0.12})));}
+// wsGroup added to robotRoot below
+
+// Materials
+const M=(c,r,m)=>new THREE.MeshStandardMaterial({color:c,roughness:r,metalness:m});
+const matBase=M('#4a5568',0.35,0.65), matBaseA=M('#5a657a',0.3,0.7), matBaseP=M('#3d4552',0.4,0.6);
+const matArm1=M('#2563eb',0.28,0.55), matArm2=M('#1d4ed8',0.28,0.55);
+const matJoint=M('#64748b',0.3,0.65), matQuill=M('#94a3b8',0.22,0.8);
+const matJ4=M('#475569',0.25,0.7), matTool=M('#f59e0b',0.3,0.5);
+const matGrip=M('#d97706',0.35,0.45), matFinger=M('#78716c',0.4,0.55);
+const matTcp=new THREE.MeshStandardMaterial({color:'#ff3333',emissive:'#cc0000',emissiveIntensity:0.5,roughness:0.25});
+const cyl=(rt,rb,h,s=32)=>new THREE.CylinderGeometry(rt,rb,h,s);
+const box=(w,h,d)=>new THREE.BoxGeometry(w,h,d);
+
+// ============================================================
+// Dobot M1Pro — STL assembly with kinematic hierarchy
+// Joint pivots from STL overlap: J1(209,116), J2(408,116), J4(604,116)
+const robotRoot = new THREE.Group(); robotRoot.position.set(150, 0, -600); scene.add(robotRoot);
+robotRoot.add(wsGroup);
+
+const dobotPivot = new THREE.Group(); dobotPivot.rotation.x = -Math.PI / 2; robotRoot.add(dobotPivot);
+
+const baseGroup    = new THREE.Group(); dobotPivot.add(baseGroup);
+const liftCarriage = new THREE.Group(); baseGroup.add(liftCarriage);
+const j1Pivot      = new THREE.Group(); liftCarriage.add(j1Pivot);
+const j2Pivot      = new THREE.Group(); j1Pivot.add(j2Pivot);
+const j4Pivot      = new THREE.Group(); j2Pivot.add(j4Pivot);
+
+liftCarriage.position.z = D3_BASE;
+j1Pivot.position.set(209, 116, 141);
+j2Pivot.position.set(199, 0, 0);
+j4Pivot.position.set(196, 0, 0);
+
+const tcpSphere = new THREE.Mesh(new THREE.SphereGeometry(4,16,16),
+  new THREE.MeshStandardMaterial({color:'#ff3333',emissive:'#cc0000',emissiveIntensity:0.5,roughness:0.25}));
+tcpSphere.position.z = -D4; j4Pivot.add(tcpSphere);
+
+const STL_LOADER = new STLLoader();
+// Finger gripper on end effector
+STL_LOADER.load('/models/finger/手指V1.0.STL', (geo) => {
+  geo.computeBoundingBox(); const c = new THREE.Vector3(); geo.boundingBox.getCenter(c);
+  geo.translate(-c.x, -c.y, -c.z); geo.rotateX(-Math.PI/2);
+  const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({color:0x78716c, roughness:0.4, metalness:0.55}));
+  m.position.z = -D4; m.castShadow = true; m.name = 'Finger';
+  j4Pivot.add(m);
+});
+
+// Sample plate on platform near Dobot
+STL_LOADER.load('/models/plates/托盘V3.0(1).STL', (geo) => {
+  geo.computeBoundingBox(); const c = new THREE.Vector3(); geo.boundingBox.getCenter(c);
+  geo.translate(-c.x, -c.y, -c.z);
+  const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({color:0xd0d0d0, roughness:0.5, metalness:0.2}));
+  m.position.set(300, 0.005, -300); m.rotation.y = -Math.PI/2;
+  m.castShadow = true; m.receiveShadow = true; m.name = 'SamplePlate';
+  scene.add(m);
+});
+
+const DOBOT_PARTS = [
+  { file:'M1_AXIS1_1.stl', parent:baseGroup,    cx: 88.48, cy:116.33, cz:343.78, color:0x7a9f6a },
+  { file:'M1_AXIS2_1.stl', parent:liftCarriage, cx:189.03, cy:116.33, cz:440.67, color:0x8a6a9f },
+  { file:'M1_AXIS3_1.stl', parent:j1Pivot,      cx:303.98, cy:116.33, cz:418.17, color:0x5a8faf },
+  { file:'M1_AXIS4_1.stl', parent:j2Pivot,      cx:503.98, cy:115.08, cz:381.17, color:0x9f8a6a },
+  { file:'M1_ROTATE_1.stl',parent:j4Pivot,      cx:603.98, cy:116.33, cz:309.17, color:0x6a8caf },
+];
+
+DOBOT_PARTS.forEach(({file, parent, cx, cy, cz, color}) => {
+  STL_LOADER.load('/models/dobot_m1pro/' + file, (geometry) => {
+    geometry.computeBoundingBox();
+    const pc = new THREE.Vector3(); geometry.boundingBox.getCenter(pc);
+    geometry.translate(-pc.x, -pc.y, -pc.z);
+    const pWorld = new THREE.Vector3(); parent.getWorldPosition(pWorld); dobotPivot.worldToLocal(pWorld);
+    const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({color, roughness:0.35, metalness:0.55}));
+    mesh.position.set(cx - pWorld.x, cy - pWorld.y, cz - pWorld.z);
+    mesh.castShadow = true; mesh.receiveShadow = true; mesh.name = file;
+    parent.add(mesh);
+  }, undefined, (err) => { console.error('[Dobot]', file, err); });
+});
+
+// ---- Pipette arm: no Rx rotation needed, CAD axes align with robot coords ----
+// Robot coords: X=World X, Y=World Z, Z=World Y(UP)
+// CAD: frame long(Z=782mm)→World Z, ADP long(Y=204mm)→World Y(∥Z axis)
+const pipetteRoot = new THREE.Group(); pipetteRoot.name = 'PipetteArm';
+pipetteRoot.position.set(950, 0, -250); pipetteRoot.rotation.y = -Math.PI/2; scene.add(pipetteRoot);
+
+const pipetteBase = new THREE.Group(); pipetteRoot.add(pipetteBase);
+const pipetteY    = new THREE.Group(); pipetteBase.add(pipetteY);
+const pipetteX    = new THREE.Group(); pipetteY.add(pipetteX);
+const pipetteZ1   = new THREE.Group(); pipetteX.add(pipetteZ1);
+const pipetteZ2   = new THREE.Group(); pipetteX.add(pipetteZ2);
+
+const PIPETTE_DEFS = [
+  { file:'pipette_group1.stl', parent:pipetteBase },
+  { file:'pipette_group2.stl', parent:pipetteY },
+  { file:'pipette_group3.stl', parent:pipetteX },
+  { file:'pipette_group4.stl', parent:pipetteZ1 },
+  { file:'pipette_group5.stl', parent:pipetteZ2 },
+  { file:'pipette_tip.stl',    parent:pipetteZ1 },
+];
+const pipColor = { group1:0x6a8caf, group2:0x7a9f6a, group3:0x8a6a9f, group4:0xaf8a6a, group5:0x9f6a7a, tip:0xcccccc };
+
+PIPETTE_DEFS.forEach(({file, parent}) => {
+  STL_LOADER.load('/models/pipette_arm/simplified/' + file, (geometry) => {
+    const key = file.replace('pipette_','').replace('.stl','');
+    const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({color: pipColor[key]||0xc0d0e0, roughness:0.4, metalness:0.45}));
+    mesh.castShadow = true; mesh.receiveShadow = true; mesh.name = file;
+    parent.add(mesh);
+  }, undefined, (err) => { console.error('[Pipette]', file, err); });
+});
+
+// ---- Pipette joint control ----
+let pipJoints = { x:300.3, y:213.1, z1:123.1, z2:123.1 };
+
+function updatePipette(x, y, z1, z2) {
+  pipJoints = { x, y, z1, z2 };
+  pipetteX.position.x  = x  - 300.3;    // X: World X (horizontal)
+  pipetteY.position.z  = -(y - 416.1);  // Y: World Z (horizontal, was .y with pivot)
+  pipetteZ1.position.y = z1 - 123.1;    // Z1: World Y (UP = Z axis, was .z)
+  pipetteZ2.position.y = z2 - 123.1;    // Z2: World Y (UP = Z axis, was .z)
+  document.getElementById('vp-x').textContent  = x.toFixed(0) + 'mm';
+  document.getElementById('vp-y').textContent  = y.toFixed(0) + 'mm';
+  document.getElementById('vp-z1').textContent = z1.toFixed(0) + 'mm';
+  document.getElementById('vp-z2').textContent = z2.toFixed(0) + 'mm';
+}
+
+window.onPipetteJoint = () => {
+  updatePipette(+document.getElementById('sp-x').value, +document.getElementById('sp-y').value,
+                +document.getElementById('sp-z1').value, +document.getElementById('sp-z2').value);
+};
+window.resetPipette = () => {
+  ['sp-x','sp-y','sp-z1','sp-z2'].forEach((id,i) => document.getElementById(id).value = [300.3,213.1,123.1,123.1][i]);
+  updatePipette(300.3, 213.1, 123.1, 123.1);
+};
+window.switchPipetteTab = t => {
+  document.getElementById('tab-pipette-joint').classList.toggle('active', t==='joint');
+  document.getElementById('tab-pipette-cart').classList.toggle('active', t==='cart');
+  document.getElementById('pipette-joint-panel').style.display = t==='joint'?'':'none';
+  document.getElementById('pipette-cart-panel').style.display = t==='cart'?'':'none';
+};
+window.movePipetteCartesian = () => {
+  const v = ['pci-x','pci-y','pci-z1','pci-z2'].map(id => +document.getElementById(id).value);
+  ['sp-x','sp-y','sp-z1','sp-z2'].forEach((id,i) => document.getElementById(id).value = v[i]);
+  updatePipette(v[0], v[1], v[2], v[3]);
+};
+// ============================================================
+
+// State & update
+// ============================================================
+let currentJoints = {j1:0,j2:0,j3deg:0,j4:0,d3:D3_BASE};
+
+function updateRobot(j1,j2,j3deg,j4) {
+  const d3 = clamp(j3deg2d3(j3deg), D3_MIN, D3_MAX);
+  currentJoints = {j1,j2,j3deg,j4,d3};
+  // Inside dobotPivot (Rx(-90°)): local Z = world Y = up
+  liftCarriage.position.z = d3;
+  j1Pivot.rotation.z = D2R(j1);
+  j2Pivot.rotation.z = D2R(j2);
+  j4Pivot.rotation.z = D2R(j4);
+  const pose = fk(j1,j2,d3,j4);
+  updateUI(j1,j2,j3deg,d3,j4,pose);
+  return pose;
+}
+
+function updateUI(j1,j2,j3deg,d3,j4,pose) {
+  document.getElementById('v-j1').textContent = `${j1.toFixed(1)}°`;
+  document.getElementById('v-j2').textContent = `${j2.toFixed(1)}°`;
+  document.getElementById('v-j3').textContent = `电机 ${j3deg.toFixed(0)}° | d₃=${d3.toFixed(1)}mm`;
+  document.getElementById('v-j4').textContent = `${j4.toFixed(1)}°`;
+  ['x','y','z','r'].forEach(k=>{document.getElementById('pv-'+k).textContent=pose[k].toFixed(1);document.getElementById('oi-'+k).textContent=pose[k].toFixed(1);});
+  let ok=true,msgs=[];
+  if(j1<J1_MIN||j1>J1_MAX){ok=false;msgs.push(`J1=${j1.toFixed(1)}°越限`);}
+  if(j2<J2_MIN||j2>J2_MAX){ok=false;msgs.push(`J2=${j2.toFixed(1)}°越限`);}
+  if(d3<D3_MIN||d3>D3_MAX){ok=false;msgs.push(`d₃=${d3.toFixed(1)}mm越限`);}
+  if(j4<J4_MIN||j4>J4_MAX){ok=false;msgs.push(`J4=${j4.toFixed(1)}°越限`);}
+  document.getElementById('limit-dot').className='status-dot '+(ok?'ok':'err');
+  document.getElementById('limit-msg').textContent=ok?'关节限位正常':msgs.join(', ');
+}
+
+// ============================================================
+// UI
+// ============================================================
+window.onJointSlider = () => {
+  const j1=+document.getElementById('s-j1').value, j2=+document.getElementById('s-j2').value;
+  const j3=+document.getElementById('s-j3').value, j4=+document.getElementById('s-j4').value;
+  updateRobot(j1,j2,j3,j4);
+};
+window.resetJoints = () => { ['s-j1','s-j2','s-j3','s-j4'].forEach(id=>document.getElementById(id).value=0); updateRobot(0,0,0,0); };
+window.switchTab = t => {
+  document.getElementById('tab-joint').classList.toggle('active',t==='joint');
+  document.getElementById('tab-cart').classList.toggle('active',t==='cart');
+  document.getElementById('joint-panel').style.display=t==='joint'?'':'none';
+  document.getElementById('cart-panel').style.display=t==='cart'?'':'none';
+};
+window.moveCartesian = () => {
+  const x=+document.getElementById('ci-x').value, y=+document.getElementById('ci-y').value;
+  const z=+document.getElementById('ci-z').value, r=+document.getElementById('ci-r').value;
+  const eu=document.getElementById('ik-elbow').value==='up';
+  const sol=ik(x,y,z,r,eu), st=document.getElementById('ik-status');
+  if(!sol.valid){st.style.display='block';st.textContent='IK失败: '+sol.reason;return;}
+  st.style.display='none';
+  ['s-j1','s-j2','s-j3','s-j4'].forEach((id,i)=>document.getElementById(id).value=[sol.j1,sol.j2,sol.j3deg,sol.j4][i]);
+  updateRobot(sol.j1,sol.j2,sol.j3deg,sol.j4);
+  const p=fk(sol.j1,sol.j2,sol.d3,sol.j4);
+  ['ci-x','ci-y','ci-z','ci-r'].forEach((id,i)=>document.getElementById(id).value=[p.x,p.y,p.z,p.r][i].toFixed(1));
+};
+
+// ============================================================
+// TCP Protocol commands
+// ============================================================
+window.sendCommand = () => {
+  const raw=document.getElementById('cmd-input').value.trim(), ct=document.getElementById('cmd-type').value, re=document.getElementById('cmd-response');
+  let cmd=raw;
+  if(!cmd){cmd=({MovJ:'MovJ(200,50,150,0)',MovL:'MovL(200,50,150,0)',JointMovJ:'JointMovJ(30,-30,0,45)',MovJExt:'MovJExt(300)'})[ct];document.getElementById('cmd-input').value=cmd;}
+  const m=cmd.match(/^(\w+)\((.*)\)$/i);
+  if(!m){re.innerHTML=`<span style="color:#e06c75">-10000,{},${cmd};  [格式无效]</span>`;return;}
+  const nm=m[1], args=m[2].trim()?m[2].split(',').map(s=>+s.trim()):[];
+  if(args.some(isNaN)){re.innerHTML=`<span style="color:#e06c75">-10001,{},${cmd};  [参数错误]</span>`;return;}
+  if(nm==='MovJ'||nm==='MovL'){
+    if(args.length<4){re.innerHTML=`<span style="color:#e06c75">-10002,{},${cmd};  [需X,Y,Z,R]</span>`;return;}
+    const sol=ik(args[0],args[1],args[2],args[3],true);
+    if(!sol.valid){re.innerHTML=`<span style="color:#e06c75">-1,{},${nm}(${args.join(',')}); [IK] ${sol.reason}</span>`;return;}
+    animateTo(sol.j1,sol.j2,sol.j3deg,sol.j4,1200);
+    re.innerHTML=`<span style="color:#98c379">0,{},${nm}(${args.join(',')}); [OK] -> J=(${sol.j1.toFixed(1)}°,${sol.j2.toFixed(1)}°,${sol.j3deg.toFixed(0)}°,${sol.j4.toFixed(1)}°)</span>`;
+    updateRobot(sol.j1,sol.j2,sol.j3deg,sol.j4);
+  }else if(nm==='JointMovJ'){
+    if(args.length<4){re.innerHTML=`<span style="color:#e06c75">-10002,{},${cmd};  [需J1,J2,J3,J4]</span>`;return;}
+    const d3c=j3deg2d3(args[2]);
+    if(args[0]<J1_MIN||args[0]>J1_MAX||args[1]<J2_MIN||args[1]>J2_MAX||args[3]<J4_MIN||args[3]>J4_MAX||d3c<D3_MIN||d3c>D3_MAX){re.innerHTML=`<span style="color:#e06c75">-2,{},${cmd};  [关节限位]</span>`;return;}
+    animateTo(args[0],args[1],args[2],args[3],1200);
+    re.innerHTML=`<span style="color:#98c379">0,{},JointMovJ(${args.join(',')}); [OK]</span>`;
+    updateRobot(args[0],args[1],args[2],args[3]);
+  }else if(nm==='MovJExt'){
+    if(args.length<1){re.innerHTML=`<span style="color:#e06c75">-10002,{},${cmd};  [需目标距离]</span>`;return;}
+    const td3=clamp(args[0],D3_MIN,D3_MAX), tj3=d32j3deg(td3);
+    animateTo(currentJoints.j1,currentJoints.j2,tj3,currentJoints.j4,1200);
+    re.innerHTML=`<span style="color:#98c379">0,{},MovJExt(${args[0]}); [OK] 升降柱->${td3.toFixed(0)}mm</span>`;
+    updateRobot(currentJoints.j1,currentJoints.j2,tj3,currentJoints.j4);
+  }else{re.innerHTML=`<span style="color:#e06c75">-10000,{},${cmd};  [未知指令]</span>`;}
+};
+
+function animateTo(tj1,tj2,tj3,tj4,dur){
+  const s={j1:currentJoints.j1,j2:currentJoints.j2,j3deg:currentJoints.j3deg,j4:currentJoints.j4}, t0=performance.now();
+  (function step(now){
+    const p=Math.min((now-t0)/dur,1), e=p<0.5?2*p*p:-1+(4-2*p)*p;
+    const j1=s.j1+(tj1-s.j1)*e, j2=s.j2+(tj2-s.j2)*e, j3=s.j3deg+(tj3-s.j3deg)*e, j4=s.j4+(tj4-s.j4)*e;
+    document.getElementById('s-j1').value=j1; document.getElementById('s-j2').value=j2;
+    document.getElementById('s-j3').value=j3; document.getElementById('s-j4').value=j4;
+    updateRobot(j1,j2,j3,j4);
+    if(p<1)requestAnimationFrame(step);
+  })(t0);
+}
+
+// ============================================================
+// Platform Layout — 9×9 Grid (GRID_SIZE=50mm per cell)
+// Desktop is now a draggable physical module built via buildDesktop()
+// ============================================================
+const GRID_SIZE = 50;
+const PLATFORM_SIZE = PLATFORM_W;
+
+// ============================================================
+// Platform Modules — multi-instance: each type can have N copies
+// ============================================================
+const draggableModules = [];       // flat list of all 3D groups (for raycasting)
+const moduleGroups = {};           // { type: [group1, group2, ...] }
+const modulePositions = {};        // { type: [Vector3, Vector3, ...] }
+
+let activeModuleTab = 'robotArm';
+
+// Module definitions: physical modules have builder + defaultPos
+const moduleOrder = ['robotArm', 'desktop', 'slideBox', 'spinCoater', 'dropperBox', 'solutionTray'];
+
+const moduleDefs = {
+  robotArm: {
+    label: '机械臂',
+    physical: false,
+    defaultConfig: {},
+  },
+  desktop: {
+    label: '桌面',
+    physical: true,
+    defaultPos: new THREE.Vector3(550, 0, -250),
+    defaultConfig: { gridSize: 50, platformSize: 800 },
+  },
+  slideBox: {
+    label: '载玻片盒',
+    physical: true,
+    defaultPos: new THREE.Vector3(100, 0, -50),
+    defaultConfig: { quantity: 25, distribution: 'grid', size: 1.0, hSpacing: 4, vSpacing: 4, slideW: 25, slideL: 25 },
+    sizeRange: [0.1, 2.0, 0.1],
+    spacingRange: [1, 20, 1],
+  },
+  spinCoater: {
+    label: '匀胶机',
+    physical: true,
+    defaultPos: new THREE.Vector3(175, 0, 175),
+    defaultConfig: { quantity: 1, distribution: 'single', size: 1.0, spacing: 50 },
+    sizeRange: [0.5, 2.0, 0.1],
+    spacingRange: [2, 200, 1],
+  },
+  dropperBox: {
+    label: '滴管头盒',
+    physical: true,
+    defaultPos: new THREE.Vector3(-175, 0, 100),
+    defaultConfig: { quantity: 96, distribution: 'grid', size: 0.3, colSpacing: 3, rowSpacing: 3, cols: 8, rows: 12 },
+    sizeRange: [0.1, 1.0, 0.05],
+    spacingRange: [1, 10, 1],
+  },
+  solutionTray: {
+    label: '溶液瓶托盘',
+    physical: true,
+    defaultPos: new THREE.Vector3(-100, 0, -175),
+    defaultConfig: { quantity: 20, distribution: 'grid', size: 1.0, colSpacing: 5, rowSpacing: 5, cols: 4, rows: 5, bottleDiameter: 20 },
+    sizeRange: [0.1, 2.0, 0.1],
+    spacingRange: [1, 30, 1],
+  },
+};
+
+// Runtime config (initialized from defaultConfig)
+const moduleConfigs = {};
+Object.keys(moduleDefs).forEach(type => {
+  moduleConfigs[type] = { ...moduleDefs[type].defaultConfig };
+});
+
+function snapToGrid(val) {
+  return Math.round(val / GRID_SIZE) * GRID_SIZE;
+}
+
+function makeBox(w, h, d, color, roughness = 0.5, metalness = 0.3) {
+  return new THREE.Mesh(
+    new THREE.BoxGeometry(w, h, d),
+    new THREE.MeshStandardMaterial({color, roughness, metalness})
+  );
+}
+
+// ============================================================
+// Parametric module builders
+// ============================================================
+
+function buildSlideBox(cfg) {
+  const s = cfg.size;
+  const group = new THREE.Group();
+  group.name = 'SlideBox';
+
+  const n = cfg.quantity;
+  let cols, rows;
+  if (cfg.distribution === 'line') {
+    rows = 1; cols = n;
+  } else {
+    cols = Math.ceil(Math.sqrt(n));
+    rows = Math.ceil(n / cols);
+  }
+
+  const hSp = (cfg.hSpacing || cfg.spacing || 4) * s;
+  const vSp = (cfg.vSpacing || cfg.spacing || 4) * s;
+  // User-definable slide dimensions (width × length), lying flat
+  const slideW = (cfg.slideW || 25) * s;
+  const slideL = (cfg.slideL || 25) * s;
+  const slideH = 1.2 * s;
+
+  const margin = 8 * s;
+  const wallT = 6 * s;
+  const floorH = 3 * s;
+  const wallH = 14 * s;
+
+  const innerW = cols * slideW + (cols - 1) * hSp + margin * 2;
+  const innerD = rows * slideL + (rows - 1) * vSp + margin * 2;
+  const boxW = innerW + wallT * 2;
+  const boxD = innerD + wallT * 2;
+
+  // Floor
+  const floor = makeBox(boxW, floorH, boxD, '#5a6a7a', 0.5, 0.2);
+  floor.position.y = floorH / 2;
+  floor.castShadow = true; floor.receiveShadow = true;
+  group.add(floor);
+
+  // 4 walls
+  const wallColor = '#4a5a6a';
+  const fw = makeBox(boxW, wallH, wallT, wallColor, 0.4, 0.3);
+  fw.position.set(0, floorH + wallH / 2, innerD / 2 + wallT / 2);
+  fw.castShadow = true; group.add(fw);
+
+  const bw = makeBox(boxW, wallH, wallT, wallColor, 0.4, 0.3);
+  bw.position.set(0, floorH + wallH / 2, -innerD / 2 - wallT / 2);
+  bw.castShadow = true; group.add(bw);
+
+  const lw = makeBox(wallT, wallH, innerD + wallT * 2, wallColor, 0.4, 0.3);
+  lw.position.set(-innerW / 2 - wallT / 2, floorH + wallH / 2, 0);
+  lw.castShadow = true; group.add(lw);
+
+  const rw = makeBox(wallT, wallH, innerD + wallT * 2, wallColor, 0.4, 0.3);
+  rw.position.set(innerW / 2 + wallT / 2, floorH + wallH / 2, 0);
+  rw.castShadow = true; group.add(rw);
+
+  // Glass slides — translucent light blue, lying flat
+  const slideMat = new THREE.MeshStandardMaterial({
+    color: '#b8d8e8', roughness: 0.12, metalness: 0.03,
+    transparent: true, opacity: 0.72
+  });
+
+  for (let i = 0; i < n; i++) {
+    const r = cfg.distribution === 'line' ? 0 : Math.floor(i / cols);
+    const c = cfg.distribution === 'line' ? i : i % cols;
+    const ox = (c - (cols - 1) / 2) * (slideW + hSp);
+    const oz = (r - (rows - 1) / 2) * (slideL + vSp);
+
+    const slide = new THREE.Mesh(
+      new THREE.BoxGeometry(slideW, slideH, slideL),
+      slideMat
+    );
+    slide.position.set(ox, floorH + slideH / 2, oz);
+    slide.castShadow = true;
+    group.add(slide);
+  }
+
+  return group;
+}
+
+function buildSpinCoater(cfg) {
+  const s = cfg.size;
+  const group = new THREE.Group();
+  group.name = 'SpinCoater';
+
+  const n = cfg.quantity;
+  const sp = cfg.spacing * s;
+  let cols, rows;
+  if (cfg.distribution === 'single' || n === 1) {
+    cols = 1; rows = 1;
+  } else if (cfg.distribution === 'line') {
+    cols = n; rows = 1;
+  } else {
+    cols = Math.ceil(Math.sqrt(n));
+    rows = Math.ceil(n / cols);
+  }
+  const bw = 150 * s, bh = 80 * s, bd = 150 * s;
+
+  for (let i = 0; i < n; i++) {
+    const r = Math.floor(i / cols);
+    const c = i % cols;
+    const ox = (c - (cols-1)/2) * (bw + sp);
+    const oz = (r - (rows-1)/2) * (bd + sp);
+
+    const subGroup = new THREE.Group();
+    subGroup.position.set(ox, 0, oz);
+
+    const base = makeBox(bw, bh, bd, '#556278', 0.35, 0.6);
+    base.position.y = bh / 2;
+    base.castShadow = true; base.receiveShadow = true;
+    subGroup.add(base);
+
+    const diskR = 55 * s;
+    const disk = new THREE.Mesh(
+      new THREE.CylinderGeometry(diskR, diskR, 8 * s, 32),
+      new THREE.MeshStandardMaterial({color:'#2563eb',roughness:0.28,metalness:0.55})
+    );
+    disk.position.y = bh + 4 * s;
+    disk.castShadow = true;
+    subGroup.add(disk);
+
+    const chuck = makeBox(30 * s, 6 * s, 30 * s, '#1a1d23', 0.7, 0.3);
+    chuck.position.y = bh + 10 * s;
+    subGroup.add(chuck);
+
+    const ringGeo = new THREE.TorusGeometry(diskR, 3 * s, 8, 32);
+    const ringMesh = new THREE.Mesh(ringGeo,
+      new THREE.MeshStandardMaterial({color:'#61afef',roughness:0.3,emissive:'#61afef',emissiveIntensity:0.1}));
+    ringMesh.rotation.x = Math.PI / 2;
+    ringMesh.position.y = bh + 8 * s;
+    subGroup.add(ringMesh);
+
+    group.add(subGroup);
+  }
+
+  return group;
+}
+
+function buildDropperBox(cfg) {
+  const s = cfg.size;
+  const group = new THREE.Group();
+  group.name = 'DropperBox';
+
+  const n = cfg.quantity;
+  let cols, rows;
+  if (cfg.cols && cfg.rows) {
+    cols = cfg.cols; rows = cfg.rows;
+  } else if (cfg.distribution === 'line') {
+    rows = 1; cols = n;
+  } else {
+    cols = Math.ceil(Math.sqrt(n));
+    rows = Math.ceil(n / cols);
+  }
+
+  const colSp = (cfg.colSpacing || cfg.spacing || 3) * s;
+  const rowSp = (cfg.rowSpacing || cfg.spacing || 3) * s;
+  const holeD = 10 * s; // hole diameter space per cell
+  const bw = Math.max(100 * s, cols * (colSp + holeD) + 20 * s);
+  const bd = Math.max(80 * s, rows * (rowSp + holeD * 1.5) + 20 * s);
+
+  const body = makeBox(bw, 40 * s, bd, '#5a6578', 0.4, 0.5);
+  body.position.y = 20 * s;
+  body.castShadow = true; body.receiveShadow = true;
+  group.add(body);
+
+  const lid = makeBox(bw, 6 * s, bd, '#4a5568', 0.4, 0.5);
+  lid.position.y = 43 * s;
+  lid.castShadow = true;
+  group.add(lid);
+
+  const holeMat = new THREE.MeshStandardMaterial({color:'#1a1d23',roughness:0.9});
+  for (let i = 0; i < n; i++) {
+    const r = cfg.distribution === 'line' ? 0 : Math.floor(i / cols);
+    const c = cfg.distribution === 'line' ? i : i % cols;
+    const ox = (c - (cols-1)/2) * (colSp + holeD);
+    const oz = (r - (rows-1)/2) * (rowSp + holeD * 1.5);
+    const hole = new THREE.Mesh(new THREE.CylinderGeometry(5 * s, 5 * s, 20 * s, 16), holeMat);
+    hole.position.set(ox, 45 * s, oz);
+    group.add(hole);
+  }
+
+  // Label
+  const label = makeBox(Math.min(80 * s, bw - 20 * s), 15 * s, 3 * s, '#e06c75', 0.6);
+  label.position.set(0, 35 * s, bd / 2 + 2);
+  group.add(label);
+
+  return group;
+}
+
+function buildSolutionTray(cfg) {
+  const s = cfg.size;
+  const group = new THREE.Group();
+  group.name = 'SolutionTray';
+
+  const n = cfg.quantity;
+  const cols = cfg.cols || 4;
+  const rows = cfg.rows || 5;
+  const colSp = (cfg.colSpacing || 5) * s;
+  const rowSp = (cfg.rowSpacing || 5) * s;
+  const dia = (cfg.bottleDiameter || 20) * s;
+  const margin = 10 * s;
+  const trayH = 18 * s;
+
+  const innerW = cols * dia + (cols - 1) * colSp + margin * 2;
+  const innerD = rows * dia + (rows - 1) * rowSp + margin * 2;
+
+  // Solid rectangular block — the tray body
+  const body = makeBox(innerW, trayH, innerD, '#5a6a7a', 0.45, 0.25);
+  body.position.y = trayH / 2;
+  body.castShadow = true; body.receiveShadow = true;
+  group.add(body);
+
+  // Circular well depressions — dark disks on top surface of the block
+  const wellMat = new THREE.MeshStandardMaterial({color: '#15171a', roughness: 0.9});
+  for (let i = 0; i < n; i++) {
+    const r = Math.floor(i / cols);
+    const c = i % cols;
+    const ox = (c - (cols - 1) / 2) * (dia + colSp);
+    const oz = (r - (rows - 1) / 2) * (dia + rowSp);
+    const well = new THREE.Mesh(
+      new THREE.CylinderGeometry(dia / 2, dia / 2, 1.5 * s, 40),
+      wellMat
+    );
+    well.position.set(ox, trayH + 0.5 * s, oz);
+    group.add(well);
+  }
+
+  return group;
+}
+
+function buildDesktop(cfg) {
+  const group = new THREE.Group();
+  group.name = 'Desktop';
+
+  const size = cfg.platformSize || PLATFORM_SIZE;
+  const cells = Math.round(size / (cfg.gridSize || GRID_SIZE));
+
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(size, size),
+    new THREE.MeshStandardMaterial({color:'#2a2d33', roughness:0.8, metalness:0.1})
+  );
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = 0.02;
+  mesh.receiveShadow = true;
+  group.add(mesh);
+
+  const gh = new THREE.GridHelper(size, cells, '#4a4f59', '#3a3f4b');
+  gh.position.y = 0.03;
+  group.add(gh);
+
+  const half = size / 2;
+  const pts = [
+    new THREE.Vector3(-half, 0.05, -half),
+    new THREE.Vector3( half, 0.05, -half),
+    new THREE.Vector3( half, 0.05,  half),
+    new THREE.Vector3(-half, 0.05,  half),
+    new THREE.Vector3(-half, 0.05, -half),
+  ];
+  const line = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(pts),
+    new THREE.LineBasicMaterial({color:'#61afef', transparent:true, opacity:0.5})
+  );
+  group.add(line);
+
+  return group;
+}
+
+const builders = {
+  desktop: buildDesktop,
+  slideBox: buildSlideBox,
+  spinCoater: buildSpinCoater,
+  dropperBox: buildDropperBox,
+  solutionTray: buildSolutionTray,
+};
+
+// ============================================================
+// Edit mode
+// ============================================================
+let editModeEnabled = false;
+window.toggleEditMode = () => {
+  editModeEnabled = document.getElementById('edit-mode-toggle').checked;
+  // Show/hide module tab row
+  const tabRow = document.querySelector('.module-tab-row');
+  if (tabRow) tabRow.style.display = editModeEnabled ? '' : 'none';
+  renderModuleConfigUI();
+};
+
+// ============================================================
+// Build / rebuild
+// ============================================================
+
+function rebuildModule(type) {
+  const def = moduleDefs[type];
+  if (!def.physical) return;
+
+  const oldGroups = moduleGroups[type] || [];
+  const savedPositions = modulePositions[type] || [];
+
+  // Remove all old instances
+  oldGroups.forEach(g => {
+    scene.remove(g);
+    const idx = draggableModules.indexOf(g);
+    if (idx >= 0) draggableModules.splice(idx, 1);
+    disposeGroup(g);
+  });
+
+  // Rebuild all instances at saved positions
+  const cfg = moduleConfigs[type];
+  const newGroups = [];
+  savedPositions.forEach(pos => {
+    const g = builders[type](cfg);
+    g.position.copy(pos);
+    scene.add(g);
+    draggableModules.push(g);
+    newGroups.push(g);
+  });
+
+  moduleGroups[type] = newGroups;
+  modulePositions[type] = savedPositions;
+
+  rebuildModuleDrag();
+  updateModulePosDisplay(type);
+}
+
+function addInstance(type, nearPosition) {
+  const def = moduleDefs[type];
+  if (!def.physical) return null;
+  if (type === 'desktop') return null; // only one desktop
+
+  // Offset from near position to avoid stacking
+  const offsetX = 60 * (moduleGroups[type] ? moduleGroups[type].length : 0);
+  const pos = new THREE.Vector3(
+    snapToGrid((nearPosition ? nearPosition.x : def.defaultPos.x) + offsetX),
+    0,
+    snapToGrid((nearPosition ? nearPosition.z : def.defaultPos.z) + offsetX)
+  );
+
+  const cfg = moduleConfigs[type];
+  const g = builders[type](cfg);
+  g.position.copy(pos);
+  scene.add(g);
+  draggableModules.push(g);
+
+  if (!moduleGroups[type]) moduleGroups[type] = [];
+  if (!modulePositions[type]) modulePositions[type] = [];
+  moduleGroups[type].push(g);
+  modulePositions[type].push(pos.clone());
+
+  console.log(`[AddInstance] ${def.label} #${moduleGroups[type].length} → (${pos.x}, ${pos.z})`);
+  renderModuleConfigUI();
+  return g;
+}
+
+function removeLastInstance(type) {
+  const groups = moduleGroups[type];
+  if (!groups || groups.length <= 1) return;
+  removeInstance(type, groups[groups.length - 1]);
+}
+
+function removeInstance(type, group) {
+  const groups = moduleGroups[type];
+  if (!groups) return;
+  const idx = groups.indexOf(group);
+  if (idx < 0) return;
+  if (groups.length <= 1) return; // keep at least 1 instance
+
+  scene.remove(group);
+  const di = draggableModules.indexOf(group);
+  if (di >= 0) draggableModules.splice(di, 1);
+  disposeGroup(group);
+
+  groups.splice(idx, 1);
+  if (modulePositions[type]) modulePositions[type].splice(idx, 1);
+
+  console.log(`[RemoveInstance] ${moduleDefs[type].label} #${idx} removed, ${groups.length} remaining`);
+  return g;
+}
+
+function rebuildModuleDrag() {
+  // drag handler is stateless — just needs to know current draggableModules
+  // (findModuleGroup walks parents at drag time, so no re-setup needed)
+}
+
+function disposeGroup(group) {
+  group.traverse(child => {
+    if (child.geometry) child.geometry.dispose();
+    if (child.material) {
+      if (Array.isArray(child.material)) {
+        child.material.forEach(m => m.dispose());
+      } else {
+        child.material.dispose();
+      }
+    }
+  });
+}
+
+// ============================================================
+// Custom module drag — walks up parent chain to find the module group,
+// so clicking a child (slide, dropper hole) still drags the whole box.
+// ============================================================
+function setupModuleDrag() {
+  const dom = renderer.domElement;
+  const raycaster = new THREE.Raycaster();
+  const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  let selectedGroup = null;
+  let dragOffset = new THREE.Vector3();
+
+  function findModuleType(group) {
+    for (const [type, groups] of Object.entries(moduleGroups)) {
+      if (groups && groups.includes(group)) return type;
+    }
+    return null;
+  }
+
+  function findModuleGroup(intersects) {
+    for (const hit of intersects) {
+      let obj = hit.object;
+      while (obj) {
+        if (draggableModules.includes(obj)) return obj;
+        obj = obj.parent;
+      }
+    }
+    return null;
+  }
+
+  function getMouse(event) {
+    return new THREE.Vector2(
+      (event.clientX / dom.clientWidth) * 2 - 1,
+      -(event.clientY / dom.clientHeight) * 2 + 1
+    );
+  }
+
+  dom.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    raycaster.setFromCamera(getMouse(event), camera);
+    const intersects = raycaster.intersectObjects(scene.children, true);
+    const group = findModuleGroup(intersects);
+    if (!group) return;
+
+    selectedGroup = group;
+    controls.enabled = false;
+    dom.style.cursor = 'grabbing';
+
+    const hitPoint = new THREE.Vector3();
+    raycaster.ray.intersectPlane(dragPlane, hitPoint);
+    dragOffset.copy(hitPoint).sub(group.position);
+  });
+
+  // Right-click on 3D module → delete instance
+  dom.addEventListener('contextmenu', (event) => {
+    raycaster.setFromCamera(getMouse(event), camera);
+    const intersects = raycaster.intersectObjects(scene.children, true);
+    const group = findModuleGroup(intersects);
+    if (!group) return;
+    const type = findModuleType(group);
+    if (!type || type === 'desktop') return;
+    const groups = moduleGroups[type];
+    if (!groups || groups.length <= 1) return; // keep at least 1
+    event.preventDefault();
+    removeInstance(type, group);
+    renderModuleConfigUI();
+  });
+
+  dom.addEventListener('pointermove', (event) => {
+    if (!selectedGroup) return;
+    raycaster.setFromCamera(getMouse(event), camera);
+    const hitPoint = new THREE.Vector3();
+    if (raycaster.ray.intersectPlane(dragPlane, hitPoint)) {
+      selectedGroup.position.x = hitPoint.x - dragOffset.x;
+      selectedGroup.position.z = hitPoint.z - dragOffset.z;
+    }
+  });
+
+  dom.addEventListener('pointerup', () => {
+    if (!selectedGroup) return;
+
+    const g = selectedGroup;
+    g.position.x = snapToGrid(g.position.x);
+    g.position.z = snapToGrid(g.position.z);
+    const bound = PLATFORM_W/2;
+    g.position.x = Math.max(0, Math.min(bound, g.position.x));
+    g.position.z = Math.max(-bound, Math.min(bound, g.position.z));
+    g.position.y = 0;
+
+    for (const [t, groups] of Object.entries(moduleGroups)) {
+      const idx = groups ? groups.indexOf(g) : -1;
+      if (idx >= 0 && modulePositions[t]) {
+        modulePositions[t][idx] = g.position.clone();
+        updateModulePosDisplay(t);
+        break;
+      }
+    }
+    console.log(`[DragEnd] ${g.name} → (${g.position.x}, ${g.position.z})`);
+
+    selectedGroup = null;
+    controls.enabled = true;
+    dom.style.cursor = '';
+  });
+}
+
+// ============================================================
+// Module config UI
+// ============================================================
+
+function updateModulePosDisplay(type) {
+  const elX = document.getElementById('mod-pos-x');
+  const elZ = document.getElementById('mod-pos-z');
+  const positions = modulePositions[type];
+  const pos = (positions && positions.length > 0) ? positions[0]
+    : (moduleGroups[type] && moduleGroups[type].length > 0) ? moduleGroups[type][0].position
+    : null;
+  if (elX && pos) elX.value = pos.x.toFixed(0);
+  if (elZ && pos) elZ.value = pos.z.toFixed(0);
+}
+
+function switchModuleTab(type) {
+  activeModuleTab = type;
+  moduleOrder.forEach(t => {
+    document.getElementById('mtab-' + t).classList.toggle('active', t === type);
+  });
+  renderModuleConfigUI();
+}
+
+function renderModuleConfigUI() {
+  const body = document.getElementById('mod-config-body');
+  let html = '';
+
+  if (!editModeEnabled) {
+    // ---- Read-only: show module summary list ----
+    html += `<div style="font-size:12px;color:var(--text);line-height:1.6">`;
+    for (const type of moduleOrder) {
+      const def = moduleDefs[type];
+      if (type === 'robotArm') {
+        html += `<div style="margin-bottom:6px"><b style="color:var(--accent)">机械臂</b> — Dobot M1Pro SCARA | 臂展100–400mm | Z:155–455mm</div>`;
+      } else if (def.physical) {
+        const cfg = moduleConfigs[type];
+        const positions = modulePositions[type] || [];
+        const count = positions.length;
+        const parts = [];
+        if (cfg.quantity !== undefined && cfg.quantity > 1) parts.push(`${cfg.quantity}个`);
+        if (cfg.cols && cfg.rows) parts.push(`${cfg.cols}×${cfg.rows}`);
+        if (cfg.slideW !== undefined) parts.push(`片${cfg.slideW}×${cfg.slideL}mm`);
+        if (cfg.bottleDiameter !== undefined) parts.push(`瓶径${cfg.bottleDiameter}mm`);
+        const detail = parts.length ? ` (${parts.join(' ')})` : '';
+        const posStr = count === 1 ? `位置 (${positions[0].x.toFixed(0)}, ${positions[0].z.toFixed(0)})` : `${count}个实例`;
+        const canAdd = type !== 'desktop';
+        const delBtn = (count > 1 && canAdd) ? `<span onclick="event.stopPropagation();removeLastInstance('${type}');renderModuleConfigUI()" style="cursor:pointer;color:var(--danger);margin-left:4px" title="删除一个实例">×</span>` : '';
+        const dblClick = canAdd ? `ondblclick="addInstance('${type}');renderModuleConfigUI()"` : '';
+        html += `<div ${dblClick} style="margin-bottom:6px;${canAdd ? 'cursor:pointer' : ''}" title="${canAdd ? '双击添加新实例' : ''}"><b style="color:var(--accent)">${def.label}</b> — ${detail || '已放置'} | ${posStr}${delBtn}</div>`;
+      }
+    }
+    html += `<div style="margin-top:4px;font-size:10px;color:var(--text)">双击模块名添加实例 · 右键3D模块删除 · 勾选编辑模式修改参数</div>`;
+    html += `</div>`;
+    body.innerHTML = html;
+    return;
+  }
+
+  // ---- Edit mode: per-module config panel ----
+  const type = activeModuleTab;
+  const cfg = moduleConfigs[type];
+  const def = moduleDefs[type];
+
+  const distOptions = {
+    slideBox: ['grid', 'line'],
+    spinCoater: ['single', 'grid', 'line'],
+    dropperBox: ['grid', 'line'],
+    solutionTray: ['grid', 'line'],
+  };
+  const distLabels = { single: '单台', grid: '网格排列', line: '线性排列' };
+
+  const disabled = ''; // edit mode on, inputs enabled
+
+  if (type === 'robotArm') {
+    html += `<div style="font-size:12px;color:var(--text);line-height:1.8">
+      <div>型号：Dobot M1Pro SCARA</div>
+      <div>构型：4轴 (J1/J2/J4 旋转 + J3 升降柱)</div>
+      <div>臂展：<span style="color:var(--accent)">100–400mm</span> (a₁=250, a₂=150)</div>
+      <div>Z轴行程：<span style="color:var(--accent)">155–455mm</span></div>
+      <div>J1：±85° | J2：±130° | J4：±360°</div>
+      <div style="margin-top:4px">末端位姿由上方<span style="color:var(--accent)">关节控制</span> / <span style="color:var(--accent2)">笛卡尔控制</span>面板调节</div>
+      <div>TCP协议指令见下方<span style="color:var(--accent)">TCP协议模拟</span>区</div>
+    </div>`;
+
+  } else if (type === 'desktop') {
+    html += `<div class="config-row"><span class="config-label">网格尺寸</span><input type="number" id="cfg-gridSize" value="${cfg.gridSize}" min="20" max="200" step="10" onchange="onConfigChange()" ${disabled}><span class="input-unit">mm</span></div>`;
+    html += `<div class="config-row"><span class="config-label">平台尺寸</span><input type="number" id="cfg-platformSize" value="${cfg.platformSize}" min="200" max="900" step="50" onchange="onConfigChange()" ${disabled}><span class="input-unit">mm</span></div>`;
+    html += `<div style="font-size:11px;color:var(--text);margin-top:4px">桌面可拖拽移动。修改尺寸后需重新生成。</div>`;
+    // Position for desktop
+    const positions = modulePositions[type] || [];
+    const firstPos = (positions.length > 0) ? positions[0] : def.defaultPos;
+    html += `<div class="config-row"><span class="config-label">位置 X</span><input type="number" id="mod-pos-x" value="${firstPos.x.toFixed(0)}" step="50" onchange="onSetPosition()"><span class="input-unit">mm</span></div>`;
+    html += `<div class="config-row"><span class="config-label">位置 Z</span><input type="number" id="mod-pos-z" value="${firstPos.z.toFixed(0)}" step="50" onchange="onSetPosition()"><span class="input-unit">mm</span></div>`;
+    if (positions.length > 1) {
+      html += `<div style="font-size:10px;color:var(--accent2)">共${positions.length}个实例，位置输入仅控制第1个</div>`;
+    }
+
+  } else {
+    // Physical modules (slideBox, spinCoater, dropperBox)
+    const sr = def.sizeRange || [0.5, 2.0, 0.1];
+    const spr = def.spacingRange || [2, 200, 1];
+    const maxQty = type === 'dropperBox' ? 200 : 100;
+
+    html += `<div class="config-row"><span class="config-label">数量</span><input type="number" id="cfg-qty" value="${cfg.quantity}" min="1" max="${maxQty}" step="1" onchange="onConfigChange()" ${disabled}></div>`;
+
+    if (type === 'dropperBox' || type === 'solutionTray') {
+      html += `<div class="config-row"><span class="config-label">列数(cols)</span><input type="number" id="cfg-cols" value="${cfg.cols || 4}" min="1" max="20" step="1" onchange="onConfigChange()" ${disabled}><span class="input-unit"></span></div>`;
+      html += `<div class="config-row"><span class="config-label">行数(rows)</span><input type="number" id="cfg-rows" value="${cfg.rows || 5}" min="1" max="20" step="1" onchange="onConfigChange()" ${disabled}><span class="input-unit"></span></div>`;
+    }
+
+    if (distOptions[type]) {
+      html += `<div class="config-row"><span class="config-label">分布方式</span><select id="cfg-dist" onchange="onConfigChange()" ${disabled}>`;
+      distOptions[type].forEach(d => {
+        html += `<option value="${d}" ${cfg.distribution === d ? 'selected' : ''}>${distLabels[d] || d}</option>`;
+      });
+      html += `</select></div>`;
+    }
+
+    html += `<div class="config-row"><span class="config-label">整体缩放</span><input type="range" id="cfg-size" min="${sr[0]}" max="${sr[1]}" value="${cfg.size}" step="${sr[2]}" oninput="onConfigChange()" ${disabled}><span style="font-size:11px;color:var(--text-bright);width:36px" id="cfg-size-val">${cfg.size.toFixed(2)}x</span></div>`;
+
+    if (type === 'slideBox') {
+      html += `<div class="config-row"><span class="config-label">横间隔</span><input type="number" id="cfg-hSpacing" value="${cfg.hSpacing || 4}" min="${spr[0]}" max="${spr[1]}" step="${spr[2]}" onchange="onConfigChange()" ${disabled}><span class="input-unit">mm (X)</span></div>`;
+      html += `<div class="config-row"><span class="config-label">纵间隔</span><input type="number" id="cfg-vSpacing" value="${cfg.vSpacing || 4}" min="${spr[0]}" max="${spr[1]}" step="${spr[2]}" onchange="onConfigChange()" ${disabled}><span class="input-unit">mm (Z)</span></div>`;
+    } else if (type === 'dropperBox' || type === 'solutionTray') {
+      html += `<div class="config-row"><span class="config-label">列间隔</span><input type="number" id="cfg-colSpacing" value="${cfg.colSpacing || 3}" min="${spr[0]}" max="${spr[1]}" step="${spr[2]}" onchange="onConfigChange()" ${disabled}><span class="input-unit">mm (X)</span></div>`;
+      html += `<div class="config-row"><span class="config-label">行间隔</span><input type="number" id="cfg-rowSpacing" value="${cfg.rowSpacing || 3}" min="${spr[0]}" max="${spr[1]}" step="${spr[2]}" onchange="onConfigChange()" ${disabled}><span class="input-unit">mm (Z)</span></div>`;
+    } else {
+      html += `<div class="config-row"><span class="config-label">间隔</span><input type="number" id="cfg-spacing" value="${cfg.spacing || 2}" min="${spr[0]}" max="${spr[1]}" step="${spr[2]}" onchange="onConfigChange()" ${disabled}><span class="input-unit">mm</span></div>`;
+    }
+
+    // Slide-specific: width × length
+    if (type === 'slideBox') {
+      html += `<div class="config-row"><span class="config-label">载玻片宽</span><input type="number" id="cfg-slideW" value="${cfg.slideW || 25}" min="5" max="100" step="1" onchange="onConfigChange()" ${disabled}><span class="input-unit">mm (X)</span></div>`;
+      html += `<div class="config-row"><span class="config-label">载玻片长</span><input type="number" id="cfg-slideL" value="${cfg.slideL || 25}" min="5" max="150" step="1" onchange="onConfigChange()" ${disabled}><span class="input-unit">mm (Z)</span></div>`;
+    }
+
+    // SolutionTray: bottle diameter
+    if (type === 'solutionTray') {
+      html += `<div class="config-row"><span class="config-label">瓶直径</span><input type="number" id="cfg-bottleDia" value="${cfg.bottleDiameter || 20}" min="5" max="80" step="1" onchange="onConfigChange()" ${disabled}><span class="input-unit">mm</span></div>`;
+    }
+
+    // Position — manual input
+    const positions = modulePositions[type] || [];
+    const firstPos = (positions.length > 0) ? positions[0] : def.defaultPos;
+    html += `<div class="config-row"><span class="config-label">位置 X</span><input type="number" id="mod-pos-x" value="${firstPos.x.toFixed(0)}" step="50" onchange="onSetPosition()"><span class="input-unit">mm</span></div>`;
+    html += `<div class="config-row"><span class="config-label">位置 Z</span><input type="number" id="mod-pos-z" value="${firstPos.z.toFixed(0)}" step="50" onchange="onSetPosition()"><span class="input-unit">mm</span></div>`;
+    if (positions.length > 1) {
+      html += `<div style="font-size:10px;color:var(--accent2)">共${positions.length}个实例，位置输入仅控制第1个</div>`;
+    }
+    html += `<div style="font-size:10px;color:var(--text)">可直接拖拽模块来调整位置</div>`;
+  }
+
+  body.innerHTML = html;
+}
+
+window.onConfigChange = () => {
+  const type = activeModuleTab;
+  const def = moduleDefs[type];
+
+  if (type === 'robotArm') return;
+
+  if (!editModeEnabled) return; // config changes only in edit mode
+
+  if (type === 'desktop') {
+    const gs = document.getElementById('cfg-gridSize');
+    const ps = document.getElementById('cfg-platformSize');
+    if (gs && ps) {
+      moduleConfigs.desktop.gridSize = Math.max(20, parseInt(gs.value) || 50);
+      moduleConfigs.desktop.platformSize = Math.max(200, parseInt(ps.value) || 450);
+    }
+    rebuildModule('desktop');
+    return;
+  }
+
+  // Physical modules (slideBox, spinCoater, dropperBox)
+  const qtyEl = document.getElementById('cfg-qty');
+  const distEl = document.getElementById('cfg-dist');
+  const sizeEl = document.getElementById('cfg-size');
+  const spEl = document.getElementById('cfg-spacing');
+
+  if (!qtyEl) return;
+
+  const qty = Math.max(1, parseInt(qtyEl.value) || 1);
+  qtyEl.value = qty;
+  const dist = distEl ? distEl.value : moduleConfigs[type].distribution;
+  const size = parseFloat(sizeEl.value);
+  const spacing = spEl ? Math.max(1, parseInt(spEl.value) || 2) : 2;
+  if (spEl) spEl.value = spacing;
+
+  if (document.getElementById('cfg-size-val'))
+    document.getElementById('cfg-size-val').textContent = size.toFixed(2) + 'x';
+
+  const newCfg = { quantity: qty, distribution: dist, size, spacing };
+
+  if (type === 'slideBox') {
+    const swEl = document.getElementById('cfg-slideW');
+    const slEl = document.getElementById('cfg-slideL');
+    const hsEl = document.getElementById('cfg-hSpacing');
+    const vsEl = document.getElementById('cfg-vSpacing');
+    newCfg.slideW = Math.max(5, parseInt(swEl?.value) || 25);
+    newCfg.slideL = Math.max(5, parseInt(slEl?.value) || 25);
+    newCfg.hSpacing = Math.max(1, parseInt(hsEl?.value) || 4);
+    newCfg.vSpacing = Math.max(1, parseInt(vsEl?.value) || 4);
+    if (swEl) swEl.value = newCfg.slideW;
+    if (slEl) slEl.value = newCfg.slideL;
+    if (hsEl) hsEl.value = newCfg.hSpacing;
+    if (vsEl) vsEl.value = newCfg.vSpacing;
+    delete newCfg.spacing;
+  }
+
+  if (type === 'dropperBox' || type === 'solutionTray') {
+    const cEl = document.getElementById('cfg-cols');
+    const rEl = document.getElementById('cfg-rows');
+    const csEl = document.getElementById('cfg-colSpacing');
+    const rsEl = document.getElementById('cfg-rowSpacing');
+    if (cEl && rEl) {
+      newCfg.cols = Math.max(1, parseInt(cEl.value) || (type === 'solutionTray' ? 4 : 8));
+      newCfg.rows = Math.max(1, parseInt(rEl.value) || (type === 'solutionTray' ? 5 : 12));
+      cEl.value = newCfg.cols;
+      rEl.value = newCfg.rows;
+    }
+    newCfg.colSpacing = Math.max(1, parseInt(csEl?.value) || 3);
+    newCfg.rowSpacing = Math.max(1, parseInt(rsEl?.value) || 3);
+    if (csEl) csEl.value = newCfg.colSpacing;
+    if (rsEl) rsEl.value = newCfg.rowSpacing;
+    delete newCfg.spacing;
+
+    if (type === 'solutionTray') {
+      const bdEl = document.getElementById('cfg-bottleDia');
+      newCfg.bottleDiameter = Math.max(5, parseInt(bdEl?.value) || 20);
+      if (bdEl) bdEl.value = newCfg.bottleDiameter;
+    }
+  }
+
+  moduleConfigs[type] = newCfg;
+  rebuildModule(type);
+};
+
+window.onSetPosition = () => {
+  const type = activeModuleTab;
+  const def = moduleDefs[type];
+  if (!def.physical) return;
+
+  const xEl = document.getElementById('mod-pos-x');
+  const zEl = document.getElementById('mod-pos-z');
+  if (!xEl || !zEl) return;
+
+  const half = PLATFORM_W/2;
+  const x = snapToGrid(Math.max(0, Math.min(half, parseFloat(xEl.value) || 0)));
+  const z = snapToGrid(Math.max(-half, Math.min(half, parseFloat(zEl.value) || 0)));
+  xEl.value = x.toFixed(0);
+  zEl.value = z.toFixed(0);
+
+  const groups = moduleGroups[type];
+  if (groups && groups.length > 0) {
+    groups[0].position.set(x, 0, z);
+    if (modulePositions[type] && modulePositions[type].length > 0) {
+      modulePositions[type][0] = new THREE.Vector3(x, 0, z);
+    }
+  }
+};
+
+window.switchModuleTab = switchModuleTab;
+window.addInstance = addInstance;
+window.removeLastInstance = removeLastInstance;
+
+// ============================================================
+// Config persistence — load from / save to platform_config.json
+// ============================================================
+
+function collectConfig() {
+  const out = {};
+  for (const type of moduleOrder) {
+    const def = moduleDefs[type];
+    if (!def.physical) continue;
+    const cfg = { ...moduleConfigs[type] };
+    const positions = modulePositions[type] || [];
+    cfg.positions = positions.map((p, i) => [Math.round(p.x), Math.round(p.z)]);
+    out[type] = cfg;
+  }
+  return out;
+}
+
+function applyConfig(data) {
+  if (!data || typeof data !== 'object') return;
+  for (const type of moduleOrder) {
+    const def = moduleDefs[type];
+    if (!def.physical) continue;
+    const entry = data[type];
+    if (!entry) continue;
+    // Merge loaded values over defaults
+    const cfg = {};
+    for (const [k, v] of Object.entries(entry)) {
+      if (k !== 'positions' && k !== 'position') cfg[k] = v;
+    }
+    Object.assign(moduleConfigs[type], cfg);
+    // Support old single 'position' and new 'positions' array
+    if (entry.positions && Array.isArray(entry.positions)) {
+      modulePositions[type] = entry.positions.map(p => new THREE.Vector3(p[0], 0, p[1]));
+    } else if (entry.position && Array.isArray(entry.position)) {
+      modulePositions[type] = [new THREE.Vector3(entry.position[0], 0, entry.position[1])];
+    }
+  }
+}
+
+async function loadConfig() {
+  try {
+    const resp = await fetch('/api/platform_config');
+    const json = await resp.json();
+    if (json.success && json.data) {
+      applyConfig(json.data);
+      console.log('[Config] Loaded from platform_config.json');
+    }
+  } catch (e) {
+    console.log('[Config] Failed to load, using defaults:', e.message);
+  }
+}
+
+window.saveConfig = async () => {
+  const data = collectConfig();
+  try {
+    const resp = await fetch('/api/platform_config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const json = await resp.json();
+    if (json.success) {
+      console.log('[Config] Saved to platform_config.json');
+      alert('配置已保存');
+    } else {
+      alert('保存失败: ' + (json.error || 'unknown'));
+    }
+  } catch (e) {
+    alert('保存失败: ' + e.message);
+  }
+};
+
+// ============================================================
+// Initialize modules (physical only)
+// ============================================================
+async function initModules() {
+  await loadConfig();
+
+  moduleOrder.forEach(type => {
+    const def = moduleDefs[type];
+    if (!def.physical) return;
+    if (!modulePositions[type] || modulePositions[type].length === 0) {
+      modulePositions[type] = [def.defaultPos.clone()];
+    }
+    moduleGroups[type] = [];
+    const cfg = moduleConfigs[type];
+    modulePositions[type].forEach(pos => {
+      const group = builders[type](cfg);
+      group.position.copy(pos);
+      scene.add(group);
+      draggableModules.push(group);
+      moduleGroups[type].push(group);
+    });
+  });
+
+  setupModuleDrag();
+  renderModuleConfigUI();
+}
+
+initModules();
+
+// ============================================================
+// Resize & render loop
+// ============================================================
+function resize() {
+  const w = container.clientWidth, h = container.clientHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / Math.max(h, 1);
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+resize();
+updateRobot(0, 0, 0, 0);
+updatePipette(300.3, 213.1, 123.1, 123.1);
+
+(function render() {
+  requestAnimationFrame(render);
+  controls.update();
+  renderer.render(scene, camera);
+})();
+
+window.updateRobot = updateRobot;
+window.updatePipette = updatePipette;
+window.fk = fk;
+window.ik = ik;
+window.j3deg2d3 = j3deg2d3;
+window.d32j3deg = d32j3deg;
+window.animateTo = animateTo;
+</script>
+</body>
+</html>

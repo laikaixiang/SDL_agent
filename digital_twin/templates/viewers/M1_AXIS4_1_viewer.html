@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>M1-AXIS4_1 零件预览</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system,'Segoe UI','Microsoft YaHei',sans-serif;
+       background: #1a1d23; color: #abb2bf; overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
+#info { padding: 12px 20px; background: #21252b; border-bottom: 1px solid #333;
+        font-size: 13px; display: flex; gap: 24px; align-items: center; }
+#info .label { color: #61afef; font-weight: 600; }
+#info .value { color: #e5c07b; }
+#canvas { flex: 1; }
+#controls { position: absolute; bottom: 16px; left: 16px; background: rgba(33,37,43,0.9);
+            padding: 8px 12px; border-radius: 6px; font-size: 11px; color: #888; }
+</style>
+</head>
+<body>
+<div id="info">
+  <span><span class="label">零件:</span> <span class="value">第四轴 (AXIS4)</span></span>
+  <span><span class="label">三角面:</span> <span class="value" id="tris">15,852</span></span>
+  <span><span class="label">状态:</span> <span class="value" id="status">加载中...</span></span>
+</div>
+<div id="canvas"></div>
+<div id="controls">鼠标拖拽旋转 | 滚轮缩放 | 右键平移</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+}
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+
+const container = document.getElementById('canvas');
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+container.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#1e2127');
+scene.fog = new THREE.Fog('#1e2127', 1000, 2500);
+
+const camera = new THREE.PerspectiveCamera(45, 1, 1, 4000);
+camera.position.set(400, 300, 400);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+
+scene.add(new THREE.AmbientLight('#8899bb', 1.5));
+const key = new THREE.DirectionalLight('#fffef5', 3);
+key.position.set(500, 600, 400);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+scene.add(key);
+scene.add(new THREE.DirectionalLight('#aaccff', 1.2));
+
+const grid = new THREE.GridHelper(800, 16, '#4a4f59', '#2a2d33');
+grid.position.y = -0.5;
+scene.add(grid);
+
+const loader = new STLLoader();
+loader.load('../models/dobot_m1pro/M1_AXIS4_1.stl',
+  (geometry) => {
+    geometry.computeBoundingBox();
+    const center = new THREE.Vector3();
+    geometry.boundingBox.getCenter(center);
+    geometry.translate(-center.x, -center.y, -center.z);
+    
+    const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
+      color: 0x9f8a6a, roughness: 0.35, metalness: 0.65
+    }));
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+    
+    document.getElementById('status').textContent = '加载成功';
+    document.getElementById('status').style.color = '#98c379';
+    
+    const size = new THREE.Vector3();
+    geometry.boundingBox.getSize(size);
+    const maxDim = Math.max(size.x, size.y, size.z);
+    camera.position.set(maxDim * 2.5, maxDim * 1.8, maxDim * 2.5);
+    controls.target.set(0, 0, 0);
+    controls.update();
+    
+    console.log('[STL] Loaded M1-AXIS4_1:', { triangles: 15852, dimensions: size });
+  },
+  undefined,
+  (error) => {
+    document.getElementById('status').textContent = '失败: ' + error;
+    document.getElementById('status').style.color = '#e06c75';
+    console.error('[STL] Error:', error);
+  }
+);
+
+function resize() {
+  const w = container.clientWidth, h = container.clientHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / Math.max(h, 1);
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+resize();
+
+(function render() {
+  requestAnimationFrame(render);
+  controls.update();
+  renderer.render(scene, camera);
+})();
+</script>
+</body>
+</html>

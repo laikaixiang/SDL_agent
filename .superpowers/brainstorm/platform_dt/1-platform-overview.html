@@ -1,0 +1,86 @@
+<h2>平台整体布局数字孪生 — 设计概览</h2>
+<p class="subtitle">基于视觉检测数据，构建可交互的平台数字孪生场景</p>
+
+<div class="section">
+  <h3>已有视觉数据</h3>
+  <div class="cards">
+    <div class="card">
+      <div class="card-body">
+        <h3>blocks.json — 平台分区</h3>
+        <p>6个矩形区块，定义平台功能分区（旋涂区、滴管区等）</p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-body">
+        <h3>tray.json — 托盘参数</h3>
+        <p>载玻片托盘(5×5) + 瓶子托盘位置，含尺寸/槽位/布局偏移</p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-body">
+        <h3>平台布局.png — 实景照片</h3>
+        <p>3072×4096 实拍照片，清晰展示各模块位置</p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-body">
+        <h3>robot_arm_model — 现有机械臂</h3>
+        <p>Dobot M1Pro SCARA 数字孪生，已位于左下角</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>需要建模的核心模块</h3>
+  <div class="options">
+    <div class="option" data-choice="spin_coater" onclick="toggleSelect(this)">
+      <div class="letter">1</div>
+      <div class="content">
+        <h3>匀胶机（Spin Coater）</h3>
+        <p>参数：数量、分布方式、大小、位置、间隔</p>
+      </div>
+    </div>
+    <div class="option" data-choice="substrate_tray" onclick="toggleSelect(this)">
+      <div class="letter">2</div>
+      <div class="content">
+        <h3>载玻片托盘（Substrate Tray）</h3>
+        <p>参数：数量(5×5格)、分布方式、大小、位置、间隔</p>
+      </div>
+    </div>
+    <div class="option" data-choice="dropper_box" onclick="toggleSelect(this)">
+      <div class="letter">3</div>
+      <div class="content">
+        <h3>滴管头盒（Dropper Box）</h3>
+        <p>参数：数量、分布方式、大小、位置、间隔</p>
+      </div>
+    </div>
+    <div class="option" data-choice="bottle_tray" onclick="toggleSelect(this)">
+      <div class="letter">4</div>
+      <div class="content">
+        <h3>瓶子托盘（Bottle Tray）</h3>
+        <p>参数：数量、分布方式、大小、位置、间隔</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>交互需求确认</h3>
+  <div class="options">
+    <div class="option" data-choice="drag_free" onclick="toggleSelect(this)">
+      <div class="letter">A</div>
+      <div class="content">
+        <h3>自由拖拽</h3>
+        <p>各模块可自由拖拽至任意位置，无约束</p>
+      </div>
+    </div>
+    <div class="option" data-choice="drag_snap" onclick="toggleSelect(this)">
+      <div class="letter">B</div>
+      <div class="content">
+        <h3>吸附对齐</h3>
+        <p>拖拽时有网格/边界吸附，辅助对齐</p>
+      </div>
+    </div>
+  </div>
+</div>

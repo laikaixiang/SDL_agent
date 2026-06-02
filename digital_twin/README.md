@@ -55,6 +55,52 @@ test_digital_twin/
 
 ---
 
+## 用户编辑指引 (2026-06-02)
+
+### 修改机械臂关节限位
+
+**Dobot M1Pro**：编辑 `data/offsets/dobot_joint_offsets.json`  
+**移液臂**：编辑 `data/offsets/pipette_kinematic_params.json`
+
+编辑后刷新页面，前端 slider 的 min/max/value 自动同步。
+
+> `kinematics_M1Pro.py` 和 `kinematics_pipette.py` 在模块加载时读取 JSON，修改 JSON 等效于修改硬编码常量。
+
+### 关节限位配置字段说明
+
+**pipette_kinematic_params.json** 中的 `joints` 节点：
+
+```json
+"X": { "mechanical_range": [44.1, 384.9], "reference_mm": 300.3 }
+```
+- `mechanical_range[0]` → slider **min**
+- `mechanical_range[1]` → slider **max**
+- `reference_mm` → slider 初始 **value**
+
+同理 `Z` → Y轴滑块，`Y1`/`Y2` → Z1/Z2 滑块。
+
+**dobot_joint_offsets.json** 目前主要用于零件偏移数据，Dobot 关节限位由 `kinematics_M1Pro.py` 中的常量定义（J1/J2/J4 ±85°/±130°/±360°，J3 由 Z_MAX/Z_MIN 决定）。
+
+### 运行时状态持久化
+
+页面加载时自动从 `data/runtime/dobot_state.json` 和 `data/runtime/pipette_state.json` 读取上次位置并恢复。
+
+手动保存/更新运行时状态：
+
+```bash
+# 保存 Dobot 状态
+curl -X POST http://127.0.0.1:5001/api/runtime/dobot_state \
+  -H "Content-Type: application/json" \
+  -d '{"j1":30,"j2":-30,"j3_deg":1000,"j4":45,"d3_mm":327.778}'
+
+# 保存移液臂状态
+curl -X POST http://127.0.0.1:5001/api/runtime/pipette_state \
+  -H "Content-Type: application/json" \
+  -d '{"x":310,"y":250,"z1":140,"z2":135}'
+```
+
+---
+
 ## 新增功能 (2026-06-01)
 
 ### STL 真实模型替换

@@ -21,38 +21,63 @@ All axes are pure prismatic — FK is identity, IK is limit clamping.
 """
 
 import math
+import json
+import os
 from dataclasses import dataclass, field
 from typing import Tuple, List, Optional, Dict
 
 
 # ============================================================
-# Physical parameters — from pipette_kinematic_params.json
+# Paths
+# ============================================================
+_DIR = os.path.dirname(os.path.abspath(__file__))
+_PARAMS_PATH = os.path.join(_DIR, "data", "offsets", "pipette_kinematic_params.json")
+_STATE_PATH = os.path.join(_DIR, "data", "runtime", "pipette_state.json")
+
+
+# ============================================================
+# Load parameters from JSON
+# ============================================================
+def _load_params() -> Dict:
+    if os.path.exists(_PARAMS_PATH):
+        with open(_PARAMS_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
+_params = _load_params()
+_joints = _params.get("joints", {})
+_adp = _params.get("adp_spacing_mm", 30.2)
+
+
+# ============================================================
+# Physical parameters — from pipette_kinematic_params.json (with hardcoded fallback)
 # ============================================================
 
 # X axis: mid beam sliding on cross beam (CAD X, World X)
 #   Cross beam X: [4.6, 424.4], mid beam half-width: 39.5mm
-X_MIN = 44.1
-X_MAX = 384.9
-X_REF = 300.3          # STL assembly position (mid beam center X in CAD)
-X_STROKE = X_MAX - X_MIN  # 340.8mm
+X_MIN = _joints.get("X", {}).get("mechanical_range", [44.1, 384.9])[0]
+X_MAX = _joints.get("X", {}).get("mechanical_range", [44.1, 384.9])[1]
+X_REF = _joints.get("X", {}).get("reference_mm", 300.3)
+X_STROKE = X_MAX - X_MIN
 
 # Y axis: cross beam sliding along frame (CAD Y, World Z)
 #   Frame Y: [3.1, 423.1], cross beam half-depth: 56.0mm
-Y_MIN = 59.1
-Y_MAX = 367.1
-Y_REF = 213.1          # mechanical center of frame Y range
+Y_MIN = _joints.get("Z", {}).get("mechanical_range", [59.1, 367.1])[0]
+Y_MAX = _joints.get("Z", {}).get("mechanical_range", [59.1, 367.1])[1]
+Y_REF = _joints.get("Z", {}).get("reference_mm", 213.1)
 Y_REF_STL = 416.1      # STL assembly position (cross beam exceeds frame by 49mm)
-Y_STROKE = Y_MAX - Y_MIN  # 308.0mm
+Y_STROKE = Y_MAX - Y_MIN
 
 # Z1/Z2 axis: ADP vertical lift (CAD Z, World Y = UP)
 #   Mid beam Z: [59.3, 195.4], ADP half-height: 34.8mm
-Z_MIN = 94.0
-Z_MAX = 160.7
-Z_REF = 123.1          # STL assembly position (ADP center Z in CAD)
-Z_STROKE = Z_MAX - Z_MIN  # 66.6mm
+Z_MIN = _joints.get("Y1", {}).get("mechanical_range", [94.0, 160.7])[0]
+Z_MAX = _joints.get("Y1", {}).get("mechanical_range", [94.0, 160.7])[1]
+Z_REF = _joints.get("Y1", {}).get("reference_mm", 123.1)
+Z_STROKE = Z_MAX - Z_MIN
 
 # ADP spacing in X direction
-ADP_SPACING_X = 30.2   # mm, between ADP1 and ADP2 centers
+ADP_SPACING_X = _adp
 
 # Tip offset from ADP center
 # Tip center: (284.8, 156.1, 112.3), ADP1 center: (284.6, 298.1, 123.1)
@@ -284,6 +309,49 @@ def get_joint_limits() -> Dict:
                'ref': Z_REF, 'stroke': Z_STROKE, 'direction': 'vertical (World Y = UP)'},
         'adp_spacing_x_mm': ADP_SPACING_X,
     }
+
+
+# ============================================================
+# Runtime state persistence
+# ============================================================
+
+def load_state() -> PipetteState:
+    """Load runtime state from data/runtime/pipette_state.json.
+
+    Falls back to home position if the file does not exist or is invalid.
+    """
+    if os.path.exists(_STATE_PATH):
+        try:
+            with open(_STATE_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            axis = data.get("axis", {})
+            return PipetteState(
+                x=axis.get("x", X_REF),
+                y=axis.get("y", Y_REF),
+                z1=axis.get("z1", Z_REF),
+                z2=axis.get("z2", Z_REF),
+            )
+        except (json.JSONDecodeError, KeyError):
+            pass
+    return PipetteState.home()
+
+
+def save_state(state: PipetteState) -> None:
+    """Write current state to data/runtime/pipette_state.json."""
+    os.makedirs(os.path.dirname(_STATE_PATH), exist_ok=True)
+    data = {
+        "axis": state.to_dict(),
+        "tip1": {},
+        "tip2": {},
+        "updated_at": "",
+    }
+    pose = forward_kinematics(state)
+    data["tip1"] = pose.tip1.to_dict()
+    data["tip2"] = pose.tip2.to_dict()
+    from datetime import datetime, timezone
+    data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    with open(_STATE_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
 
 
 # ============================================================

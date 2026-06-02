@@ -1494,8 +1494,44 @@ function resize() {
 }
 window.addEventListener('resize', resize);
 resize();
-updateRobot(0, 0, 0, 0);
-updatePipette(300.3, 213.1, 123.1, 123.1);
+
+// Sync slider limits from kinematic JSON config files
+(async () => {
+  try {
+    const res = await fetch('/api/kinematic_params');
+    if (!res.ok) throw new Error('failed');
+    const { dobot, pipette } = await res.json();
+
+    // Dobot sliders
+    const sj1 = document.getElementById('s-j1');
+    const sj2 = document.getElementById('s-j2');
+    const sj3 = document.getElementById('s-j3');
+    const sj4 = document.getElementById('s-j4');
+
+    if (sj1) { sj1.min = dobot.j1.min; sj1.max = dobot.j1.max; }
+    if (sj2) { sj2.min = dobot.j2.min; sj2.max = dobot.j2.max; }
+    if (sj3) { sj3.min = dobot.j3_deg.min; sj3.max = dobot.j3_deg.max; }
+    if (sj4) { sj4.min = dobot.j4.min; sj4.max = dobot.j4.max; }
+
+    // Pipette sliders
+    const spx = document.getElementById('sp-x');
+    const spy = document.getElementById('sp-y');
+    const spz1 = document.getElementById('sp-z1');
+    const spz2 = document.getElementById('sp-z2');
+
+    if (spx) { spx.min = pipette.x.min; spx.max = pipette.x.max; spx.value = pipette.x.ref; }
+    if (spy) { spy.min = pipette.y.min; spy.max = pipette.y.max; spy.value = pipette.y.ref; }
+    if (spz1) { spz1.min = pipette.z1.min; spz1.max = pipette.z1.max; spz1.value = pipette.z1.ref; }
+    if (spz2) { spz2.min = pipette.z2.min; spz2.max = pipette.z2.max; spz2.value = pipette.z2.ref; }
+
+    updateRobot(+sj1.value, +sj2.value, +sj3.value, +sj4.value);
+    updatePipette(+spx.value, +spy.value, +spz1.value, +spz2.value);
+  } catch (e) {
+    // Fallback: use hardcoded defaults already in HTML
+    updateRobot(0, 0, 0, 0);
+    updatePipette(300.3, 213.1, 123.1, 123.1);
+  }
+})();
 
 (function render() {
   requestAnimationFrame(render);

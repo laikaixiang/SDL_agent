@@ -48,7 +48,7 @@
       "description": "横梁沿框架Y方向移动",
       "mechanical_range": [
         59.1,
-        367.1
+        600
       ],
       "stroke_mm": 308.0,
       "reference_mm": 416.1

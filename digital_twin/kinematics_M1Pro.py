@@ -26,9 +26,32 @@ Cartesian pose:
 """
 
 import math
+import json
+import os
 import numpy as np
 from dataclasses import dataclass, field
-from typing import Tuple, List, Optional
+from typing import Tuple, List, Optional, Dict
+
+# ============================================================
+# Paths
+# ============================================================
+_DIR = os.path.dirname(os.path.abspath(__file__))
+_OFFSETS_PATH = os.path.join(_DIR, "data", "offsets", "dobot_joint_offsets.json")
+_STATE_PATH = os.path.join(_DIR, "data", "runtime", "dobot_state.json")
+
+
+# ============================================================
+# Load offsets from JSON
+# ============================================================
+def _load_offsets() -> Dict:
+    if os.path.exists(_OFFSETS_PATH):
+        with open(_OFFSETS_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
+_offsets = _load_offsets()
+
 
 # ============================================================
 # Physical parameters — Dobot M1Pro (public + estimated)
@@ -371,6 +394,56 @@ def compute_workspace_inner(n: int = 360) -> Tuple[List[float], List[float]]:
         xs.append(r * math.cos(angle))
         ys.append(r * math.sin(angle))
     return xs, ys
+
+
+# ============================================================
+# Runtime state persistence
+# ============================================================
+
+def load_state() -> JointState:
+    """Load runtime state from data/runtime/dobot_state.json.
+
+    Falls back to home position if the file does not exist or is invalid.
+    """
+    if os.path.exists(_STATE_PATH):
+        try:
+            with open(_STATE_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            joint = data.get("joint", {})
+            return JointState(
+                j1_deg=joint.get("j1", 0.0),
+                j2_deg=joint.get("j2", 0.0),
+                d3_mm=joint.get("d3_mm", D3_BASE),
+                j4_deg=joint.get("j4", 0.0),
+            )
+        except (json.JSONDecodeError, KeyError):
+            pass
+    return JointState(j1_deg=0, j2_deg=0, d3_mm=D3_BASE, j4_deg=0)
+
+
+def save_state(state: JointState) -> None:
+    """Write current state to data/runtime/dobot_state.json."""
+    os.makedirs(os.path.dirname(_STATE_PATH), exist_ok=True)
+    pose, _ = forward_kinematics(state)
+    from datetime import datetime, timezone
+    data = {
+        "joint": {
+            "j1": round(state.j1_deg, 2),
+            "j2": round(state.j2_deg, 2),
+            "j3_deg": round(d3_to_j3_deg(state.d3_mm), 2),
+            "j4": round(state.j4_deg, 2),
+            "d3_mm": round(state.d3_mm, 3),
+        },
+        "tcp": {
+            "x": round(pose.x, 3),
+            "y": round(pose.y, 3),
+            "z": round(pose.z, 3),
+            "r": round(pose.r, 2),
+        },
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    with open(_STATE_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
 
 
 # ============================================================

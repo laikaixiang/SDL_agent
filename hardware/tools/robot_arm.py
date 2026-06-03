@@ -34,12 +34,12 @@ def move_robot_arm(x: float, y: float, z: float, r: float) -> str:
         client = get_mqtt_client()
         if client.is_connected:
             client.publish(EXPERIMENT_TOPIC, f"a{x},{y},{z},{r},0")
-            return f"机械臂已保存轨迹:移动至坐标 ({x}, {y}, {z}, {r})"
+            return f"机械臂已保存轨迹:移动至坐标 ({x}, {y}, {z}, {r}, 0)"
         else:
             connect_state = client.connect()
             if connect_state:
                 client.publish(EXPERIMENT_TOPIC, f"a{x},{y},{z},{r},0")
-                return f"机械臂已保存轨迹:移动至坐标 ({x}, {y}, {z}, {r})"
+                return f"机械臂已保存轨迹:移动至坐标 ({x}, {y}, {z}, {r}, 0)"
             else:
                 return f"机械臂移动轨迹保存失败"
     except Exception as e:

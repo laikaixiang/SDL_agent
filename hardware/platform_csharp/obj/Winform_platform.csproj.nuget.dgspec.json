@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "D:\\PycharmProjects\\硕士\\SDL_agent\\hardware\\platform_csharp\\Winform_platform.csproj": {}
+    "D:\\PycharmProjects\\master\\SDL_agent\\hardware\\platform_csharp\\Winform_platform.csproj": {}
   },
   "projects": {
-    "D:\\PycharmProjects\\硕士\\SDL_agent\\hardware\\platform_csharp\\Winform_platform.csproj": {
+    "D:\\PycharmProjects\\master\\SDL_agent\\hardware\\platform_csharp\\Winform_platform.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\PycharmProjects\\硕士\\SDL_agent\\hardware\\platform_csharp\\Winform_platform.csproj",
+        "projectUniqueName": "D:\\PycharmProjects\\master\\SDL_agent\\hardware\\platform_csharp\\Winform_platform.csproj",
         "projectName": "Winform_platform",
-        "projectPath": "D:\\PycharmProjects\\硕士\\SDL_agent\\hardware\\platform_csharp\\Winform_platform.csproj",
+        "projectPath": "D:\\PycharmProjects\\master\\SDL_agent\\hardware\\platform_csharp\\Winform_platform.csproj",
         "packagesPath": "C:\\Users\\DELL\\.nuget\\packages\\",
-        "outputPath": "D:\\PycharmProjects\\硕士\\SDL_agent\\hardware\\platform_csharp\\obj\\",
+        "outputPath": "D:\\PycharmProjects\\master\\SDL_agent\\hardware\\platform_csharp\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"

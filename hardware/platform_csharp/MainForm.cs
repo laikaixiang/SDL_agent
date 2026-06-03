@@ -898,6 +898,11 @@ namespace WinFormsApp_Draft
                         {
                             try
                             {
+                                Response.Invoke(() =>
+                                {
+                                    if(Mqtt_connection.msg != "none")
+                                    Response.Text = Mqtt_connection.msg;
+                                });
                                 //do a whole round
                                 if (Mqtt_connection.msg == "start")// get step parameters from step_buffer
                                 {

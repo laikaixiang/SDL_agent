@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "eLUUWpBY+5g=",
+  "dgSpecHash": "GkBpuvUKr94=",
   "success": true,
-  "projectFilePath": "D:\\PycharmProjects\\硕士\\SDL_agent\\hardware\\platform_csharp\\Winform_platform.csproj",
+  "projectFilePath": "D:\\PycharmProjects\\master\\SDL_agent\\hardware\\platform_csharp\\Winform_platform.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\DELL\\.nuget\\packages\\documentformat.openxml\\3.3.0\\documentformat.openxml.3.3.0.nupkg.sha512",
     "C:\\Users\\DELL\\.nuget\\packages\\documentformat.openxml.framework\\3.3.0\\documentformat.openxml.framework.3.3.0.nupkg.sha512",

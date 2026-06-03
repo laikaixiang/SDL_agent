@@ -322,6 +322,43 @@ def api_save_platform_config():
     return jsonify({'success': ok, 'error': '' if ok else 'Failed to write file'})
 
 
+@app.route('/api/layout/placement', methods=['GET'])
+def api_get_placement():
+    """Return only the dobot/pipette base placement (position + Z-yaw)."""
+    cfg = _load_platform_config()
+    return jsonify({
+        'success': True,
+        'data': cfg.get('placement', {
+            'dobot':   {'x': 150, 'z': -600, 'yaw': 0},
+            'pipette': {'x': 950, 'z': -250, 'yaw': 0},
+        })
+    })
+
+
+@app.route('/api/layout/placement', methods=['POST', 'PUT'])
+def api_save_placement():
+    """Update only the dobot/pipette base placement, preserving other config."""
+    data = request.get_json(force=True)
+    if not isinstance(data, dict):
+        return jsonify({'success': False, 'error': 'Body must be a JSON object'}), 400
+    cfg = _load_platform_config()
+    cfg['placement'] = {
+        'dobot': {
+            'x':   float(data.get('dobot',   {}).get('x',   cfg.get('placement', {}).get('dobot',   {}).get('x',   150))),
+            'z':   float(data.get('dobot',   {}).get('z',   cfg.get('placement', {}).get('dobot',   {}).get('z',  -600))),
+            'yaw': float(data.get('dobot',   {}).get('yaw', cfg.get('placement', {}).get('dobot',   {}).get('yaw',   0))),
+        },
+        'pipette': {
+            'x':   float(data.get('pipette', {}).get('x',   cfg.get('placement', {}).get('pipette', {}).get('x',   950))),
+            'z':   float(data.get('pipette', {}).get('z',   cfg.get('placement', {}).get('pipette', {}).get('z',  -250))),
+            'yaw': float(data.get('pipette', {}).get('yaw', cfg.get('placement', {}).get('pipette', {}).get('yaw',   0))),
+        },
+    }
+    ok = _save_platform_config(cfg)
+    return jsonify({'success': ok, 'data': cfg['placement'],
+                    'error': '' if ok else 'Failed to write file'})
+
+
 # -------------------------------------------------------
 # Pipette Arm API
 # -------------------------------------------------------

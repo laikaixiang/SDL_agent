@@ -298,7 +298,10 @@ const box=(w,h,d)=>new THREE.BoxGeometry(w,h,d);
 // ============================================================
 // Dobot M1Pro — STL assembly with kinematic hierarchy
 // Joint pivots from STL overlap: J1(209,116), J2(408,116), J4(604,116)
-const robotRoot = new THREE.Group(); robotRoot.position.set(150, 0, -600); scene.add(robotRoot);
+// robotRoot is wrapped in dobotPlacement so position + Z-yaw can be
+// edited in the platform_config.json "placement.dobot" entry.
+const dobotPlacement = new THREE.Group(); dobotPlacement.name = 'DobotPlacement'; scene.add(dobotPlacement);
+const robotRoot = new THREE.Group(); robotRoot.name = 'DobotRoot'; dobotPlacement.add(robotRoot);
 robotRoot.add(wsGroup);
 
 const dobotPivot = new THREE.Group(); dobotPivot.rotation.x = -Math.PI / 2; robotRoot.add(dobotPivot);
@@ -362,8 +365,11 @@ DOBOT_PARTS.forEach(({file, parent, cx, cy, cz, color}) => {
 // ---- Pipette arm: no Rx rotation needed, CAD axes align with robot coords ----
 // Robot coords: X=World X, Y=World Z, Z=World Y(UP)
 // CAD: frame long(Z=782mm)→World Z, ADP long(Y=204mm)→World Y(∥Z axis)
+// pipetteRoot is wrapped in pipettePlacement so position + Z-yaw can be
+// edited in the platform_config.json "placement.pipette" entry.
+const pipettePlacement = new THREE.Group(); pipettePlacement.name = 'PipettePlacement'; scene.add(pipettePlacement);
 const pipetteRoot = new THREE.Group(); pipetteRoot.name = 'PipetteArm';
-pipetteRoot.position.set(950, 0, -250); pipetteRoot.rotation.y = -Math.PI/2; scene.add(pipetteRoot);
+pipetteRoot.rotation.y = -Math.PI/2; pipettePlacement.add(pipetteRoot);
 
 const pipetteBase = new THREE.Group(); pipetteRoot.add(pipetteBase);
 const pipetteY    = new THREE.Group(); pipetteBase.add(pipetteY);
@@ -561,7 +567,7 @@ const moduleDefs = {
     label: '桌面',
     physical: true,
     defaultPos: new THREE.Vector3(550, 0, -250),
-    defaultConfig: { gridSize: 50, platformSize: 800 },
+    defaultConfig: { gridX: 50, gridZ: 50, sizeX: 800, sizeZ: 800 },
   },
   slideBox: {
     label: '载玻片盒',
@@ -602,6 +608,34 @@ const moduleConfigs = {};
 Object.keys(moduleDefs).forEach(type => {
   moduleConfigs[type] = { ...moduleDefs[type].defaultConfig };
 });
+
+// ============================================================
+// Placement — base position + Z-yaw for Dobot and Pipette
+// Yaw is rotation around the vertical (World Z) axis at the
+// placement origin (the geometric axis of the robot base).
+// Stored in platform_config.json under "placement".
+// ============================================================
+const placementDefaults = {
+  dobot:   { x: 150,  z: -600, yaw: 0 },
+  pipette: { x: 950,  z: -250, yaw: 0 },
+};
+const placementConfig = {
+  dobot:   { ...placementDefaults.dobot },
+  pipette: { ...placementDefaults.pipette },
+};
+
+function applyPlacement(robot) {
+  const p = placementConfig[robot];
+  if (!p) return;
+  const grp = (robot === 'dobot') ? dobotPlacement : pipettePlacement;
+  grp.position.set(p.x, 0, p.z);
+  grp.rotation.set(0, 0, D2R(p.yaw));
+}
+
+// Apply default placement immediately so STLs that load before
+// loadConfig() resolves still appear at the correct base position.
+applyPlacement('dobot');
+applyPlacement('pipette');
 
 function snapToGrid(val) {
   return Math.round(val / GRID_SIZE) * GRID_SIZE;
@@ -851,11 +885,22 @@ function buildDesktop(cfg) {
   const group = new THREE.Group();
   group.name = 'Desktop';
 
-  const size = cfg.platformSize || PLATFORM_SIZE;
-  const cells = Math.round(size / (cfg.gridSize || GRID_SIZE));
+  // Rectangular: sizeX = X-direction length, sizeZ = Z-direction width.
+  // Falls back to square (legacy platformSize) for backward compat.
+  const sizeX = (cfg.sizeX !== undefined) ? cfg.sizeX
+              : (cfg.platformSize !== undefined) ? cfg.platformSize : PLATFORM_SIZE;
+  const sizeZ = (cfg.sizeZ !== undefined) ? cfg.sizeZ
+              : (cfg.platformSize !== undefined) ? cfg.platformSize : PLATFORM_SIZE;
+  // Grid cell size: gridX along X, gridZ along Z. Fall back to gridSize.
+  const gridX = (cfg.gridX !== undefined) ? cfg.gridX
+              : (cfg.gridSize !== undefined) ? cfg.gridSize : GRID_SIZE;
+  const gridZ = (cfg.gridZ !== undefined) ? cfg.gridZ
+              : (cfg.gridSize !== undefined) ? cfg.gridSize : GRID_SIZE;
 
+  // Use PlaneGeometry with sizeX (width along X) and sizeZ (height along Y,
+  // which becomes Z in world after the -90° X rotation).
   const mesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(size, size),
+    new THREE.PlaneGeometry(sizeX, sizeZ),
     new THREE.MeshStandardMaterial({color:'#2a2d33', roughness:0.8, metalness:0.1})
   );
   mesh.rotation.x = -Math.PI / 2;
@@ -863,17 +908,37 @@ function buildDesktop(cfg) {
   mesh.receiveShadow = true;
   group.add(mesh);
 
-  const gh = new THREE.GridHelper(size, cells, '#4a4f59', '#3a3f4b');
-  gh.position.y = 0.03;
+  // GridHelper takes (size, divisions) where size is one side of a square.
+  // For rectangular cells we build a custom line grid: nDivX cells along X
+  // and nDivZ cells along Z, so each cell is gridX × gridZ mm.
+  const nDivX = Math.max(1, Math.round(sizeX / gridX));
+  const nDivZ = Math.max(1, Math.round(sizeZ / gridZ));
+  const gridGeom = new THREE.BufferGeometry();
+  const halfX = sizeX / 2, halfZ = sizeZ / 2;
+  const yLevel = 0.03;
+  const verts = [];
+  // Lines along Z (vary X)
+  for (let i = 0; i <= nDivX; i++) {
+    const x = -halfX + (i / nDivX) * sizeX;
+    verts.push(x, yLevel, -halfZ, x, yLevel, halfZ);
+  }
+  // Lines along X (vary Z)
+  for (let j = 0; j <= nDivZ; j++) {
+    const z = -halfZ + (j / nDivZ) * sizeZ;
+    verts.push(-halfX, yLevel, z, halfX, yLevel, z);
+  }
+  gridGeom.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  const gridMat = new THREE.LineBasicMaterial({color: '#4a4f59', transparent: true, opacity: 0.85});
+  const gh = new THREE.LineSegments(gridGeom, gridMat);
   group.add(gh);
 
-  const half = size / 2;
+  // Outer border
   const pts = [
-    new THREE.Vector3(-half, 0.05, -half),
-    new THREE.Vector3( half, 0.05, -half),
-    new THREE.Vector3( half, 0.05,  half),
-    new THREE.Vector3(-half, 0.05,  half),
-    new THREE.Vector3(-half, 0.05, -half),
+    new THREE.Vector3(-halfX, 0.05, -halfZ),
+    new THREE.Vector3( halfX, 0.05, -halfZ),
+    new THREE.Vector3( halfX, 0.05,  halfZ),
+    new THREE.Vector3(-halfX, 0.05,  halfZ),
+    new THREE.Vector3(-halfX, 0.05, -halfZ),
   ];
   const line = new THREE.Line(
     new THREE.BufferGeometry().setFromPoints(pts),
@@ -1190,6 +1255,8 @@ function renderModuleConfigUI() {
   const disabled = ''; // edit mode on, inputs enabled
 
   if (type === 'robotArm') {
+    const dp = placementConfig.dobot;
+    const pp = placementConfig.pipette;
     html += `<div style="font-size:12px;color:var(--text);line-height:1.8">
       <div>型号：Dobot M1Pro SCARA</div>
       <div>构型：4轴 (J1/J2/J4 旋转 + J3 升降柱)</div>
@@ -1200,9 +1267,37 @@ function renderModuleConfigUI() {
       <div>TCP协议指令见下方<span style="color:var(--accent)">TCP协议模拟</span>区</div>
     </div>`;
 
+    // ---- Dobot base placement (position + Z-yaw) ----
+    html += `<div style="margin-top:10px;padding-top:8px;border-top:1px dashed var(--border)">`;
+    html += `<div style="font-size:12px;color:var(--accent);font-weight:600;margin-bottom:4px">Dobot M1Pro 底座位姿</div>`;
+    html += `<div style="font-size:10px;color:var(--text);margin-bottom:4px">位置：基座中心在桌面坐标系 (X, Z) 的坐标；朝向：绕垂直Z轴旋转 (°)</div>`;
+    html += `<div class="config-row"><span class="config-label">位置 X</span><input type="number" id="dobot-pl-x" value="${dp.x.toFixed(0)}" step="50" onchange="onPlacementChange()"><span class="input-unit">mm</span></div>`;
+    html += `<div class="config-row"><span class="config-label">位置 Z</span><input type="number" id="dobot-pl-z" value="${dp.z.toFixed(0)}" step="50" onchange="onPlacementChange()"><span class="input-unit">mm</span></div>`;
+    html += `<div class="config-row"><span class="config-label">朝向(Yaw)</span><input type="number" id="dobot-pl-yaw" value="${dp.yaw.toFixed(1)}" step="1" onchange="onPlacementChange()"><span class="input-unit">° (绕Z)</span></div>`;
+    html += `<div style="display:flex;gap:6px;margin-top:4px"><button class="btn btn-sm btn-accent" onclick="applyPlacement('dobot')" style="font-size:11px">应用</button><button class="btn btn-sm" onclick="resetPlacement('dobot')" style="font-size:11px;background:var(--slider-track);color:var(--text)">恢复默认</button></div>`;
+    html += `</div>`;
+
+    // ---- Pipette base placement ----
+    html += `<div style="margin-top:10px;padding-top:8px;border-top:1px dashed var(--border)">`;
+    html += `<div style="font-size:12px;color:var(--accent);font-weight:600;margin-bottom:4px">移液机械臂 底座位姿</div>`;
+    html += `<div style="font-size:10px;color:var(--text);margin-bottom:4px">位置：底框中心在桌面坐标系 (X, Z) 的坐标；朝向：绕垂直Z轴旋转 (°)</div>`;
+    html += `<div class="config-row"><span class="config-label">位置 X</span><input type="number" id="pip-pl-x" value="${pp.x.toFixed(0)}" step="50" onchange="onPlacementChange()"><span class="input-unit">mm</span></div>`;
+    html += `<div class="config-row"><span class="config-label">位置 Z</span><input type="number" id="pip-pl-z" value="${pp.z.toFixed(0)}" step="50" onchange="onPlacementChange()"><span class="input-unit">mm</span></div>`;
+    html += `<div class="config-row"><span class="config-label">朝向(Yaw)</span><input type="number" id="pip-pl-yaw" value="${pp.yaw.toFixed(1)}" step="1" onchange="onPlacementChange()"><span class="input-unit">° (绕Z)</span></div>`;
+    html += `<div style="display:flex;gap:6px;margin-top:4px"><button class="btn btn-sm btn-accent" onclick="applyPlacement('pipette')" style="font-size:11px">应用</button><button class="btn btn-sm" onclick="resetPlacement('pipette')" style="font-size:11px;background:var(--slider-track);color:var(--text)">恢复默认</button></div>`;
+    html += `</div>`;
+
+    html += `<div style="font-size:10px;color:var(--text);margin-top:8px">提示：底座位姿仅影响 3D 可视化布局，机械臂自身的运动学坐标系 (FK/IK) 不变。要持久化请点击顶部"保存配置"。</div>`;
+
   } else if (type === 'desktop') {
-    html += `<div class="config-row"><span class="config-label">网格尺寸</span><input type="number" id="cfg-gridSize" value="${cfg.gridSize}" min="20" max="200" step="10" onchange="onConfigChange()" ${disabled}><span class="input-unit">mm</span></div>`;
-    html += `<div class="config-row"><span class="config-label">平台尺寸</span><input type="number" id="cfg-platformSize" value="${cfg.platformSize}" min="200" max="900" step="50" onchange="onConfigChange()" ${disabled}><span class="input-unit">mm</span></div>`;
+    const sizeX = (cfg.sizeX !== undefined) ? cfg.sizeX : (cfg.platformSize || 800);
+    const sizeZ = (cfg.sizeZ !== undefined) ? cfg.sizeZ : (cfg.platformSize || 800);
+    const gridX = (cfg.gridX !== undefined) ? cfg.gridX : (cfg.gridSize  || 50);
+    const gridZ = (cfg.gridZ !== undefined) ? cfg.gridZ : (cfg.gridSize  || 50);
+    html += `<div class="config-row"><span class="config-label">网格 X</span><input type="number" id="cfg-gridX" value="${gridX}" min="20" max="200" step="10" onchange="onConfigChange()" ${disabled}><span class="input-unit">mm (X 向)</span></div>`;
+    html += `<div class="config-row"><span class="config-label">网格 Z</span><input type="number" id="cfg-gridZ" value="${gridZ}" min="20" max="200" step="10" onchange="onConfigChange()" ${disabled}><span class="input-unit">mm (Z 向)</span></div>`;
+    html += `<div class="config-row"><span class="config-label">平台长 X</span><input type="number" id="cfg-sizeX" value="${sizeX}" min="200" max="1400" step="50" onchange="onConfigChange()" ${disabled}><span class="input-unit">mm (X 向)</span></div>`;
+    html += `<div class="config-row"><span class="config-label">平台宽 Z</span><input type="number" id="cfg-sizeZ" value="${sizeZ}" min="200" max="1400" step="50" onchange="onConfigChange()" ${disabled}><span class="input-unit">mm (Z 向)</span></div>`;
     html += `<div style="font-size:11px;color:var(--text);margin-top:4px">桌面可拖拽移动。修改尺寸后需重新生成。</div>`;
     // Position for desktop
     const positions = modulePositions[type] || [];
@@ -1280,12 +1375,18 @@ window.onConfigChange = () => {
   if (!editModeEnabled) return; // config changes only in edit mode
 
   if (type === 'desktop') {
-    const gs = document.getElementById('cfg-gridSize');
-    const ps = document.getElementById('cfg-platformSize');
-    if (gs && ps) {
-      moduleConfigs.desktop.gridSize = Math.max(20, parseInt(gs.value) || 50);
-      moduleConfigs.desktop.platformSize = Math.max(200, parseInt(ps.value) || 450);
-    }
+    const gx = document.getElementById('cfg-gridX');
+    const gz = document.getElementById('cfg-gridZ');
+    const sx = document.getElementById('cfg-sizeX');
+    const sz = document.getElementById('cfg-sizeZ');
+    if (gx) moduleConfigs.desktop.gridX = Math.max(20, parseInt(gx.value) || 50);
+    if (gz) moduleConfigs.desktop.gridZ = Math.max(20, parseInt(gz.value) || 50);
+    if (sx) moduleConfigs.desktop.sizeX = Math.max(200, parseInt(sx.value) || 800);
+    if (sz) moduleConfigs.desktop.sizeZ = Math.max(200, parseInt(sz.value) || 800);
+    if (gx) gx.value = moduleConfigs.desktop.gridX;
+    if (gz) gz.value = moduleConfigs.desktop.gridZ;
+    if (sx) sx.value = moduleConfigs.desktop.sizeX;
+    if (sz) sz.value = moduleConfigs.desktop.sizeZ;
     rebuildModule('desktop');
     return;
   }
@@ -1378,6 +1479,41 @@ window.onSetPosition = () => {
   }
 };
 
+// ============================================================
+// Placement editing — Dobot & Pipette base pose
+// ============================================================
+function readPlacementFromUI(robot) {
+  const id = (robot === 'dobot') ? 'dobot' : 'pip';
+  const xEl   = document.getElementById(`${id}-pl-x`);
+  const zEl   = document.getElementById(`${id}-pl-z`);
+  const yawEl = document.getElementById(`${id}-pl-yaw`);
+  if (!xEl || !zEl || !yawEl) return null;
+  const half = PLATFORM_W / 2;
+  const x = Math.max(0, Math.min(half, parseFloat(xEl.value) || 0));
+  const z = Math.max(-half, Math.min(half, parseFloat(zEl.value) || 0));
+  const yaw = Math.max(-180, Math.min(180, parseFloat(yawEl.value) || 0));
+  xEl.value = x.toFixed(0);
+  zEl.value = z.toFixed(0);
+  yawEl.value = yaw.toFixed(1);
+  return { x, z, yaw };
+}
+
+window.onPlacementChange = () => {
+  // Read both, update internal state, but only re-apply to the active robot
+  // so the user can edit both before applying. Click "应用" to apply.
+  for (const robot of ['dobot', 'pipette']) {
+    const p = readPlacementFromUI(robot);
+    if (p) placementConfig[robot] = p;
+  }
+};
+
+window.resetPlacement = (robot) => {
+  placementConfig[robot] = { ...placementDefaults[robot] };
+  applyPlacement(robot);
+  // Refresh UI for the active tab so the input boxes reflect the reset
+  renderModuleConfigUI();
+};
+
 window.switchModuleTab = switchModuleTab;
 window.addInstance = addInstance;
 window.removeLastInstance = removeLastInstance;
@@ -1396,6 +1532,11 @@ function collectConfig() {
     cfg.positions = positions.map((p, i) => [Math.round(p.x), Math.round(p.z)]);
     out[type] = cfg;
   }
+  // Save placement alongside module data
+  out.placement = {
+    dobot:   { x: Math.round(placementConfig.dobot.x),   z: Math.round(placementConfig.dobot.z),   yaw: +placementConfig.dobot.yaw.toFixed(2) },
+    pipette: { x: Math.round(placementConfig.pipette.x), z: Math.round(placementConfig.pipette.z), yaw: +placementConfig.pipette.yaw.toFixed(2) },
+  };
   return out;
 }
 
@@ -1411,6 +1552,17 @@ function applyConfig(data) {
     for (const [k, v] of Object.entries(entry)) {
       if (k !== 'positions' && k !== 'position') cfg[k] = v;
     }
+    // Backward compat: legacy platformSize/gridSize on desktop
+    if (type === 'desktop') {
+      if (cfg.platformSize !== undefined && cfg.sizeX === undefined) {
+        cfg.sizeX = cfg.platformSize;
+        cfg.sizeZ = cfg.platformSize;
+      }
+      if (cfg.gridSize !== undefined && cfg.gridX === undefined) {
+        cfg.gridX = cfg.gridSize;
+        cfg.gridZ = cfg.gridSize;
+      }
+    }
     Object.assign(moduleConfigs[type], cfg);
     // Support old single 'position' and new 'positions' array
     if (entry.positions && Array.isArray(entry.positions)) {
@@ -1419,6 +1571,19 @@ function applyConfig(data) {
       modulePositions[type] = [new THREE.Vector3(entry.position[0], 0, entry.position[1])];
     }
   }
+  // Placement (dobot / pipette base pose) — top-level
+  if (data.placement && typeof data.placement === 'object') {
+    for (const robot of ['dobot', 'pipette']) {
+      const p = data.placement[robot];
+      if (p && typeof p === 'object') {
+        if (typeof p.x   === 'number') placementConfig[robot].x   = p.x;
+        if (typeof p.z   === 'number') placementConfig[robot].z   = p.z;
+        if (typeof p.yaw === 'number') placementConfig[robot].yaw = p.yaw;
+      }
+    }
+  }
+  applyPlacement('dobot');
+  applyPlacement('pipette');
 }
 
 async function loadConfig() {
@@ -1546,6 +1711,7 @@ window.ik = ik;
 window.j3deg2d3 = j3deg2d3;
 window.d32j3deg = d32j3deg;
 window.animateTo = animateTo;
+window.applyPlacement = applyPlacement;
 </script>
 </body>
 </html>

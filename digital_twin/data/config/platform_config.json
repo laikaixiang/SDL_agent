@@ -1,7 +1,21 @@
 {
+  "placement": {
+    "dobot": {
+      "x": 150,
+      "z": -600,
+      "yaw": 0
+    },
+    "pipette": {
+      "x": 950,
+      "z": -250,
+      "yaw": 0
+    }
+  },
   "desktop": {
-    "gridSize": 50,
-    "platformSize": 800,
+    "sizeX": 800,
+    "sizeZ": 800,
+    "gridX": 50,
+    "gridZ": 50,
     "positions": [
       [
         450,

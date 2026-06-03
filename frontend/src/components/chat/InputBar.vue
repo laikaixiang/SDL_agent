@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Send, Paperclip, MessageSquare, FileText, Cpu, FlaskConical, BarChart3 } from 'lucide-vue-next'
-import { useChatStore, MODE_LABEL, type ChatMode } from '@/stores/chat'
+import { Send, Paperclip, MessageSquare, FileText, Cpu, FlaskConical, BarChart3, Bot, MessageCircle } from 'lucide-vue-next'
+import { useChatStore, MODE_LABEL, type ChatMode, type ChatEngine } from '@/stores/chat'
 import type { AgentQuestion } from '@/types/chat'
 
 const { t } = useI18n()
@@ -121,6 +121,26 @@ function onFileChange(e: Event) {
       </button>
     </div>
     <div class="input-toolbar">
+      <!-- Chat/Agent engine toggle -->
+      <button
+        class="toolbar-btn engine-btn"
+        :class="{ active: store.chatEngine === 'chat' }"
+        :title="$t('modes.chat')"
+        @click="store.setChatEngine('chat')"
+      >
+        <MessageCircle :size="14" />
+        <span class="engine-label">{{ $t('modes.chat') }}</span>
+      </button>
+      <button
+        class="toolbar-btn engine-btn"
+        :class="{ active: store.chatEngine === 'agent' }"
+        :title="$t('modes.hintAgent')"
+        @click="store.setChatEngine('agent')"
+      >
+        <Bot :size="14" />
+        <span class="engine-label">{{ $t('modes.agent') }}</span>
+      </button>
+      <span class="toolbar-divider" />
       <input
         ref="fileInput"
         type="file"
@@ -191,6 +211,21 @@ function onFileChange(e: Event) {
 }
 .toolbar-btn:hover { color: var(--color-text); background: var(--color-bg-soft); }
 .toolbar-btn.active { color: var(--color-primary); background: var(--color-primary-soft); }
+
+/* Engine toggle buttons (Chat/Agent) */
+.engine-btn {
+  width: auto;
+  min-width: 32px;
+  padding: 0 6px;
+  gap: 3px;
+}
+.engine-label {
+  font-size: 11px;
+  font-weight: 500;
+}
+.engine-btn.active {
+  color: var(--color-primary);
+}
 .toolbar-divider {
   width: 1px; height: 18px; background: var(--color-border); margin: 0 4px;
 }

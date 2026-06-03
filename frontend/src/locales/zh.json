@@ -25,11 +25,13 @@
   },
   "modes": {
     "chat": "对话",
+    "agent": "Agent",
     "literatureExtraction": "文献提取",
     "hardwareControl": "硬件控制",
     "experimentDesign": "实验设计",
     "dataAnalysis": "数据分析",
     "hintNormal": "自由对话",
+    "hintAgent": "AI Agent，支持工具调用",
     "hintExtraction": "自动添加\"帮我搜寻：\"前缀进行文献提取",
     "hintHardware": "输入硬件指令操控设备",
     "hintExperiment": "输入实验描述设计实验",
@@ -61,7 +63,8 @@
   },
   "thinking": {
     "thinking": "思考中...",
-    "thoughtFor": "思考了 {duration}s..."
+    "thoughtFor": "思考了 {duration}s...",
+    "thinkingProcess": "思考过程"
   },
   "experiment": {
     "compiling": "编译中...",

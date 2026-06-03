@@ -25,11 +25,13 @@
   },
   "modes": {
     "chat": "Chat",
+    "agent": "Agent",
     "literatureExtraction": "Literature Extraction",
     "hardwareControl": "Hardware Control",
     "experimentDesign": "Experiment Design",
     "dataAnalysis": "Data Analysis",
     "hintNormal": "Free chat",
+    "hintAgent": "AI Agent with tool-use support",
     "hintExtraction": "Auto-add \"Search for me:\" prefix for literature extraction",
     "hintHardware": "Enter hardware commands to control devices",
     "hintExperiment": "Enter experiment description to design experiment",
@@ -61,7 +63,8 @@
   },
   "thinking": {
     "thinking": "Thinking...",
-    "thoughtFor": "Thought for {duration}s..."
+    "thoughtFor": "Thought for {duration}s...",
+    "thinkingProcess": "Thinking Process"
   },
   "experiment": {
     "compiling": "Compiling...",

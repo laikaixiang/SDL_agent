@@ -4,6 +4,8 @@ import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import { useChatStore, MODE_PREFIX } from '@/stores/chat'
 import { useAnalysisStore } from '@/stores/analysis'
+import { useExperimentStore } from '@/stores/experiment'
+import { useLayoutStore } from '@/stores/layout'
 import { uploadPDF, sendAgentMessage, respondToAgent } from '@/api/chat'
 import MessageBubble from './MessageBubble.vue'
 import InputBar from './InputBar.vue'
@@ -16,6 +18,8 @@ import { Plus, X } from 'lucide-vue-next'
 const { t } = useI18n()
 const store = useChatStore()
 const analysisStore = useAnalysisStore()
+const expStore = useExperimentStore()
+const layoutStore = useLayoutStore()
 const { messages, isStreaming, fieldConfirm } = storeToRefs(store)
 const { showGuide, guideReply, guideProgress, guideDone, generating } = storeToRefs(analysisStore)
 const inputText = ref('')
@@ -74,7 +78,12 @@ async function onSend(text: string) {
     scrollToBottom()
     return
   }
-  await store.send(text)
+  // Agent mode: route to sendToAgent (bypasses prefix-based handlers)
+  if (store.chatEngine === 'agent') {
+    await sendToAgent(text)
+  } else {
+    await store.send(text)
+  }
   scrollToBottom()
 }
 
@@ -133,6 +142,16 @@ function buildAgentCallbacks() {
       const calls = new Map(agentActiveToolCalls.value)
       calls.set(i, { index: i, name: n, callId: '', arguments: calls.get(i)?.arguments ?? {}, result: r, status: s as 'done' | 'error' })
       agentActiveToolCalls.value = calls
+      // If design_experiment tool returned JSON, load it into experiment store
+      if (n === 'design_experiment' && s === 'success') {
+        try {
+          const resultJson = JSON.parse(r)
+          if (resultJson.experiment_name || resultJson.steps) {
+            expStore.loadFromJSON(resultJson)
+            layoutStore.updateTaskStatus('experiment', 'completed')
+          }
+        } catch { /* not JSON or no experiment data */ }
+      }
     },
     onAgentQuestion(q: string, o?: string) {
       agentQuestion.value = { question: q, options: o }
@@ -174,11 +193,22 @@ async function sendToAgent(message: string) {
   agentThinking.value = ''
   agentThinkingDuration.value = 0
 
+  // Add user message first, then AI placeholder for incremental updates
+  store.addMessage('user', message)
+  store.addMessage('ai', '')
+  let agentFullText = ''
+
   const callbacks = buildAgentCallbacks()
   callbacks.onTextChunk = (t: string) => {
-    store.addMessage('ai', t)
+    agentFullText = t
+    const msgs = store.messages
+    const last = msgs[msgs.length - 1]
+    if (last && last.role === 'ai') {
+      last.content = t
+    }
   }
   callbacks.onTextComplete = (t: string) => {
+    agentFullText = t
     const msgs = store.messages
     const last = msgs[msgs.length - 1]
     if (last && last.role === 'ai') {
@@ -186,7 +216,7 @@ async function sendToAgent(message: string) {
     }
   }
 
-  const history = store.messages.map(m => ({ role: m.role, content: m.content }))
+  const history = store.messages.slice(0, -1).map(m => ({ role: m.role, content: m.content }))
   await sendAgentMessage({ message, session_id: sessionId.value, history }, callbacks)
 }
 
@@ -214,6 +244,11 @@ async function handleAgentQuestionAnswer(answer: string) {
 <template>
   <div class="chat-container">
     <div class="chat-messages" ref="chatEl">
+      <!-- Agent thinking bubble — rendered FIRST, above messages -->
+      <template v-if="agentThinking">
+        <ThinkingBubble :text="agentThinking" :duration="agentThinkingDuration" />
+      </template>
+
       <MessageBubble
         v-for="(msg, i) in messages"
         :key="i"
@@ -223,11 +258,6 @@ async function handleAgentQuestionAnswer(answer: string) {
         :thinking-duration="msg.thinking_duration"
         :timestamp="msg.timestamp"
       />
-
-      <!-- Agent thinking bubble -->
-      <template v-if="agentThinking">
-        <ThinkingBubble :text="agentThinking" :duration="agentThinkingDuration" />
-      </template>
 
       <!-- Agent tool calls -->
       <template v-if="agentActiveToolCalls.size > 0">

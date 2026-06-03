@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+const { t } = useI18n()
 defineProps<{
   text: string
   duration?: number
@@ -8,7 +10,7 @@ defineProps<{
 <template>
   <details class="thinking-bubble">
     <summary class="thinking-bubble__summary">
-      <span>🧠 思考过程</span>
+      <span>🧠 {{ t('chat.thinkingProcess') }}</span>
       <span v-if="duration" class="thinking-bubble__duration">{{ duration }}s</span>
     </summary>
     <pre class="thinking-bubble__content">{{ text }}</pre>

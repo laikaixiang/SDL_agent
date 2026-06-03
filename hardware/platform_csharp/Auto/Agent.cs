@@ -8,6 +8,8 @@ using DocumentFormat.OpenXml.Spreadsheet;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using uPLibrary.Networking.M2Mqtt;
+using WinFormsApp_Draft;
+using WinFormsApp_Draft.Auto;
 
 namespace Winform_platform.Auto
 {
@@ -38,6 +40,12 @@ namespace Winform_platform.Auto
         public static void clear_queue()
         {
             scan_buffer.Clear();
+        }
+
+        public static void experiment_finish()
+        {
+            MqttClient client = SpecForm.client;
+            Mqtt_connection.Publish(client, topic, "experiment finished");
         }
     }
 

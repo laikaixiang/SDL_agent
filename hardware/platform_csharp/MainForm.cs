@@ -1000,6 +1000,7 @@ namespace WinFormsApp_Draft
                                         }
                                     }
                                     Agent.clear_step_buffer();
+                                    //Agent.experiment_finish();
                                 }
 
                                 //scan the platform
@@ -1033,6 +1034,7 @@ namespace WinFormsApp_Draft
                                 {
                                     string parameters = Mqtt_connection.msg;
                                     Agent.to_step_buffer(parameters);
+                                    Agent.experiment_finish();
                                     Mqtt_connection.clear_msg();
                                 }
                                 Agent.clear_queue();

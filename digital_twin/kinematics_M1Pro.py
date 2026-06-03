@@ -83,6 +83,54 @@ J3_DEG_MIN, J3_DEG_MAX = -5400.0, 5400.0   # motor degrees (15 revs each way)
 Z_MIN, Z_MAX = 155.0, 455.0         # mm (TCP Z range: z = D1 + d3 - D4)
 J4_MIN, J4_MAX = -360.0, 360.0      # degrees
 
+# Override joint limits from dobot_joint_offsets.json (joints block)
+# This lets the JSON config drive the kinematics range.
+_joints_cfg = _offsets.get("joints", {}) if isinstance(_offsets, dict) else {}
+
+
+def _override_joint_range(cfg_key, current):
+    """Return [min, max] from cfg[cfg_key].mechanical_range if present, else current."""
+    entry = _joints_cfg.get(cfg_key)
+    if not entry:
+        return list(current)
+    rng = entry.get("mechanical_range")
+    if not (isinstance(rng, list) and len(rng) == 2):
+        return list(current)
+    try:
+        return [float(rng[0]), float(rng[1])]
+    except (TypeError, ValueError):
+        return list(current)
+
+
+_j1_rng = _override_joint_range("j1", (J1_MIN, J1_MAX))
+J1_MIN, J1_MAX = _j1_rng[0], _j1_rng[1]
+
+_j2_rng = _override_joint_range("j2", (J2_MIN, J2_MAX))
+J2_MIN, J2_MAX = _j2_rng[0], _j2_rng[1]
+
+_j4_rng = _override_joint_range("j4", (J4_MIN, J4_MAX))
+J4_MIN, J4_MAX = _j4_rng[0], _j4_rng[1]
+
+_j3_entry = _joints_cfg.get("j3", {})
+if isinstance(_j3_entry, dict):
+    _j3_rng = _j3_entry.get("mechanical_range")
+    if isinstance(_j3_rng, list) and len(_j3_rng) == 2:
+        try:
+            J3_DEG_MIN = float(_j3_rng[0])
+            J3_DEG_MAX = float(_j3_rng[1])
+        except (TypeError, ValueError):
+            pass
+    _d3_mm_rng = _j3_entry.get("mechanical_range_mm")
+    if isinstance(_d3_mm_rng, list) and len(_d3_mm_rng) == 2:
+        try:
+            D3_MIN = float(_d3_mm_rng[0])
+            D3_MAX = float(_d3_mm_rng[1])
+            # Keep TCP Z = D1 + d3 - D4 in sync with d3 range.
+            Z_MIN = D1 + D3_MIN - D4
+            Z_MAX = D1 + D3_MAX - D4
+        except (TypeError, ValueError):
+            pass
+
 # Cartesian workspace bounds (mm)
 X_MIN, X_MAX = -400.0, 400.0
 Y_MIN, Y_MAX = -400.0, 400.0

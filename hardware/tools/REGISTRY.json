@@ -1,9 +1,4 @@
 {
-  "start_experiment": {
-    "name": "start_experiment",
-    "description": "启动已注册的实验序列",
-    "params": {}
-  },
   "get_tips": {
     "name": "get_tips",
     "description": "空气泵取枪头",
@@ -169,6 +164,11 @@
         "default": 60
       }
     }
+  },
+  "start_experiment": {
+    "name": "start_experiment",
+    "description": "启动已注册的实验序列",
+    "params": {}
   },
   "suck": {
     "name": "suck",

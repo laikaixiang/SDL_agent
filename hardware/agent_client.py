@@ -17,7 +17,8 @@ class MQTTConnector:
     def __init__(self):
         self.client_config = Client_Conf()
         self.client = None
-        self.is_connected = False
+        self.is_connected:bool = False
+        self.message_received:str = "none"
         self.connect_event = threading.Event()
 
     def on_connect(self, client, userdata, flags, rc):
@@ -31,6 +32,9 @@ class MQTTConnector:
 
         self.connect_event.set()
 
+    def on_message(self, client, userdata, message):
+        self.message_received = str(message.payload)
+
     def connect(self, timeout=5) -> bool:
         """
         Connect the emqx server. Automatically initiallizes mqtt.Client() class object
@@ -38,8 +42,10 @@ class MQTTConnector:
         :return: True if connection success, False if failed
         """
         self.client = mqtt.Client()
+        self.client.subscribe("do_experiment")
         self.client.username_pw_set(username=self.client_config.usr_name, password=self.client_config.password)
         self.client.on_connect = self.on_connect
+        self.client.on_message = self.on_message
 
         # reset connection status
         self.is_connected = False

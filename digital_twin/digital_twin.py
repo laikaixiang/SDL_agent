@@ -196,8 +196,8 @@ def api_kinematic_params():
         'j1': {'min': km.J1_MIN, 'max': km.J1_MAX, 'unit': 'deg'},
         'j2': {'min': km.J2_MIN, 'max': km.J2_MAX, 'unit': 'deg'},
         'j3_deg': {
-            'min': round(km.d3_to_j3_deg(km.Z_MAX), 1),
-            'max': round(km.d3_to_j3_deg(km.Z_MIN), 1),
+            'min': km.J3_DEG_MIN,
+            'max': km.J3_DEG_MAX,
         },
         'j4': {'min': km.J4_MIN, 'max': km.J4_MAX, 'unit': 'deg'},
         'd3_mm': {'min': km.Z_MIN, 'max': km.Z_MAX, 'unit': 'mm'},
@@ -224,8 +224,8 @@ def api_joint_limits():
         'joints': {
             'j1': {'min': J1_MIN, 'max': J1_MAX, 'unit': 'deg', 'type': 'revolute'},
             'j2': {'min': J2_MIN, 'max': J2_MAX, 'unit': 'deg', 'type': 'revolute'},
-            'j3': {'min_deg': round(d3_to_j3_deg(Z_MAX), 1),
-                   'max_deg': round(d3_to_j3_deg(Z_MIN), 1),
+            'j3': {'min_deg': J3_DEG_MIN,
+                   'max_deg': J3_DEG_MAX,
                    'z_min_mm': Z_MIN, 'z_max_mm': Z_MAX,
                    'unit': 'deg (motor) / mm (linear)', 'type': 'prismatic'},
             'j4': {'min': J4_MIN, 'max': J4_MAX, 'unit': 'deg', 'type': 'revolute'},

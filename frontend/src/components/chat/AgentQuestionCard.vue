@@ -4,6 +4,7 @@ import { computed } from 'vue'
 const props = defineProps<{
   question: string
   options?: string
+  answer?: string
 }>()
 
 const emit = defineEmits<{
@@ -20,16 +21,18 @@ const parsedOptions = computed<string[]>(() => {
   }
   return []
 })
+
+const isAnswered = computed(() => !!props.answer)
 </script>
 
 <template>
-  <div class="question-card">
+  <div class="question-card" :class="{ 'question-card--answered': isAnswered }">
     <div class="question-card__header">
-      <span>❓</span>
-      <span>Agent 需要你确认</span>
+      <span>{{ isAnswered ? '✅' : '❓' }}</span>
+      <span>{{ isAnswered ? 'Agent 提问（已回答）' : 'Agent 需要你确认' }}</span>
     </div>
     <p class="question-card__text">{{ question }}</p>
-    <div v-if="parsedOptions.length > 0" class="question-card__options">
+    <div v-if="!isAnswered && parsedOptions.length > 0" class="question-card__options">
       <button
         v-for="(opt, i) in parsedOptions"
         :key="i"
@@ -37,7 +40,11 @@ const parsedOptions = computed<string[]>(() => {
         @click="emit('select', opt)"
       >{{ opt }}</button>
     </div>
-    <p v-if="parsedOptions.length > 0" class="question-card__hint">或直接在下方输入框回答</p>
+    <p v-if="!isAnswered && parsedOptions.length > 0" class="question-card__hint">或直接在下方输入框回答</p>
+    <div v-if="isAnswered" class="question-card__answer">
+      <span class="question-card__answer-label">你的回答：</span>
+      <span class="question-card__answer-text">{{ answer }}</span>
+    </div>
   </div>
 </template>
 
@@ -49,6 +56,12 @@ const parsedOptions = computed<string[]>(() => {
   border: 1px solid #fde68a;
   border-radius: var(--radius-md);
   color: #92400e;
+}
+
+.question-card--answered {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #065f46;
 }
 
 .question-card__header {
@@ -65,6 +78,11 @@ const parsedOptions = computed<string[]>(() => {
   font-size: 14px;
   line-height: 1.6;
   white-space: pre-wrap;
+}
+
+.question-card--answered .question-card__text {
+  margin-bottom: var(--space-sm);
+  opacity: 0.85;
 }
 
 .question-card__options {
@@ -94,5 +112,22 @@ const parsedOptions = computed<string[]>(() => {
   margin: 0;
   font-size: 12px;
   opacity: 0.7;
+}
+
+.question-card__answer {
+  margin-top: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  background: rgba(16, 185, 129, 0.1);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+
+.question-card__answer-label {
+  font-weight: 600;
+  margin-right: var(--space-xs);
+}
+
+.question-card__answer-text {
+  word-break: break-word;
 }
 </style>

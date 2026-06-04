@@ -4,6 +4,16 @@ export interface Message {
   thinking?: string
   thinking_duration?: number
   timestamp?: string
+  // Agent-specific (per-turn) data — attached when agent run completes
+  // so tool calls / questions / team progress remain visible after the
+  // AI's final reply (i.e. look like a normal conversation log).
+  toolCalls?: ToolCallInfo[]
+  questions?: AgentQuestionWithAnswer[]
+  teamAgents?: TeamAgentInfo[]
+}
+
+export interface AgentQuestionWithAnswer extends AgentQuestion {
+  answer?: string
 }
 
 export interface StreamChunk {

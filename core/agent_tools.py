@@ -93,27 +93,107 @@ def _ask_user_func(args: dict) -> str:
     return "__ASK_USER_PENDING__"
 
 
+def _resolve_pdf_path(pdf_path: str, cfg) -> str:
+    """
+    灵活解析 LLM 传来的 PDF 路径，处理以下情况：
+    - 绝对路径
+    - 'PDF_TARGET/foo.pdf' 形式（PDF_FOLDER 基名前缀，会导致双重拼接）
+    - 'dialogue data/PDF_TARGET/foo.pdf' 形式
+    - 仅文件名（在 PDF_FOLDER 下查找）
+    - literature_registry 兜底（用于 sanitize 重命名后的文件名）
+    """
+    if not pdf_path:
+        return pdf_path
+    import os as _os
+
+    if _os.path.isabs(pdf_path):
+        return pdf_path
+
+    # 去掉前导的 PDF_FOLDER 基名 + 分隔符，防止双重拼接
+    folder_basename = _os.path.basename(cfg.PDF_FOLDER.rstrip("/\\"))
+    for prefix in (folder_basename + "/", folder_basename + "\\"):
+        if pdf_path.startswith(prefix):
+            pdf_path = pdf_path[len(prefix):]
+            break
+
+    # 1) 尝试 PDF_FOLDER + 原路径
+    resolved = _os.path.join(cfg.PDF_FOLDER, pdf_path)
+    if _os.path.isfile(resolved):
+        return resolved
+
+    # 2) 兜底：literature_registry 用 current_filename 查
+    try:
+        import sqlite3 as _sqlite
+        if _os.path.isfile(cfg.LITERATURE_REGISTRY_DB_PATH):
+            with _sqlite.connect(cfg.LITERATURE_REGISTRY_DB_PATH) as conn:
+                row = conn.execute(
+                    "SELECT current_filename FROM literature_registry WHERE current_filename = ?",
+                    (_os.path.basename(pdf_path),),
+                ).fetchone()
+                if row:
+                    candidate = _os.path.join(cfg.PDF_FOLDER, row[0])
+                    if _os.path.isfile(candidate):
+                        return candidate
+    except Exception:
+        pass
+
+    return resolved
+
+
+def _list_available_pdfs(cfg) -> str:
+    """列出 PDF_FOLDER 中可用 PDF 文件名（用于错误信息）"""
+    import os as _os
+    try:
+        files = sorted(
+            f for f in _os.listdir(cfg.PDF_FOLDER) if f.lower().endswith(".pdf")
+        )
+    except Exception:
+        return "(无法列举)"
+    if not files:
+        return "(无文件)"
+    shown = files[:10]
+    suffix = f" ... (共 {len(files)} 个)" if len(files) > 10 else ""
+    return "\n  - ".join([""] + shown) + suffix
+
+
 def _search_literature_func(args: dict) -> str:
     """封装 SemanticSearch.search() 为工具函数"""
     from extract.semantic_search import SemanticSearch
     from extract.embedding_service import create_embedding_service
     from extract.vector_store import ChromaVectorStore
     from core.config import Config as _Config
+    import os as _os
+    import sqlite3 as _sqlite
     _cfg = _Config()
     emb = create_embedding_service()
     vs = ChromaVectorStore(persist_dir=_cfg.CHROMADB_PERSIST_DIR)
-    import os as _os
     sqlite_path = _os.path.join(_cfg.CHROMADB_PERSIST_DIR, "page_metadata.db")
     ss = SemanticSearch(emb, vs, sqlite_path)
     query = args.get("query", "")
-    top_k = args.get("top_k", 10)
+    top_k = int(args.get("top_k", 10) or 10)
     results = ss.search(query, top_k=top_k)
     if not results:
         return "未找到相关文献"
+
+    # 从 literature_registry 按 current_filename 反查真实标题
+    title_map: dict = {}
+    try:
+        if _os.path.isfile(_cfg.LITERATURE_REGISTRY_DB_PATH):
+            with _sqlite.connect(_cfg.LITERATURE_REGISTRY_DB_PATH) as conn:
+                for row in conn.execute(
+                    "SELECT current_filename, title FROM literature_registry"
+                ).fetchall():
+                    if row[0] and row[1]:
+                        title_map[row[0]] = row[1]
+    except Exception:
+        pass
+
     lines = []
     for i, r in enumerate(results[:top_k], 1):
-        title = r.get("title", "未知")
-        score = r.get("score", 0)
+        # SemanticSearch 返回 pdf_name/similarity,不是 title/score
+        pdf_name = r.get("pdf_name", "")
+        title = title_map.get(pdf_name, "") or pdf_name or "未知"
+        score = r.get("similarity", 0) or 0
         lines.append(f"{i}. {title} (相关度: {score:.2f})")
     return "\n".join(lines)
 
@@ -159,12 +239,14 @@ def _extract_from_pdf_func(args: dict) -> str:
     fields = args.get("fields", None)
     pages = args.get("pages", None)
 
-    # Resolve path
-    if not _os.path.isabs(pdf_path):
-        pdf_path = _os.path.join(_cfg.PDF_FOLDER, pdf_path)
+    pdf_path = _resolve_pdf_path(pdf_path, _cfg)
 
     if not _os.path.isfile(pdf_path):
-        return _json.dumps({"error": f"PDF 文件不存在: {pdf_path}"}, ensure_ascii=False)
+        available = _list_available_pdfs(_cfg)
+        return _json.dumps(
+            {"error": f"PDF 文件不存在: {pdf_path}\n可用的文件:{available}"},
+            ensure_ascii=False,
+        )
 
     processor = PDFProcessor()
 
@@ -283,18 +365,24 @@ def _preview_pdf_page_func(args: dict) -> str:
     pdf_path = args.get("pdf_path", "")
     page_num = args.get("page_num", 1)
 
-    # Resolve path relative to PDF_FOLDER if needed
-    if not _os.path.isabs(pdf_path):
-        pdf_path = _os.path.join(_cfg.PDF_FOLDER, pdf_path)
+    pdf_path = _resolve_pdf_path(pdf_path, _cfg)
+
+    if not _os.path.isfile(pdf_path):
+        available = _list_available_pdfs(_cfg)
+        return f"PDF 文件不存在: {pdf_path}\n可用的文件:{available}"
 
     processor = PDFProcessor()
     try:
         info = processor.get_pdf_info(pdf_path)
-        total = info.get("num_pages", info.get("total_pages", 0))
+        if not info:
+            return f"无法读取 PDF: {pdf_path}"
+        total = info.get("num_pages", info.get("total_pages", 0)) or 0
         if page_num < 1 or page_num > total:
             return f"错误: 页码 {page_num} 超出范围 (1-{total})"
 
         image_b64 = processor.pdf_page_to_image(pdf_path, page_num)
+        if not image_b64:
+            return f"无法生成第 {page_num} 页的预览图: {pdf_path}"
         return f"PDF: {_os.path.basename(pdf_path)}, 第{page_num}/{total}页, 图片已加载 ({len(image_b64)} chars base64)"
     except Exception as e:
         return f"预览失败: {str(e)}"

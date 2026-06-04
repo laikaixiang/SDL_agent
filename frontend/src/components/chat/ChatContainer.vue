@@ -9,11 +9,11 @@ import { useLayoutStore } from '@/stores/layout'
 import { uploadPDF, sendAgentMessage, respondToAgent } from '@/api/chat'
 import MessageBubble from './MessageBubble.vue'
 import InputBar from './InputBar.vue'
-import AgentToolCard from './AgentToolCard.vue'
-import AgentQuestionCard from './AgentQuestionCard.vue'
-import ThinkingBubble from './ThinkingBubble.vue'
-import type { ToolCallInfo, AgentQuestion } from '@/types/chat'
-import { Plus, X } from 'lucide-vue-next'
+import type {
+  ToolCallInfo,
+  TeamAgentInfo,
+  AgentQuestionWithAnswer,
+} from '@/types/chat'
 
 const { t } = useI18n()
 const store = useChatStore()
@@ -28,19 +28,16 @@ const newFieldName = ref('')
 const editingFieldIndex = ref<number | null>(null)
 const editFieldValue = ref('')
 
-// Agent state
+// Agent session
 const sessionId = ref('')
-const agentActiveToolCalls = shallowRef<Map<number, ToolCallInfo>>(new Map())
-const agentQuestion = ref<AgentQuestion | null>(null)
-const agentThinking = ref('')
-const agentThinkingDuration = ref(0)
-const isAgentResponding = ref(false)
-const agentTeamMode = ref<'parallel' | 'pipeline' | 'single'>('single')
-const agentTeamAgents = ref<TeamAgentInfo[]>([])
-const agentTeamCollapsed = ref(false)
 
-import type { TeamAgentInfo } from '@/types/chat'
-import AgentTeamCard from '@/components/chat/AgentTeamCard.vue'
+// Per-turn agent state — these are the LIVE working buffers for the
+// current agent run. When the run finishes (onDone) we commit them
+// onto the AI's Message so they remain visible afterwards (like a
+// normal conversation).
+const liveToolCalls = shallowRef<Map<number, ToolCallInfo>>(new Map())
+const liveQuestions = ref<AgentQuestionWithAnswer[]>([])
+const liveTeamAgents = ref<TeamAgentInfo[]>([])
 
 function startEditField(index: number, current: string) {
   editingFieldIndex.value = index
@@ -102,46 +99,55 @@ async function onCancelExtraction() {
   await store.cancelExtractionTask()
 }
 
-function buildAgentCallbacks() {
+function buildAgentCallbacks(aiMsg: import('@/types/chat').Message) {
   let currentToolArgs: Record<string, unknown> = {}
   let thinkingStart = 0
 
   const cbs: import('@/types/chat').AgentCallbacks = {
     onThinkingChunk(t: string) {
       if (!thinkingStart) thinkingStart = Date.now()
-      agentThinking.value = t
+      aiMsg.thinking = t
     },
     onThinkingComplete(t: string) {
-      agentThinking.value = t
-      agentThinkingDuration.value = thinkingStart ? Math.round((Date.now() - thinkingStart) / 1000) : 0
+      aiMsg.thinking = t
+      aiMsg.thinking_duration = thinkingStart ? Math.round((Date.now() - thinkingStart) / 1000) : 0
     },
-    onToolCallStart(i: number, n: string) {
-      const calls = new Map(agentActiveToolCalls.value)
-      calls.set(i, { index: i, name: n, callId: '', arguments: {}, status: 'running' })
-      agentActiveToolCalls.value = calls
+    onToolCallStart(i: number, n: string, cid: string) {
+      const calls = new Map(liveToolCalls.value)
+      calls.set(i, { index: i, name: n, callId: cid, arguments: {}, status: 'running' })
+      liveToolCalls.value = calls
       currentToolArgs = {}
     },
     onToolCallArgs(i: number, d: string) {
       try {
         const parsed = JSON.parse(d)
         currentToolArgs = { ...currentToolArgs, ...parsed }
-        const calls = new Map(agentActiveToolCalls.value)
+        const calls = new Map(liveToolCalls.value)
         const existing = calls.get(i)
         if (existing) {
           calls.set(i, { ...existing, arguments: { ...currentToolArgs } })
-          agentActiveToolCalls.value = calls
+          liveToolCalls.value = calls
         }
       } catch { /* partial JSON, skip */ }
     },
     onToolCallEnd(i: number, n: string, a: Record<string, unknown>) {
-      const calls = new Map(agentActiveToolCalls.value)
-      calls.set(i, { index: i, name: n, callId: '', arguments: a, status: 'running' })
-      agentActiveToolCalls.value = calls
+      const calls = new Map(liveToolCalls.value)
+      const existing = calls.get(i)
+      const callId = existing?.callId ?? ''
+      calls.set(i, { index: i, name: n, callId, arguments: a, status: 'running' })
+      liveToolCalls.value = calls
     },
     onToolResult(i: number, n: string, r: string, s: string) {
-      const calls = new Map(agentActiveToolCalls.value)
-      calls.set(i, { index: i, name: n, callId: '', arguments: calls.get(i)?.arguments ?? {}, result: r, status: s as 'done' | 'error' })
-      agentActiveToolCalls.value = calls
+      const calls = new Map(liveToolCalls.value)
+      calls.set(i, {
+        index: i,
+        name: n,
+        callId: calls.get(i)?.callId ?? '',
+        arguments: calls.get(i)?.arguments ?? {},
+        result: r,
+        status: s === 'error' ? 'error' : 'done',
+      })
+      liveToolCalls.value = calls
       // If design_experiment tool returned JSON, load it into experiment store
       if (n === 'design_experiment' && s === 'success') {
         try {
@@ -154,66 +160,66 @@ function buildAgentCallbacks() {
       }
     },
     onAgentQuestion(q: string, o?: string) {
-      agentQuestion.value = { question: q, options: o }
+      liveQuestions.value = [...liveQuestions.value, { question: q, options: o }]
     },
-    onTeamSpawn(mode: string, agents: TeamAgentInfo[]) {
-      agentTeamMode.value = mode as 'parallel' | 'pipeline' | 'single'
-      agentTeamAgents.value = agents
-      agentTeamCollapsed.value = false
+    onTeamSpawn(_mode: string, agents: TeamAgentInfo[]) {
+      liveTeamAgents.value = agents.map(a => ({ ...a, status: 'spawning' as const }))
     },
     onTeamProgress(agentId: string, status: string, summary?: string) {
-      const idx = agentTeamAgents.value.findIndex(a => a.id === agentId)
+      const idx = liveTeamAgents.value.findIndex(a => a.id === agentId)
       if (idx !== -1) {
-        const updated = [...agentTeamAgents.value]
-        updated[idx] = { ...updated[idx], status: status as TeamAgentInfo['status'], ...(summary ? { summary } : {}) }
-        agentTeamAgents.value = updated
+        const updated = [...liveTeamAgents.value]
+        updated[idx] = {
+          ...updated[idx],
+          status: status as TeamAgentInfo['status'],
+          ...(summary ? { summary } : {}),
+        }
+        liveTeamAgents.value = updated
       }
     },
     onTeamDone(_mode: string, _results: unknown[]) {
-      agentTeamAgents.value = agentTeamAgents.value.map(a => ({
+      liveTeamAgents.value = liveTeamAgents.value.map(a => ({
         ...a,
-        status: a.status === 'running' ? 'done' : a.status,
+        status: a.status === 'running' || a.status === 'spawning' ? 'done' : a.status,
       }))
     },
     onError(m: string) {
       store.addMessage('ai', m)
     },
     onDone() {
-      isAgentResponding.value = false
+      // Commit per-turn buffers to the AI message so they remain
+      // visible after this turn ends. Live buffers reset for next turn.
+      aiMsg.toolCalls = Array.from(liveToolCalls.value.values())
+      aiMsg.questions = liveQuestions.value.slice()
+      aiMsg.teamAgents = liveTeamAgents.value.slice()
+      liveToolCalls.value = new Map()
+      liveQuestions.value = []
+      liveTeamAgents.value = []
     },
   }
   return cbs
 }
 
 async function sendToAgent(message: string) {
-  isAgentResponding.value = true
-  agentActiveToolCalls.value = new Map()
-  agentTeamAgents.value = []
-  agentQuestion.value = null
-  agentThinking.value = ''
-  agentThinkingDuration.value = 0
+  // Reset per-turn buffers
+  liveToolCalls.value = new Map()
+  liveQuestions.value = []
+  liveTeamAgents.value = []
 
   // Add user message first, then AI placeholder for incremental updates
   store.addMessage('user', message)
   store.addMessage('ai', '')
+  const aiMsg = store.messages[store.messages.length - 1]
   let agentFullText = ''
 
-  const callbacks = buildAgentCallbacks()
+  const callbacks = buildAgentCallbacks(aiMsg)
   callbacks.onTextChunk = (t: string) => {
     agentFullText = t
-    const msgs = store.messages
-    const last = msgs[msgs.length - 1]
-    if (last && last.role === 'ai') {
-      last.content = t
-    }
+    aiMsg.content = t
   }
   callbacks.onTextComplete = (t: string) => {
     agentFullText = t
-    const msgs = store.messages
-    const last = msgs[msgs.length - 1]
-    if (last && last.role === 'ai') {
-      last.content = t
-    }
+    aiMsg.content = t
   }
 
   const history = store.messages.slice(0, -1).map(m => ({ role: m.role, content: m.content }))
@@ -221,22 +227,31 @@ async function sendToAgent(message: string) {
 }
 
 async function handleAgentQuestionAnswer(answer: string) {
-  agentQuestion.value = null
-  isAgentResponding.value = true
+  // Record the answer on the currently-pending question so it remains
+  // visible in the chat log with its answer.
+  if (liveQuestions.value.length > 0) {
+    const last = liveQuestions.value[liveQuestions.value.length - 1]
+    if (!last.answer) {
+      liveQuestions.value = [
+        ...liveQuestions.value.slice(0, -1),
+        { ...last, answer },
+      ]
+    }
+  }
 
   store.addMessage('user', answer)
 
   try {
     const result = await respondToAgent(sessionId.value, answer)
-    if (result.type === 'agent_continue') {
-      // The agent will send more events, continue listening
-    } else if (result.type === 'text' || result.type === 'reply') {
+    if (result.type === 'text' || result.type === 'reply') {
+      // After user answers, append a final AI summary message so the
+      // Q&A pair is followed by the agent's continued response.
       store.addMessage('ai', result.reply)
     }
+    // 'agent_continue' type means the agent will stream more events;
+    // those will arrive via the next sendToAgent call.
   } catch (err) {
     store.addMessage('ai', (err as Error).message)
-  } finally {
-    isAgentResponding.value = false
   }
 }
 </script>
@@ -244,11 +259,6 @@ async function handleAgentQuestionAnswer(answer: string) {
 <template>
   <div class="chat-container">
     <div class="chat-messages" ref="chatEl">
-      <!-- Agent thinking bubble — rendered FIRST, above messages -->
-      <template v-if="agentThinking">
-        <ThinkingBubble :text="agentThinking" :duration="agentThinkingDuration" />
-      </template>
-
       <MessageBubble
         v-for="(msg, i) in messages"
         :key="i"
@@ -257,38 +267,42 @@ async function handleAgentQuestionAnswer(answer: string) {
         :thinking="msg.thinking"
         :thinking-duration="msg.thinking_duration"
         :timestamp="msg.timestamp"
+        :tool-calls="msg.toolCalls"
+        :questions="msg.questions"
+        :team-agents="msg.teamAgents"
+        @question-select="handleAgentQuestionAnswer"
       />
 
-      <!-- Agent tool calls -->
-      <template v-if="agentActiveToolCalls.size > 0">
-        <AgentToolCard
-          v-for="[idx, tc] in agentActiveToolCalls"
-          :key="idx"
-          :index="tc.index"
-          :name="tc.name"
-          :args="tc.arguments"
-          :result="tc.result"
-          :status="tc.status"
-        />
-      </template>
-
-      <!-- Agent team card -->
-      <template v-if="agentTeamAgents.length > 0">
-        <AgentTeamCard
-          :mode="agentTeamMode"
-          :agents="agentTeamAgents"
-          :collapsed="agentTeamCollapsed"
-          @toggle="agentTeamCollapsed = !agentTeamCollapsed"
-        />
-      </template>
-
-      <!-- Agent question -->
-      <template v-if="agentQuestion">
-        <AgentQuestionCard
-          :question="agentQuestion.question"
-          :options="agentQuestion.options"
-          @select="handleAgentQuestionAnswer"
-        />
+      <!-- Live (in-progress) agent attachments for the current turn.
+           They live alongside the messages list and are merged into the
+           AI's Message on completion (onDone callback). -->
+      <template v-if="liveToolCalls.size > 0 || liveQuestions.length > 0 || liveTeamAgents.length > 0">
+        <div v-if="liveToolCalls.size > 0" class="live-attachments">
+          <MessageBubble
+            v-for="[idx, tc] in liveToolCalls"
+            :key="`live-tc-${idx}`"
+            role="ai"
+            content=""
+            :tool-calls="[tc]"
+          />
+        </div>
+        <div v-if="liveQuestions.length > 0" class="live-attachments">
+          <MessageBubble
+            v-for="(q, qi) in liveQuestions"
+            :key="`live-q-${qi}`"
+            role="ai"
+            content=""
+            :questions="[q]"
+            @question-select="handleAgentQuestionAnswer"
+          />
+        </div>
+        <div v-if="liveTeamAgents.length > 0" class="live-attachments">
+          <MessageBubble
+            role="ai"
+            content=""
+            :team-agents="liveTeamAgents"
+          />
+        </div>
       </template>
 
       <!-- Algorithm guide card -->
@@ -345,10 +359,10 @@ async function handleAgentQuestionAnswer(answer: string) {
     <div class="chat-input-area">
       <InputBar
         v-model="inputText"
-        :disabled="isStreaming || isAgentResponding"
-        :placeholder="agentQuestion ? '回答 Agent 的问题...' : (isStreaming ? $t('chat.thinking') : $t('chat.inputPlaceholder'))"
-        :agent-question="agentQuestion"
-        @send="agentQuestion ? handleAgentQuestionAnswer($event) : onSend($event)"
+        :disabled="isStreaming"
+        :placeholder="(liveQuestions.length > 0) ? '回答 Agent 的问题...' : (isStreaming ? $t('chat.thinking') : $t('chat.inputPlaceholder'))"
+        :agent-question="liveQuestions.length > 0 ? liveQuestions[liveQuestions.length - 1] : null"
+        @send="(liveQuestions.length > 0) ? handleAgentQuestionAnswer($event) : onSend($event)"
         @file-selected="onFileSelected"
         @cancel-extraction="onCancelExtraction"
       />
@@ -376,6 +390,10 @@ async function handleAgentQuestionAnswer(answer: string) {
   flex-shrink: 0;
   width: 50%;
   min-width: 400px;
+}
+
+.live-attachments {
+  width: 100%;
 }
 
 /* Inline field confirm card */

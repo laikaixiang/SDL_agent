@@ -95,12 +95,22 @@ def _ask_user_func(args: dict) -> str:
 
 def _resolve_pdf_path(pdf_path: str, cfg) -> str:
     """
-    灵活解析 LLM 传来的 PDF 路径，处理以下情况：
+    灵活解析 LLM 传来的 PDF 路径/标题, 处理以下情况:
     - 绝对路径
-    - 'PDF_TARGET/foo.pdf' 形式（PDF_FOLDER 基名前缀，会导致双重拼接）
+    - 'PDF_TARGET/foo.pdf' 形式 (PDF_FOLDER 基名前缀, 会导致双重拼接)
     - 'dialogue data/PDF_TARGET/foo.pdf' 形式
-    - 仅文件名（在 PDF_FOLDER 下查找）
-    - literature_registry 兜底（用于 sanitize 重命名后的文件名）
+    - 仅文件名 (在 PDF_FOLDER 下查找)
+    - DOI 形式 (10.1002-aenm.201601307)
+    - 论文标题 (被设计为统一识别标识 — 每个 paper 有唯一 title)
+
+    解析链路 (按优先级):
+    1. 绝对路径 / 去掉前缀后拼接 PDF_FOLDER
+    2. literature_registry 按 current_filename 精确匹配
+    3. literature_registry 按 DOI 模糊匹配
+    4. literature_registry 按标题精确匹配
+    5. literature_registry 按标题关键词模糊匹配 (title LIKE %kw%)
+    6. vector_store 语义搜索 — 用 embedding 找最相似的论文
+    7. 返回解析后路径 (让上层报"文件不存在", 错误信息列出可用文件)
     """
     if not pdf_path:
         return pdf_path
@@ -109,7 +119,7 @@ def _resolve_pdf_path(pdf_path: str, cfg) -> str:
     if _os.path.isabs(pdf_path):
         return pdf_path
 
-    # 去掉前导的 PDF_FOLDER 基名 + 分隔符，防止双重拼接
+    # 去掉前导的 PDF_FOLDER 基名 + 分隔符, 防止双重拼接
     folder_basename = _os.path.basename(cfg.PDF_FOLDER.rstrip("/\\"))
     for prefix in (folder_basename + "/", folder_basename + "\\"):
         if pdf_path.startswith(prefix):
@@ -121,11 +131,12 @@ def _resolve_pdf_path(pdf_path: str, cfg) -> str:
     if _os.path.isfile(resolved):
         return resolved
 
-    # 2) 兜底：literature_registry 用 current_filename 查
+    # 2-5) literature_registry 兜底 (current_filename / DOI / 标题精确 / 关键词)
     try:
         import sqlite3 as _sqlite
         if _os.path.isfile(cfg.LITERATURE_REGISTRY_DB_PATH):
             with _sqlite.connect(cfg.LITERATURE_REGISTRY_DB_PATH) as conn:
+                # 2a) 精确匹配 current_filename
                 row = conn.execute(
                     "SELECT current_filename FROM literature_registry WHERE current_filename = ?",
                     (_os.path.basename(pdf_path),),
@@ -134,10 +145,91 @@ def _resolve_pdf_path(pdf_path: str, cfg) -> str:
                     candidate = _os.path.join(cfg.PDF_FOLDER, row[0])
                     if _os.path.isfile(candidate):
                         return candidate
+
+                # 2b) 精确匹配 title (大小写不敏感, 去除多余空格)
+                normalized = " ".join(pdf_path.split()).lower()
+                row = conn.execute(
+                    "SELECT current_filename, title FROM literature_registry",
+                ).fetchall()
+                for r in row:
+                    title_norm = " ".join((r[1] or "").split()).lower()
+                    if title_norm == normalized or title_norm.startswith(normalized) or normalized.startswith(title_norm):
+                        candidate = _os.path.join(cfg.PDF_FOLDER, r[0])
+                        if _os.path.isfile(candidate):
+                            return candidate
+
+                # 2c) DOI/期刊前缀匹配
+                base = _os.path.basename(pdf_path).rsplit(".", 1)[0]
+                if base and ("10." in base or "-" in base):
+                    doi_like = base.replace("-", "/").replace("_", "/")
+                    row = conn.execute(
+                        "SELECT current_filename, title FROM literature_registry "
+                        "WHERE doi LIKE ? OR current_filename LIKE ? LIMIT 5",
+                        (f"%{doi_like}%", f"%{base}%"),
+                    ).fetchall()
+                    if row:
+                        candidate = _os.path.join(cfg.PDF_FOLDER, row[0][0])
+                        if _os.path.isfile(candidate):
+                            return candidate
+
+                # 2d) 标题关键词匹配: 从输入中提取关键词, 搜标题包含这些词的
+                keywords = _extract_keywords(base)
+                if keywords:
+                    for kw in keywords:
+                        if len(kw) < 3:
+                            continue
+                        row = conn.execute(
+                            "SELECT current_filename, title FROM literature_registry "
+                            "WHERE title LIKE ? LIMIT 5",
+                            (f"%{kw}%",),
+                        ).fetchall()
+                        if row:
+                            candidate = _os.path.join(cfg.PDF_FOLDER, row[0][0])
+                            if _os.path.isfile(candidate):
+                                return candidate
+    except Exception:
+        pass
+
+    # 3) vector_store 语义搜索 (最后兜底 — 用 embedding 找最相似的论文)
+    try:
+        from extract.semantic_search import SemanticSearch
+        from extract.embedding_service import create_embedding_service
+        from extract.vector_store import ChromaVectorStore
+
+        emb = create_embedding_service()
+        vs = ChromaVectorStore(persist_dir=cfg.CHROMADB_PERSIST_DIR)
+        sqlite_path = _os.path.join(cfg.CHROMADB_PERSIST_DIR, "page_metadata.db")
+        ss = SemanticSearch(emb, vs, sqlite_path)
+        results = ss.search(pdf_path, top_k=1)
+        if results:
+            pdf_name = results[0].get("pdf_name", "")
+            if pdf_name:
+                candidate = _os.path.join(cfg.PDF_FOLDER, pdf_name)
+                if _os.path.isfile(candidate):
+                    return candidate
     except Exception:
         pass
 
     return resolved
+
+
+def _extract_keywords(s: str) -> list[str]:
+    """
+    从文件名中提取可能的标题关键词（去除常见停用词）
+    '10.1002-aenm.201601307' → []  (DOI, no keywords)
+    'Cobalt_Passivation' → ['Cobalt', 'Passivation']
+    'Aryl_Diammonium' → ['Aryl', 'Diammonium']
+    """
+    import re
+    if not s:
+        return []
+    # 移除 DOI 形式 (10.xxxx/...)
+    if re.match(r"^\d+\.\d+", s):
+        return []
+    # 用 _ - . 空格分隔
+    words = re.split(r"[_\-\.\s]+", s)
+    # 过滤短词和纯数字
+    return [w for w in words if len(w) >= 4 and not w.isdigit()]
 
 
 def _list_available_pdfs(cfg) -> str:
@@ -194,7 +286,11 @@ def _search_literature_func(args: dict) -> str:
         pdf_name = r.get("pdf_name", "")
         title = title_map.get(pdf_name, "") or pdf_name or "未知"
         score = r.get("similarity", 0) or 0
-        lines.append(f"{i}. {title} (相关度: {score:.2f})")
+        # 论文标题是唯一标识, 文件名是磁盘上的实现细节
+        # 让 LLM 用标题调 extract_from_pdf (工具会自动从 registry 查文件名)
+        lines.append(f"{i}. {title}")
+        lines.append(f"   标题(用于 extract_from_pdf): {title}")
+        lines.append(f"   相关度: {score:.2f}")
     return "\n".join(lines)
 
 
@@ -453,14 +549,27 @@ BUILTIN_TOOLS: list[AgentTool] = [
     ),
     AgentTool(
         name="extract_from_pdf",
-        description="从指定PDF文件中提取结构化实验数据。给定PDF路径和提取任务描述，返回提取的CSV数据摘要。",
+        description=(
+            "从指定PDF中提取结构化实验数据。"
+            "pdf_path 可以是: PDF文件路径、文件名、或论文标题(推荐,标题是唯一标识符)。"
+            "工具会自动从 literature_registry 匹配标题→文件名,然后提取。"
+            "返回提取的CSV数据摘要。"
+        ),
         parameters={
             "type": "object",
             "properties": {
-                "pdf_path": {"type": "string", "description": "PDF文件的完整路径或相对于PDF_TARGET的路径"},
-                "task_description": {"type": "string", "description": "提取任务描述，如'提取钙钛矿钝化剂的名称和效率'"},
-                "fields": {"type": "array", "items": {"type": "string"}, "description": "可选，指定提取的字段列表"},
-                "pages": {"type": "array", "items": {"type": "integer"}, "description": "可选，指定提取的页码范围(从1开始)"},
+                "pdf_path": {
+                    "type": "string",
+                    "description": (
+                        "PDF标识 — 可以是:"
+                        "(a) 文件名如 'foo.pdf' 或路径如 'dialogue data/PDF_TARGET/foo.pdf';"
+                        "(b) DOI 形式如 '10.1002-aenm.201601307';"
+                        "(c) 论文标题(推荐) — 工具会在 literature_registry 中查找匹配"
+                    ),
+                },
+                "task_description": {"type": "string", "description": "提取任务描述,如'提取钙钛矿钝化剂的名称和效率'"},
+                "fields": {"type": "array", "items": {"type": "string"}, "description": "可选,指定提取的字段列表"},
+                "pages": {"type": "array", "items": {"type": "integer"}, "description": "可选,指定提取的页码范围(从1开始)"},
             },
             "required": ["pdf_path", "task_description"],
         },
@@ -470,12 +579,18 @@ BUILTIN_TOOLS: list[AgentTool] = [
     ),
     AgentTool(
         name="preview_pdf_page",
-        description="获取PDF指定页面的预览信息（页码、总页数）。用于在提取之前确认PDF内容和页面范围。",
+        description=(
+            "获取PDF指定页面的预览。pdf_path 接受文件名/DOI/论文标题(推荐),"
+            "工具会自动从 literature_registry 匹配标题→文件名。"
+        ),
         parameters={
             "type": "object",
             "properties": {
-                "pdf_path": {"type": "string", "description": "PDF文件路径"},
-                "page_num": {"type": "integer", "description": "页码，从1开始，默认1"},
+                "pdf_path": {
+                    "type": "string",
+                    "description": "PDF标识 — 文件名、DOI 或论文标题(推荐)",
+                },
+                "page_num": {"type": "integer", "description": "页码,从1开始,默认1"},
             },
             "required": ["pdf_path"],
         },

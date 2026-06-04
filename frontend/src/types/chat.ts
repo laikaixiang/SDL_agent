@@ -5,10 +5,15 @@ export interface Message {
   thinking_duration?: number
   timestamp?: string
   // Agent-specific (per-turn) data — attached when agent run completes
-  // so tool calls / questions / team progress remain visible after the
-  // AI's final reply (i.e. look like a normal conversation log).
+  // so tool calls / team progress remain visible after the AI's final
+  // reply (i.e. look like a normal conversation log).
   toolCalls?: ToolCallInfo[]
-  questions?: AgentQuestionWithAnswer[]
+  pendingQuestion?: AgentQuestion
+  // 系统消息: 项目总结 (ask_user 300s 超时时自动生成) / 压缩通知
+  systemNote?: {
+    kind: 'compaction' | 'timeout_summary' | 'info'
+    text: string
+  }
   teamAgents?: TeamAgentInfo[]
 }
 
@@ -62,6 +67,15 @@ export interface AgentEvent {
   results?: unknown[]
   agent_id?: string
   summary?: string
+  // tool progress (extract_from_pdf 每页推送)
+  current?: number
+  total?: number
+  // compaction (120s 触发)
+  compacted_count?: number
+  // timeout summary (300s 触发)
+  timeout_sec?: number
+  // keepalive timestamp
+  timestamp?: number
 }
 
 export interface TeamAgentInfo {
@@ -87,6 +101,16 @@ export interface AgentCallbacks {
   onTeamDone?: (mode: string, results: unknown[]) => void
   onError?: (m: string) => void
   onDone?: () => void
+  // 心跳 (每 5s 推送, 用于前端显示"agent 仍在工作")
+  onKeepalive?: (timestamp: number) => void
+  // 工具进度 (extract_from_pdf 每页推送)
+  onToolProgress?: (name: string, current: number, total: number, message?: string) => void
+  // 压缩 (120s)
+  onCompactionStart?: (message: string) => void
+  onCompactionComplete?: (compactedCount: number, message: string) => void
+  onCompactionError?: (error: string) => void
+  // 超时总结 (300s)
+  onTimeoutSummary?: (summary: string, timeoutSec: number) => void
 }
 
 export interface AgentResult {

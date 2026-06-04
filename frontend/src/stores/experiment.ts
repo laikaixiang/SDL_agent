@@ -9,6 +9,7 @@ import {
   executeExperiment,
   saveExperiment,
   importCSV,
+  logCompileError,
 } from '@/api/experiment'
 import { getHardwareTools } from '@/api/hardware'
 import { useSSE } from '@/composables/useSSE'
@@ -73,6 +74,7 @@ export const useExperimentStore = defineStore('experiment', () => {
   const editableJsonCode = ref('')
   const editablePythonCode = ref('')
   const compileStatus = ref<'idle' | 'compiling' | 'error'>('idle')
+  const compileErrorMsg = ref('')  // 最近一次编译失败的具体错误信息(用于变量高亮)
   const editingStepIndex = ref<number | null>(null)
   const draggedStepIndex = ref<number | null>(null)
   const codeAreaMinimized = ref(false)
@@ -129,9 +131,19 @@ export const useExperimentStore = defineStore('experiment', () => {
         const data = await compileExperiment(plan.value)
         pythonCode.value = data.code || ''
         compileStatus.value = 'idle'
-      } catch {
-        pythonCode.value = i18n.global.t('experiment.pythonCompileError')
+        compileErrorMsg.value = ''
+      } catch (err) {
+        // 提取后端返回的具体错误信息(可能是 ApiError.text, 包含 JSON 里的 message 字段)
+        let errMsg = String((err as Error)?.message || err)
+        try {
+          const parsed = JSON.parse(errMsg)
+          if (parsed.message) errMsg = parsed.message
+        } catch { /* not JSON, use as-is */ }
+        pythonCode.value = i18n.global.t('experiment.pythonCompileError') + '\n' + errMsg
         compileStatus.value = 'error'
+        compileErrorMsg.value = errMsg
+        // 保存到 dialogue data/history/<session>/compile_errors.log
+        logCompileError(errMsg, plan.value).catch(() => { /* best effort */ })
       }
     }, 600)
   })
@@ -593,6 +605,38 @@ export const useExperimentStore = defineStore('experiment', () => {
     return name in variables.value
   }
 
+  /**
+   * 扫描所有 step params 中的变量引用, 返回按 stepIndex 索引的未声明变量映射
+   * 用于 StepEditor 标红输入框
+   *
+   * 返回结构: { [stepIndex]: { [paramKey]: variableName } }
+   * 变量识别规则: 字符串值不是纯数字 / 不含运算符, 且匹配合法变量名
+   */
+  const undeclaredVarRefs = computed<Record<number, Record<string, string>>>(() => {
+    const out: Record<number, Record<string, string>> = {}
+    for (let i = 0; i < steps.value.length; i++) {
+      const step = steps.value[i]
+      const params = step.params || {}
+      for (const [k, v] of Object.entries(params)) {
+        if (typeof v !== 'string') continue
+        const trimmed = v.trim()
+        if (!trimmed) continue
+        // 纯数字 → 字面量, 跳过
+        if (!isNaN(Number(trimmed)) && String(Number(trimmed)) === trimmed) continue
+        // 含运算符 → 表达式, 跳过(交由后端)
+        if (/[+\-*/()><=!%&|^]/.test(trimmed)) continue
+        // 合法变量名
+        if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(trimmed)) continue
+        // 未声明
+        if (!isVariableDeclared(trimmed)) {
+          if (!out[i]) out[i] = {}
+          out[i][k] = trimmed
+        }
+      }
+    }
+    return out
+  })
+
   async function importCSVFile(file: File) {
     try {
       const text = await file.text()
@@ -692,7 +736,7 @@ export const useExperimentStore = defineStore('experiment', () => {
 
   return {
     experimentName, steps, codeViewMode, pythonCode, editableJsonCode, editablePythonCode,
-    compileStatus, editingStepIndex,
+    compileStatus, compileErrorMsg, undeclaredVarRefs, editingStepIndex,
     draggedStepIndex, codeAreaMinimized, codeAreaFullscreen,
     variables, batchData, batchMode, selectedVariable,
     hardwareTools, algorithms, loading, running, error, logMessages, thinking, thinkingDuration,

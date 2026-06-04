@@ -14,6 +14,8 @@ Agent 循环引擎 (core/agent_loop.py)
 import json
 import os
 import queue
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
 from dataclasses import dataclass
 
@@ -117,166 +119,392 @@ class AgentLoop:
 
         def _run_loop() -> dict:
             """线程安全的主体循环封装"""
-            for turn in range(self.max_turns):
-                # ---- 1. 流式调用 LLM ----
-                try:
-                    raw_lines = self.llm.stream_raw(
-                        model=self.model,
-                        messages=messages,
-                        tools=self.executor.build_openai_tools(),
-                        extra_body=self.extra_body,
-                    )
-                except Exception as e:
-                    return {
-                        "final_message": None,
-                        "tool_turns": tool_turns,
-                        "error": f"LLM 流式调用失败: {str(e)}",
-                    }
-
-                # ---- 2. StreamAdapter 处理流式输出 ----
-                adapter = StreamAdapter()
-                accumulated_text = ""
-
-                for event in adapter.adapt(raw_lines):
-                    # 捕获正文内容，用于构建 final_message
-                    if event.get("type") in ("text_delta", "text_end"):
-                        accumulated_text = event.get("text", accumulated_text)
-
-                    # 转发事件到回调
+            # 启动心跳线程: 每 5s 推送一个 keepalive 事件,
+            # 让前端知道 agent/子 agent 仍在工作(避免长时间无响应时的"卡死"误判)
+            stop_heartbeat = threading.Event()
+            def _heartbeat_worker():
+                while not stop_heartbeat.is_set():
+                    if stop_heartbeat.wait(5.0):
+                        return
                     if event_callback:
                         try:
-                            event_callback(event)
+                            event_callback({
+                                "type": "keepalive",
+                                "timestamp": time.time(),
+                            })
                         except Exception:
-                            pass  # 回调异常不中断主循环
-
-                # ---- 3. 检查是否有 tool_calls ----
-                pending = adapter.get_pending_tool_calls()
-                active_slots = [s for s in pending if s.get("started")]
-
-                if not active_slots:
-                    # 纯文本响应 — 循环结束
-                    content = accumulated_text if accumulated_text else None
-                    final_message = {"role": "assistant", "content": content}
-                    return {
-                        "final_message": final_message,
-                        "tool_turns": tool_turns,
-                        "error": None,
-                    }
-
-                # ---- 4. 构建 parsed_tool_calls（TOOL_CALL_END 已由 StreamAdapter._flush 在迭代中发送）----
-                parsed_tool_calls: list[dict] = []
-                for slot in active_slots:
+                            pass
+            heartbeat_thread = threading.Thread(target=_heartbeat_worker, daemon=True)
+            heartbeat_thread.start()
+            try:
+                for turn in range(self.max_turns):
+                    # ---- 1. 流式调用 LLM ----
                     try:
-                        arguments = json.loads(slot["args_buf"])
-                    except (json.JSONDecodeError, TypeError):
-                        arguments = {"_raw": slot["args_buf"]}
+                        raw_lines = self.llm.stream_raw(
+                            model=self.model,
+                            messages=messages,
+                            tools=self.executor.build_openai_tools(),
+                            extra_body=self.extra_body,
+                        )
+                    except Exception as e:
+                        return {
+                            "final_message": None,
+                            "tool_turns": tool_turns,
+                            "error": f"LLM 流式调用失败: {str(e)}",
+                        }
 
-                    parsed_tool_calls.append({
-                        "id": slot["id"],
-                        "name": slot["name"],
-                        "index": slot["index"],
-                        "arguments": arguments,
-                    })
+                    # ---- 2. StreamAdapter 处理流式输出 ----
+                    adapter = StreamAdapter()
+                    accumulated_text = ""
 
-                # ---- 5. 构建 assistant 消息（含 tool_calls 数组） ----
-                tool_calls_payload = []
-                for tc in parsed_tool_calls:
-                    tool_calls_payload.append({
-                        "id": tc["id"],
-                        "type": "function",
-                        "function": {
-                            "name": tc["name"],
-                            "arguments": json.dumps(tc["arguments"], ensure_ascii=False),
-                        },
-                    })
+                    for event in adapter.adapt(raw_lines):
+                        # 捕获正文内容，用于构建 final_message
+                        if event.get("type") in ("text_delta", "text_end"):
+                            accumulated_text = event.get("text", accumulated_text)
 
-                assistant_msg = {
-                    "role": "assistant",
-                    "content": accumulated_text if accumulated_text else None,
-                    "tool_calls": tool_calls_payload,
-                }
-                messages.append(assistant_msg)
+                        # 转发事件到回调
+                        if event_callback:
+                            try:
+                                event_callback(event)
+                            except Exception:
+                                pass  # 回调异常不中断主循环
 
-                # ---- 6. 逐个执行工具 ----
-                for i, tc in enumerate(parsed_tool_calls):
-                    tool_name = tc["name"]
-                    arguments = tc["arguments"]
+                    # ---- 3. 检查是否有 tool_calls ----
+                    pending = adapter.get_pending_tool_calls()
+                    active_slots = [s for s in pending if s.get("started")]
 
-                    # ---- ask_user 特殊处理 ----
-                    if tool_name == "ask_user" and ask_user_queue is not None:
-                        question = arguments.get("question", "")
-                        options = arguments.get("options", "")
+                    if not active_slots:
+                        # 纯文本响应 — 循环结束
+                        content = accumulated_text if accumulated_text else None
+                        final_message = {"role": "assistant", "content": content}
+                        return {
+                            "final_message": final_message,
+                            "tool_turns": tool_turns,
+                            "error": None,
+                        }
 
-                        # 发送 agent_question 事件
+                    # ---- 4. 构建 parsed_tool_calls（TOOL_CALL_END 已由 StreamAdapter._flush 在迭代中发送）----
+                    parsed_tool_calls: list[dict] = []
+                    for slot in active_slots:
+                        try:
+                            arguments = json.loads(slot["args_buf"])
+                        except (json.JSONDecodeError, TypeError):
+                            arguments = {"_raw": slot["args_buf"]}
+
+                        parsed_tool_calls.append({
+                            "id": slot["id"],
+                            "name": slot["name"],
+                            "index": slot["index"],
+                            "arguments": arguments,
+                        })
+
+                    # ---- 5. 构建 assistant 消息（含 tool_calls 数组） ----
+                    tool_calls_payload = []
+                    for tc in parsed_tool_calls:
+                        tool_calls_payload.append({
+                            "id": tc["id"],
+                            "type": "function",
+                            "function": {
+                                "name": tc["name"],
+                                "arguments": json.dumps(tc["arguments"], ensure_ascii=False),
+                            },
+                        })
+
+                    assistant_msg = {
+                        "role": "assistant",
+                        "content": accumulated_text if accumulated_text else None,
+                        "tool_calls": tool_calls_payload,
+                    }
+                    messages.append(assistant_msg)
+
+                    # ---- 6. 逐个执行工具 ----
+                    for i, tc in enumerate(parsed_tool_calls):
+                        tool_name = tc["name"]
+                        arguments = tc["arguments"]
+
+                        # ---- ask_user 特殊处理 ----
+                        if tool_name == "ask_user" and ask_user_queue is not None:
+                            question = arguments.get("question", "")
+                            options = arguments.get("options", "")
+
+                            # 发送 agent_question 事件
+                            if event_callback:
+                                try:
+                                    event_callback({
+                                        "type": "agent_question",
+                                        "question": question,
+                                        "options": options,
+                                    })
+                                except Exception:
+                                    pass
+
+                            # 三阶段超时处理:
+                            # - 120s: 启动后台 LLM 调用压缩对话历史(compact)
+                            # - 300s: 如果用户仍未回答, 用 LLM 生成整个项目对话总结,
+                            #          把总结作为"用户"的回答推回 agent, 让 agent 据此继续
+                            # - 用户实际回答: 取消所有后台任务, 使用真实回答
+                            COMPACT_AT_SEC = 120
+                            TIMEOUT_AT_SEC = 300
+
+                            result = self._wait_for_user_with_timeouts(
+                                ask_user_queue=ask_user_queue,
+                                messages=messages,
+                                event_callback=event_callback,
+                                compact_at=COMPACT_AT_SEC,
+                                timeout_at=TIMEOUT_AT_SEC,
+                            )
+                            status = "success"
+                        else:
+                            # ---- 常规工具分发 ----
+                            result = self.executor.dispatch(tool_name, arguments)
+                            status = "error" if "错误" in result or "未找到" in result else "success"
+
+                        # ---- 发送 tool_result 事件 ----
                         if event_callback:
                             try:
                                 event_callback({
-                                    "type": "agent_question",
-                                    "question": question,
-                                    "options": options,
+                                    "type": "tool_result",
+                                    "index": i,
+                                    "name": tool_name,
+                                    "result": result,
+                                    "status": status,
                                 })
                             except Exception:
                                 pass
 
-                        # 阻塞等待用户回答（5 分钟超时）
-                        try:
-                            result = ask_user_queue.get(timeout=300)
-                        except queue.Empty:
-                            result = "用户未在超时时间内响应（5分钟）"
-                        status = "success"
-                    else:
-                        # ---- 常规工具分发 ----
-                        result = self.executor.dispatch(tool_name, arguments)
-                        status = "error" if "错误" in result or "未找到" in result else "success"
+                        # ---- 追加 tool 结果消息 ----
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": str(result),
+                        })
 
-                    # ---- 发送 tool_result 事件 ----
-                    if event_callback:
-                        try:
-                            event_callback({
-                                "type": "tool_result",
-                                "index": i,
-                                "name": tool_name,
-                                "result": result,
-                                "status": status,
-                            })
-                        except Exception:
-                            pass
+                        # ---- 记录 AgentTurn ----
+                        tool_turns.append(AgentTurn(
+                            tool_name=tool_name,
+                            arguments=arguments,
+                            result=str(result),
+                            status=status,
+                        ))
 
-                    # ---- 追加 tool 结果消息 ----
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc["id"],
-                        "content": str(result),
-                    })
+                # ---- 7. 达到最大轮次 ----
+                return {
+                    "final_message": None,
+                    "tool_turns": tool_turns,
+                    "error": f"达到最大循环轮次 ({self.max_turns})，工具调用未收敛",
+                }
+            finally:
+                # 停止心跳线程
+                stop_heartbeat.set()
+                heartbeat_thread.join(timeout=1.0)
 
-                    # ---- 记录 AgentTurn ----
-                    tool_turns.append(AgentTurn(
-                        tool_name=tool_name,
-                        arguments=arguments,
-                        result=str(result),
-                        status=status,
-                    ))
+            # ---- 超时控制 ----
+            if timeout is not None:
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(_run_loop)
+                    try:
+                        return future.result(timeout=timeout)
+                    except TimeoutError:
+                        return {
+                            "final_message": None,
+                            "tool_turns": tool_turns,
+                            "error": f"Agent loop timed out after {timeout} seconds",
+                        }
+            return _run_loop()
 
-            # ---- 7. 达到最大轮次 ----
-            return {
-                "final_message": None,
-                "tool_turns": tool_turns,
-                "error": f"达到最大循环轮次 ({self.max_turns})，工具调用未收敛",
-            }
+    # =================================================================
+    # ask_user 超时 + 压缩 + 项目总结
+    # =================================================================
 
-        # ---- 超时控制 ----
-        if timeout is not None:
-            with ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(_run_loop)
+    def _wait_for_user_with_timeouts(
+        self,
+        ask_user_queue: "queue.Queue",
+        messages: list[dict],
+        event_callback,
+        compact_at: int = 120,
+        timeout_at: int = 300,
+    ) -> str:
+        """
+        阻塞等待用户回答, 期间并行运行:
+        - 在 compact_at 秒时, 后台用 LLM 压缩对话历史
+        - 在 timeout_at 秒时, 用 LLM 生成项目总结并推入队列作为"用户"回答
+
+        返回:
+            用户实际回答 (优先) / 项目总结 (超时) / "用户未在 X 秒内响应" (极端情况)
+        """
+        import time
+
+        # 取消事件: 用户实际回答时 set, 后台线程 wait() 立即返回
+        cancel_event = threading.Event()
+        # 互斥锁: 防止 timeout 路径和 user-answer 路径同时 put 进队列
+        push_lock = threading.Lock()
+        pushed = [False]  # list 以便闭包修改
+
+        def _push_synthetic_answer(text: str) -> bool:
+            """把 text 作为合成回答放入队列。返回是否成功 put"""
+            with push_lock:
+                if pushed[0]:
+                    return False
+                pushed[0] = True
+            ask_user_queue.put(text)
+            return True
+
+        def _emit(evt: dict):
+            if event_callback:
                 try:
-                    return future.result(timeout=timeout)
-                except TimeoutError:
-                    return {
-                        "final_message": None,
-                        "tool_turns": tool_turns,
-                        "error": f"Agent loop timed out after {timeout} seconds",
-                    }
-        return _run_loop()
+                    event_callback(evt)
+                except Exception:
+                    pass
+
+        def _compaction_worker():
+            """120s 时压缩对话历史"""
+            if cancel_event.wait(compact_at):
+                return  # 用户在 120s 前已回答, 取消
+            _emit({
+                "type": "compaction_start",
+                "message": f"已等待 {compact_at}s, 正在后台压缩对话历史...",
+            })
+            try:
+                compacted = self._compact_conversation(messages)
+                _emit({
+                    "type": "compaction_complete",
+                    "compacted_count": len(compacted),
+                    "message": f"对话已压缩 ({len(compacted)} 条消息)",
+                })
+            except Exception as e:
+                _emit({
+                    "type": "compaction_error",
+                    "error": str(e),
+                })
+
+        def _summary_worker():
+            """timeout_at 时生成项目总结并推入队列"""
+            remaining = timeout_at - compact_at
+            if cancel_event.wait(remaining):
+                return  # 用户在 timeout 前已回答, 取消
+            _emit({
+                "type": "timeout_summary_start",
+                "message": f"已等待 {timeout_at}s, 正在生成项目对话总结...",
+            })
+            try:
+                summary = self._generate_project_summary(messages)
+            except Exception as e:
+                summary = f"(项目总结生成失败: {e})"
+
+            answer_text = (
+                f"[系统提示: 用户未在 {timeout_at} 秒内响应。"
+                f"以下是项目对话的自动总结, 请基于此继续推进。]\n\n"
+                f"{summary}"
+            )
+            _emit({
+                "type": "timeout_summary",
+                "summary": summary,
+                "timeout_sec": timeout_at,
+            })
+            _push_synthetic_answer(answer_text)
+
+        compact_thread = threading.Thread(target=_compaction_worker, daemon=True)
+        summary_thread = threading.Thread(target=_summary_worker, daemon=True)
+        compact_thread.start()
+        summary_thread.start()
+
+        # 阻塞等待: 用户回答 (优先) 或 超时后队列被注入项目总结
+        # 给一个稍大的 timeout, 兜底防止 _summary_worker 异常
+        try:
+            result = ask_user_queue.get(timeout=timeout_at + 20)
+        except queue.Empty:
+            result = f"用户未在 {timeout_at + 20} 秒内响应(已超过最长等待时间)"
+        finally:
+            # 取消后台线程(如果还在跑)
+            cancel_event.set()
+
+        return result
+
+    def _compact_conversation(self, messages: list[dict]) -> list[dict]:
+        """
+        用 LLM 压缩对话历史, 保留关键决策/参数/上下文,
+        返回压缩后的 messages 列表(可直接替换原 messages)
+        """
+        # 构造压缩 prompt
+        history_text = self._messages_to_text(messages)
+        prompt = (
+            "请将以下对话历史压缩为简洁的上下文摘要。\n"
+            "要求:\n"
+            "1. 保留: 用户的核心需求、已确定的关键参数、已完成的工作、当前进度\n"
+            "2. 删除: 冗余解释、错误重试、已废弃的方案\n"
+            "3. 输出格式: 一段简明的中文摘要 (300-500 字), 不要分点\n\n"
+            f"对话历史:\n{history_text}"
+        )
+        result = self.llm.call_api(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            timeout=60,
+        )
+        if not result:
+            return messages  # 失败时返回原消息
+        try:
+            content = result["choices"][0]["message"]["content"].strip()
+        except (KeyError, IndexError):
+            return messages
+
+        # 用单条 system 摘要 + 最近 5 条原始消息重建 messages
+        recent = messages[-5:] if len(messages) > 5 else messages
+        return [
+            {"role": "system", "content": f"以下是早前对话的压缩摘要:\n\n{content}"},
+            *recent,
+        ]
+
+    def _generate_project_summary(self, messages: list[dict]) -> str:
+        """用 LLM 生成整个项目对话的总结, 给用户看"""
+        history_text = self._messages_to_text(messages)
+        prompt = (
+            "请为以下项目对话生成一份完整的总结报告, 给长时间离开后回来的用户看。\n"
+            "要求:\n"
+            "1. 用户最初的需求和目标\n"
+            "2. 已完成的工作 (用了哪些工具、得到了什么结果)\n"
+            "3. 当前的进展和待办\n"
+            "4. 关键参数/决定/发现\n"
+            "5. 建议用户下一步做什么\n\n"
+            "格式: 用清晰的 markdown 标题组织, 控制在 600-800 字。\n\n"
+            f"对话历史:\n{history_text}"
+        )
+        result = self.llm.call_api(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            timeout=60,
+        )
+        if not result:
+            return "(项目总结生成失败: LLM 无响应)"
+        try:
+            return result["choices"][0]["message"]["content"].strip()
+        except (KeyError, IndexError):
+            return "(项目总结生成失败: 响应格式异常)"
+
+    def _messages_to_text(self, messages: list[dict]) -> str:
+        """把 messages 列表序列化为可读文本(供 LLM 总结)"""
+        lines = []
+        for m in messages:
+            role = m.get("role", "unknown")
+            content = m.get("content", "")
+            if content is None:
+                continue
+            if isinstance(content, list):
+                # multimodal 消息, 只取 text 部分
+                text_parts = [
+                    p.get("text", "") for p in content
+                    if isinstance(p, dict) and p.get("type") == "text"
+                ]
+                content = " ".join(text_parts)
+            if not content:
+                continue
+            lines.append(f"[{role}] {content[:500]}{'...' if len(content) > 500 else ''}")
+        # 限制总长度避免 LLM 输入超限
+        full = "\n".join(lines)
+        if len(full) > 12000:
+            full = full[:6000] + "\n...(中间省略)...\n" + full[-6000:]
+        return full
 
 
 # =============================================================================

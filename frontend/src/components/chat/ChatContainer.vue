@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, shallowRef, watch, nextTick } from 'vue'
+import { ref, shallowRef, watch, nextTick, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import { useChatStore, MODE_PREFIX } from '@/stores/chat'
@@ -12,7 +12,6 @@ import InputBar from './InputBar.vue'
 import type {
   ToolCallInfo,
   TeamAgentInfo,
-  AgentQuestionWithAnswer,
 } from '@/types/chat'
 
 const { t } = useI18n()
@@ -36,8 +35,36 @@ const sessionId = ref('')
 // onto the AI's Message so they remain visible afterwards (like a
 // normal conversation).
 const liveToolCalls = shallowRef<Map<number, ToolCallInfo>>(new Map())
-const liveQuestions = ref<AgentQuestionWithAnswer[]>([])
+const livePendingQuestion = ref<{ question: string; options?: string } | null>(null)
 const liveTeamAgents = ref<TeamAgentInfo[]>([])
+// 心跳: 记录最后收到事件的时间(用于显示"agent 仍在工作..."指示)
+const lastEventTime = ref(Date.now())
+// 1s 轮询检查是否超过 8s 没有事件
+const isAgentAlive = ref(false)
+let aliveTimer: number | null = null
+
+watch([() => store.isStreaming, lastEventTime], () => {
+  if (aliveTimer) {
+    clearInterval(aliveTimer)
+    aliveTimer = null
+  }
+  if (store.isStreaming) {
+    lastEventTime.value = Date.now()
+    isAgentAlive.value = true
+    aliveTimer = window.setInterval(() => {
+      const gap = Date.now() - lastEventTime.value
+      // 超过 8s 没有事件, 仍认为 agent 活着(只是慢/在等子 agent),
+      // 但显示"仍在工作"指示
+      isAgentAlive.value = gap < 60000  // 超过 60s 视为真正卡死
+    }, 1000)
+  } else {
+    isAgentAlive.value = false
+  }
+}, { immediate: true })
+
+onUnmounted(() => {
+  if (aliveTimer) clearInterval(aliveTimer)
+})
 
 function startEditField(index: number, current: string) {
   editingFieldIndex.value = index
@@ -160,7 +187,14 @@ function buildAgentCallbacks(aiMsg: import('@/types/chat').Message) {
       }
     },
     onAgentQuestion(q: string, o?: string) {
-      liveQuestions.value = [...liveQuestions.value, { question: q, options: o }]
+      // 把问题文本追加到 AI 消息正文(看起来像正常对话, 不再有独立卡片)
+      const formatted = `\n\n${q}`
+      if (aiMsg.content && !aiMsg.content.endsWith(q)) {
+        aiMsg.content = aiMsg.content + formatted
+      } else if (!aiMsg.content) {
+        aiMsg.content = q
+      }
+      aiMsg.pendingQuestion = { question: q, options: o }
     },
     onTeamSpawn(_mode: string, agents: TeamAgentInfo[]) {
       liveTeamAgents.value = agents.map(a => ({ ...a, status: 'spawning' as const }))
@@ -183,6 +217,39 @@ function buildAgentCallbacks(aiMsg: import('@/types/chat').Message) {
         status: a.status === 'running' || a.status === 'spawning' ? 'done' : a.status,
       }))
     },
+    onKeepalive(_timestamp: number) {
+      // 心跳 — 只更新最后事件时间, 不渲染新消息
+      lastEventTime.value = Date.now()
+    },
+    onToolProgress(name: string, current: number, total: number, message?: string) {
+      // 把进度附加到当前 AI 消息(用 systemNote 显示,不占对话正文)
+      aiMsg.systemNote = {
+        kind: 'info',
+        text: message || `🔧 ${name} 进度: ${current}/${total}`,
+      }
+    },
+    onCompactionStart(message: string) {
+      aiMsg.systemNote = { kind: 'compaction', text: `🔄 ${message}` }
+    },
+    onCompactionComplete(compactedCount: number, message: string) {
+      aiMsg.systemNote = {
+        kind: 'compaction',
+        text: `✓ ${message} (${compactedCount} 条 → 压缩摘要)`,
+      }
+    },
+    onCompactionError(error: string) {
+      aiMsg.systemNote = { kind: 'info', text: `⚠ 压缩失败: ${error}` }
+    },
+    onTimeoutSummary(summary: string, timeoutSec: number) {
+      // 项目总结作为新的 AI 消息显示(标注是超时自动生成的)
+      store.addMessage('ai', '')
+      const summaryMsg = store.messages[store.messages.length - 1]
+      summaryMsg.content = summary
+      summaryMsg.systemNote = {
+        kind: 'timeout_summary',
+        text: `⏱ 用户未在 ${timeoutSec}s 内响应, 已自动生成项目对话总结`,
+      }
+    },
     onError(m: string) {
       store.addMessage('ai', m)
     },
@@ -190,10 +257,10 @@ function buildAgentCallbacks(aiMsg: import('@/types/chat').Message) {
       // Commit per-turn buffers to the AI message so they remain
       // visible after this turn ends. Live buffers reset for next turn.
       aiMsg.toolCalls = Array.from(liveToolCalls.value.values())
-      aiMsg.questions = liveQuestions.value.slice()
       aiMsg.teamAgents = liveTeamAgents.value.slice()
+      // pendingQuestion is cleared when user answers (or remains
+      // visible in the AI bubble if no answer was given)
       liveToolCalls.value = new Map()
-      liveQuestions.value = []
       liveTeamAgents.value = []
     },
   }
@@ -203,7 +270,7 @@ function buildAgentCallbacks(aiMsg: import('@/types/chat').Message) {
 async function sendToAgent(message: string) {
   // Reset per-turn buffers
   liveToolCalls.value = new Map()
-  liveQuestions.value = []
+  livePendingQuestion.value = null
   liveTeamAgents.value = []
 
   // Add user message first, then AI placeholder for incremental updates
@@ -227,17 +294,8 @@ async function sendToAgent(message: string) {
 }
 
 async function handleAgentQuestionAnswer(answer: string) {
-  // Record the answer on the currently-pending question so it remains
-  // visible in the chat log with its answer.
-  if (liveQuestions.value.length > 0) {
-    const last = liveQuestions.value[liveQuestions.value.length - 1]
-    if (!last.answer) {
-      liveQuestions.value = [
-        ...liveQuestions.value.slice(0, -1),
-        { ...last, answer },
-      ]
-    }
-  }
+  // 清除待回答问题(答案会作为下一条 user 消息出现, 视觉上形成 Q&A 链)
+  livePendingQuestion.value = null
 
   store.addMessage('user', answer)
 
@@ -268,7 +326,8 @@ async function handleAgentQuestionAnswer(answer: string) {
         :thinking-duration="msg.thinking_duration"
         :timestamp="msg.timestamp"
         :tool-calls="msg.toolCalls"
-        :questions="msg.questions"
+        :pending-question="msg.pendingQuestion"
+        :system-note="msg.systemNote"
         :team-agents="msg.teamAgents"
         @question-select="handleAgentQuestionAnswer"
       />
@@ -276,7 +335,7 @@ async function handleAgentQuestionAnswer(answer: string) {
       <!-- Live (in-progress) agent attachments for the current turn.
            They live alongside the messages list and are merged into the
            AI's Message on completion (onDone callback). -->
-      <template v-if="liveToolCalls.size > 0 || liveQuestions.length > 0 || liveTeamAgents.length > 0">
+      <template v-if="liveToolCalls.size > 0 || liveTeamAgents.length > 0">
         <div v-if="liveToolCalls.size > 0" class="live-attachments">
           <MessageBubble
             v-for="[idx, tc] in liveToolCalls"
@@ -284,16 +343,6 @@ async function handleAgentQuestionAnswer(answer: string) {
             role="ai"
             content=""
             :tool-calls="[tc]"
-          />
-        </div>
-        <div v-if="liveQuestions.length > 0" class="live-attachments">
-          <MessageBubble
-            v-for="(q, qi) in liveQuestions"
-            :key="`live-q-${qi}`"
-            role="ai"
-            content=""
-            :questions="[q]"
-            @question-select="handleAgentQuestionAnswer"
           />
         </div>
         <div v-if="liveTeamAgents.length > 0" class="live-attachments">
@@ -319,6 +368,12 @@ async function handleAgentQuestionAnswer(answer: string) {
           <button class="btn-guide-back" @click="analysisStore.guideGoBack()">{{ $t('common.back') }}</button>
           <button class="btn-guide-submit" :disabled="generating" @click="onSend(inputText)">{{ $t('common.submit') }}</button>
         </div>
+      </div>
+
+      <!-- Agent 仍在工作指示 (长时间无事件但 isStreaming 为 true 时) -->
+      <div v-if="isAgentAlive && isStreaming && liveToolCalls.size === 0 && !livePendingQuestion && liveTeamAgents.length === 0" class="alive-indicator">
+        <span class="alive-indicator__pulse"></span>
+        <span>Agent 仍在工作...</span>
       </div>
 
       <!-- Inline field confirm card -->
@@ -360,9 +415,9 @@ async function handleAgentQuestionAnswer(answer: string) {
       <InputBar
         v-model="inputText"
         :disabled="isStreaming"
-        :placeholder="(liveQuestions.length > 0) ? '回答 Agent 的问题...' : (isStreaming ? $t('chat.thinking') : $t('chat.inputPlaceholder'))"
-        :agent-question="liveQuestions.length > 0 ? liveQuestions[liveQuestions.length - 1] : null"
-        @send="(liveQuestions.length > 0) ? handleAgentQuestionAnswer($event) : onSend($event)"
+        :placeholder="livePendingQuestion ? '回答 Agent 的问题...' : (isStreaming ? $t('chat.thinking') : $t('chat.inputPlaceholder'))"
+        :agent-question="livePendingQuestion"
+        @send="livePendingQuestion ? handleAgentQuestionAnswer($event) : onSend($event)"
         @file-selected="onFileSelected"
         @cancel-extraction="onCancelExtraction"
       />
@@ -507,6 +562,29 @@ async function handleAgentQuestionAnswer(answer: string) {
   margin-bottom: 12px;
   text-align: right;
 }
+/* Agent 仍在工作指示器 (无活动输出时) */
+.alive-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  margin: 4px 0;
+  background: var(--color-bg-soft);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+.alive-indicator__pulse {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--color-primary);
+  animation: alive-pulse 1.5s ease-in-out infinite;
+}
+@keyframes alive-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+
 .guide-reply {
   font-size: 14px;
   color: var(--color-text);

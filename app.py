@@ -2019,6 +2019,48 @@ def compile_experiment():
         }), 500
 
 
+@app.route('/api/log_compile_error', methods=['POST'])
+def log_compile_error():
+    """
+    把编译失败的错误日志保存到当前会话的 dialogue data/history
+    方便用户事后查阅
+
+    请求体:
+    {
+        "error": "错误信息",
+        "experiment_json": {...}  # 可选, 用于排查上下文
+    }
+
+    返回:
+    {
+        "success": true,
+        "log_path": "..."
+    }
+    """
+    import json as _json
+    from datetime import datetime
+    data = request.get_json(silent=True) or {}
+    error = data.get('error', '').strip()
+    exp_json = data.get('experiment_json')
+
+    if not error:
+        return jsonify({"success": False, "message": "error 不能为空"}), 400
+
+    # 保存到 dialogue data/history/<session>/compile_errors.log
+    log_path = os.path.join(SESSION_BASE_PATH, 'compile_errors.log')
+    try:
+        with open(log_path, 'a', encoding='utf-8') as f:
+            f.write(f"\n{'='*60}\n")
+            f.write(f"[{datetime.now().isoformat(timespec='seconds')}]\n")
+            f.write(f"Error: {error}\n")
+            if exp_json:
+                f.write(f"Experiment JSON:\n{_json.dumps(exp_json, ensure_ascii=False, indent=2)}\n")
+            f.write(f"{'='*60}\n")
+        return jsonify({"success": True, "log_path": log_path})
+    except Exception as e:
+        return jsonify({"success": False, "message": f"写入日志失败: {e}"}), 500
+
+
 @app.route('/api/compile_and_run_experiment', methods=['POST'])
 def compile_and_run_experiment():
     """

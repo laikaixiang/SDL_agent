@@ -231,6 +231,35 @@ export async function sendAgentMessage(
             case 'team_done':
               callbacks.onTeamDone?.(event.mode ?? 'single', (event.results ?? []) as unknown[])
               break
+            case 'keepalive':
+              callbacks.onKeepalive?.(event.timestamp ?? Date.now() / 1000)
+              break
+            case 'tool_progress':
+              callbacks.onToolProgress?.(
+                event.name ?? '',
+                event.current ?? 0,
+                event.total ?? 0,
+                event.message,
+              )
+              break
+            case 'compaction_start':
+              callbacks.onCompactionStart?.(event.message ?? '正在压缩对话历史...')
+              break
+            case 'compaction_complete':
+              callbacks.onCompactionComplete?.(
+                event.compacted_count ?? 0,
+                event.message ?? '对话已压缩',
+              )
+              break
+            case 'compaction_error':
+              callbacks.onCompactionError?.(event.message ?? '压缩失败')
+              break
+            case 'timeout_summary':
+              callbacks.onTimeoutSummary?.(
+                event.summary ?? '',
+                event.timeout_sec ?? 300,
+              )
+              break
             case 'agent_error':
               callbacks.onError?.(event.message ?? '')
               break

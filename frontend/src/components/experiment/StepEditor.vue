@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, reactive, watch } from 'vue'
+import { ref, reactive, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { storeToRefs } from 'pinia'
 import { useExperimentStore } from '@/stores/experiment'
 import type { ExperimentStep } from '@/types/experiment'
 import FileSelectorModal from '@/components/modals/FileSelectorModal.vue'
@@ -19,6 +20,12 @@ const fileModalOpen = ref(false)
 const fileModalTarget = ref<'input' | 'output'>('input')
 
 const store = useExperimentStore()
+const { undeclaredVarRefs } = storeToRefs(store)
+
+// 当前 step 的未声明变量引用: { [paramKey]: variableName }
+const myUndeclaredVars = computed<Record<string, string>>(() => {
+  return undeclaredVarRefs.value[props.index] || {}
+})
 
 const desc = ref(props.step.description || '')
 const params = ref(JSON.stringify(props.step.params, null, 2))
@@ -197,7 +204,7 @@ const helperDef = props.step.type === 'helper'
               <input
                 class="editor-input param-input"
                 :class="{
-                  'param-undeclared': paramState[k] === 'undeclared',
+                  'param-undeclared': paramState[k] === 'undeclared' || myUndeclaredVars[k] !== undefined,
                   'param-linked': paramState[k] === 'linked',
                   'param-invalid': paramState[k] === 'invalid',
                 }"
@@ -208,12 +215,15 @@ const helperDef = props.step.type === 'helper'
                 @keydown="onParamKeydown"
               />
               <button
-                v-if="paramState[k] === 'undeclared'"
+                v-if="paramState[k] === 'undeclared' || myUndeclaredVars[k] !== undefined"
                 class="btn-declare"
-                @click="onDeclareVariable(k, draftValues[k] ?? '')"
+                @click="onDeclareVariable(k, myUndeclaredVars[k] || (draftValues[k] ?? ''))"
               >{{ $t('experiment.declare') }}</button>
               <span v-if="paramState[k] === 'linked'" class="param-linked-hint">→ {{ variablesHint[k] }}</span>
               <span v-if="paramState[k] === 'invalid'" class="param-invalid-hint">{{ variablesHint[k] }}</span>
+              <span v-if="paramState[k] === 'normal' && myUndeclaredVars[k]" class="param-invalid-hint">
+                变量 <code>{{ myUndeclaredVars[k] }}</code> 未声明
+              </span>
             </div>
           </div>
         </div>

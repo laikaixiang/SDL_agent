@@ -335,6 +335,7 @@
     "folderNameLengthInvalid": "文件夹名需在 1-50 字符之间",
     "folderNotFound": "文件夹不存在",
     "semanticSearchNotInitialized": "语义搜索服务未初始化，请检查 EMBEDDING_API_KEY 配置",
+    "semanticSearchFailed": "语义搜索失败: {error}。请检查 EMBEDDING_API_KEY 是否有效/配额是否充足。",
     "queryEmpty": "query 不能为空",
     "pdfPathEmpty": "pdf_path 不能为空",
     "pageNumInvalid": "page_num 必须 >= 0",

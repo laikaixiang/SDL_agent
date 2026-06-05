@@ -96,7 +96,7 @@ if config.AGENT_ENABLED:
 _semantic_search_instance = None
 try:
     _embedding_service = create_embedding_service()
-    _vector_store = ChromaVectorStore(persist_dir=config.CHROMADB_PERSIST_DIR)
+    _vector_store = ChromaVectorStore(persist_dir=config.CHROMADB_PERSIST_DIR, expected_dim=config.EMBEDDING_DIM)
     _sqlite_path = os.path.join(config.CHROMADB_PERSIST_DIR, "page_metadata.db")
     _semantic_search_instance = SemanticSearch(_embedding_service, _vector_store, _sqlite_path)
     print(f"[语义搜索] 初始化成功，已索引 {_vector_store.count()} 个页面向量")
@@ -2531,8 +2531,15 @@ def semantic_search():
     if top_k < 1 or top_k > 100:
         top_k = 10
 
-    results = _semantic_search_instance.search(query, top_k=top_k)
-    total_pages = _semantic_search_instance.get_total_pages()
+    try:
+        results = _semantic_search_instance.search(query, top_k=top_k)
+        total_pages = _semantic_search_instance.get_total_pages()
+    except Exception as e:
+        lang = i18n.get_lang(request)
+        return jsonify({
+            "success": False,
+            "error": i18n.get('errors.semanticSearchFailed', lang).format(error=str(e))
+        }), 500
 
     return jsonify({
         "success": True,

@@ -4,58 +4,8 @@
     "description": "空气泵取枪头",
     "params": {
       "tip_pos": {
-        "type": "int",
+        "type": "Tuple[int,int,int]",
         "description": "枪头在枪头盒中位置,[x,y,z]",
-        "required": true,
-        "default": [
-          0,
-          0,
-          0
-        ]
-      },
-      "tip": {
-        "type": "int",
-        "description": "空气泵编号(1或者2,1为左泵,2为右泵)",
-        "required": true,
-        "default": 1
-      }
-    }
-  },
-  "move_substrate": {
-    "name": "move_substrate",
-    "description": "基板转移",
-    "params": {
-      "start_pos": {
-        "type": "Tuple[int, int, int, int]",
-        "description": "基底在托盘中位置_起始,[x,y,z,r]",
-        "required": true,
-        "default": [
-          220,
-          -220,
-          200,
-          0
-        ]
-      },
-      "end_pos": {
-        "type": "Tuple[int, int, int, int]",
-        "description": "基底在托盘中位置_目标,[x,y,z,r]",
-        "required": true,
-        "default": [
-          220,
-          -220,
-          200,
-          0
-        ]
-      }
-    }
-  },
-  "pop_tips": {
-    "name": "pop_tips",
-    "description": "空气泵放枪头",
-    "params": {
-      "trash_pos": {
-        "type": "int",
-        "description": "滴头垃圾桶的位置,[x,y,z]",
         "required": true,
         "default": [
           0,
@@ -101,6 +51,56 @@
       }
     }
   },
+  "move_substrate": {
+    "name": "move_substrate",
+    "description": "基板转移",
+    "params": {
+      "start_pos": {
+        "type": "Tuple[int, int, int, int]",
+        "description": "基底在托盘中位置_起始,[x,y,z,r]",
+        "required": true,
+        "default": [
+          220,
+          -220,
+          200,
+          0
+        ]
+      },
+      "end_pos": {
+        "type": "Tuple[int, int, int, int]",
+        "description": "基底在托盘中位置_目标,[x,y,z,r]",
+        "required": true,
+        "default": [
+          220,
+          -220,
+          200,
+          0
+        ]
+      }
+    }
+  },
+  "pop_tips": {
+    "name": "pop_tips",
+    "description": "空气泵放枪头",
+    "params": {
+      "trash_pos": {
+        "type": "Tuple[int,int,int]",
+        "description": "滴头垃圾桶的位置,[x,y,z]",
+        "required": true,
+        "default": [
+          0,
+          0,
+          0
+        ]
+      },
+      "tip": {
+        "type": "int",
+        "description": "空气泵编号(1或者2,1为左泵,2为右泵)",
+        "required": true,
+        "default": 1
+      }
+    }
+  },
   "collect_spectrum": {
     "name": "collect_spectrum",
     "description": "启动光谱仪数据采集",
@@ -142,7 +142,7 @@
     "description": "滴液",
     "params": {
       "spit_pos": {
-        "type": "int",
+        "type": "Tuple[int,int,int]",
         "description": "需要滴液的目标基底的位置,[x,y,z]",
         "required": true,
         "default": [
@@ -165,17 +165,12 @@
       }
     }
   },
-  "start_experiment": {
-    "name": "start_experiment",
-    "description": "启动已注册的实验序列",
-    "params": {}
-  },
   "suck": {
     "name": "suck",
     "description": "吸液",
     "params": {
       "bottle_pos": {
-        "type": "Tuple[int, int, int]",
+        "type": "Tuple[int,int,int]",
         "description": "需要吸液的目标试剂瓶的位置,[x,y,z]",
         "required": true,
         "default": [

@@ -38,12 +38,14 @@ def spin_coat(
         client = get_mqtt_client()
         if client.is_connected:
             client.publish(EXPERIMENT_TOPIC, f"c{spin_speed},{spin_acc},{spin_dur}")
-            return f"旋涂实验指令记录成功。 转速:{spin_speed}rpm, 时长:{spin_dur}ms"
+            client.listen_to_message("done")
+            return f"旋涂实验指令执行成功。 转速:{spin_speed}rpm, 时长:{spin_dur}ms"
         else:
             connect_state = client.connect()
             if connect_state:
                 client.publish(EXPERIMENT_TOPIC, f"c{spin_speed},{spin_acc},{spin_dur}")
-                return f"旋涂实验指令记录成功。 转速:{spin_speed}rpm, 时长:{spin_dur}ms"
+                client.listen_to_message("done")
+                return f"旋涂实验指令执行成功。 转速:{spin_speed}rpm, 时长:{spin_dur}ms"
             else:
                 f"指令下发失败"
     except Exception as e:

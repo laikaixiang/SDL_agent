@@ -27,11 +27,18 @@
       "latency_ms": 5479.8,
       "tested_at": "2026-05-21T19:21:08",
       "error": null
+    },
+    "MiniMax-M3": {
+      "supports_streaming": false,
+      "chunks_received": 0,
+      "latency_ms": 4.0,
+      "tested_at": "2026-06-05T15:32:04",
+      "error": "HTTPSConnectionPool(host='api.minimaxi.com', port=443): Max retries exceeded with url: /v1/chat/completions (Caused by NameResolutionError(\"HTTPSConnection(host='api.minimaxi.com', port=443): Failed to resolve 'api.minimaxi.com' ([Errno 11001] getaddrinfo failed)\"))"
     }
   },
   "default": {
-    "streaming_enabled": true,
-    "last_model": "MiniMax-M2.7",
-    "last_check": "2026-05-21T19:21:08"
+    "streaming_enabled": false,
+    "last_model": "MiniMax-M3",
+    "last_check": "2026-06-05T15:32:04"
   }
 }

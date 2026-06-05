@@ -47,13 +47,13 @@ namespace WinFormsApp_Draft.Auto
 
         public static void Publish(MqttClient client, string topic, string msg)
         {
-            client.Publish(topic, System.Text.Encoding.UTF8.GetBytes(msg), MqttMsgBase.QOS_LEVEL_EXACTLY_ONCE, false);
+            client.Publish(topic, System.Text.Encoding.UTF8.GetBytes(msg), MqttMsgBase.QOS_LEVEL_AT_LEAST_ONCE, false);
         }
 
         public static void Subscribe(MqttClient client, string topic)
         {
             client.MqttMsgPublishReceived += MqttMsgReceived;
-            client.Subscribe(new string[] { topic }, new byte[] { MqttMsgBase.QOS_LEVEL_EXACTLY_ONCE });
+            client.Subscribe(new string[] { topic }, new byte[] { MqttMsgBase.QOS_LEVEL_AT_LEAST_ONCE });
         }
 
         public static void MqttMsgReceived(object sender, MqttMsgPublishEventArgs e)

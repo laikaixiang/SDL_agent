@@ -16,17 +16,7 @@ namespace Winform_platform.Auto
     class Agent
     {
         public const string topic = "do_experiment";
-        public static List<string> step_buffer = new List<string>();
         public static Queue<string> scan_buffer = new Queue<string>();
-
-        public static void to_step_buffer(string parameters)
-        {
-            step_buffer.Add(parameters);
-        }
-        public static void clear_step_buffer()
-        {
-            step_buffer.Clear();
-        }
 
         public static void init_queue()
         {
@@ -42,10 +32,9 @@ namespace Winform_platform.Auto
             scan_buffer.Clear();
         }
 
-        public static void experiment_finish()
+        public static async Task platform_respond()
         {
-            MqttClient client = SpecForm.client;
-            Mqtt_connection.Publish(client, topic, "experiment finished");
+            Mqtt_connection.Publish(SpecForm.client, "platform_respond", "done");
         }
     }
 

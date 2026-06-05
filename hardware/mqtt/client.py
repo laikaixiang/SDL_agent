@@ -27,6 +27,7 @@ def get_mqtt_client() -> MQTTConnector:
     global _local_client
     if _local_client is None:
         # 首次调用：创建新的MQTT连接器实例
+        print("client established")
         _local_client = MQTTConnector()
     if not _local_client.is_connected:
         # 如果当前未连接，尝试重新连接（超时2秒）
@@ -55,6 +56,14 @@ class _LazyClient:
     def publish(self, topic: str, msg: str):
         """发布MQTT消息"""
         get_mqtt_client().publish(topic, msg)
+
+    def get_message(self) -> str:
+        """获取接收的MQTT消息"""
+        return get_mqtt_client().get_message()
+
+    def listen_to_message(self, matchstr:str):
+        """监听获取的MQTT消息是否与matchstr匹配"""
+        get_mqtt_client().listen_to_message(matchstr)
 
 
 # local_client: 供外部模块（如core/hardware_controller.py）直接引用的MQTT客户端

@@ -36,7 +36,8 @@ def move_substrate(start_pos: Tuple[int, int, int, int], end_pos: Tuple[int, int
             client.publish(EXPERIMENT_TOPIC, f"a{x_tar},{y_tar},200,{r_tar},1")
             client.publish(EXPERIMENT_TOPIC, f"a{x_tar},{y_tar},{z_tar},{r_tar},0")
             client.publish(EXPERIMENT_TOPIC, f"a{x_tar},{y_tar},200,{r_tar},0")
-            return f"机械臂已保存运动:将基板从({x_init}, {y_init}, {z_init})转移至({x_tar}, {y_tar}, {z_tar})"
+            client.listen_to_message("done")
+            return f"机械臂已执行运动:将基板从({x_init}, {y_init}, {z_init})转移至({x_tar}, {y_tar}, {z_tar})"
         else:
             connect_state = client.connect()
             if connect_state:
@@ -46,8 +47,9 @@ def move_substrate(start_pos: Tuple[int, int, int, int], end_pos: Tuple[int, int
                 client.publish(EXPERIMENT_TOPIC, f"a{x_tar},{y_tar},200,{r_tar},1")
                 client.publish(EXPERIMENT_TOPIC, f"a{x_tar},{y_tar},{z_tar},{r_tar},0")
                 client.publish(EXPERIMENT_TOPIC, f"a{x_tar},{y_tar},200,{r_tar},0")
-                return f"机械臂已保存运动:将基板从({x_init}, {y_init}, {z_init})转移至({x_tar}, {y_tar}, {z_tar})"
+                client.listen_to_message("done")
+                return f"机械臂已执行运动:将基板从({x_init}, {y_init}, {z_init})转移至({x_tar}, {y_tar}, {z_tar})"
             else:
-                return f"机械臂基板转移运动保存失败"
+                return f"机械臂基板转移失败"
     except Exception as e:
-        return f"机械臂羁绊转移运动保存失败: {str(e)}"
+        return f"机械臂基板转移失败: {str(e)}"

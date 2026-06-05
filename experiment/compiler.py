@@ -201,7 +201,7 @@ class ExperimentCompiler:
             code_lines.append("sm = SoftwareManager()")
         code_lines.extend([
             "",
-            "def execute_experiment():",
+            "async def execute_experiment():",
         ])
 
         indent_level = 1

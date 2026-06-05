@@ -50,6 +50,5 @@ __all__ = [
     'read_pdf',
     'get_all_reagents',
     'save_experiment_step',
-    'start_experiment',
     'do_experiment',
 ]

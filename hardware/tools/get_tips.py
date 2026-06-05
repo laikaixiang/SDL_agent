@@ -10,7 +10,7 @@ from .registry import register_tool
     name="get_tips",
     description="空气泵取枪头",
     params={
-        "tip_pos": {"type": "int", "description": "枪头在枪头盒中位置,[x,y,z]", "required": True, "default": [0,0,0]},
+        "tip_pos": {"type": "Tuple[int,int,int]", "description": "枪头在枪头盒中位置,[x,y,z]", "required": True, "default": [0,0,0]},
         "tip": {"type": "int", "description": "空气泵编号(1或者2,1为左泵,2为右泵)", "required": True, "default": 1},
     }
 )
@@ -33,15 +33,17 @@ def get_tips(tip_pos: Tuple[int, int, int], tip: int) -> str:
             client.publish(EXPERIMENT_TOPIC, f"d0,0,{x},{y},0,0")# move horizontal
             client.publish(EXPERIMENT_TOPIC, f"d1,{tip},0,0,{z},0,0")# move tip vertical
             client.publish(EXPERIMENT_TOPIC, f"d1,{tip},0,0,0,0,0")# move tip back
-            return f"滴液机已保存:{tip}号泵取x={tip_pos[0]},y={tip_pos[1]},z={tip_pos[2]}位置的滴头"
+            client.listen_to_message("done")
+            return f"滴液机已执行:{tip}号泵取x={tip_pos[0]},y={tip_pos[1]},z={tip_pos[2]}位置的滴头"
         else:
             connect_state = client.connect()
             if connect_state:
                 client.publish(EXPERIMENT_TOPIC, f"d0,0,{x},{y},0,0")
                 client.publish(EXPERIMENT_TOPIC, f"d1,{tip},0,0,{z},0,0")
                 client.publish(EXPERIMENT_TOPIC, f"d1,{tip},0,0,0,0,0")
-                return f"滴液机已保存:{tip}号泵在x={tip_pos[0]},y={tip_pos[1]},z={tip_pos[2]}位置的滴头"
+                client.listen_to_message("done")
+                return f"滴液机已执行:{tip}号泵在x={tip_pos[0]},y={tip_pos[1]},z={tip_pos[2]}位置的滴头"
             else:
-                return f"滴液机取滴头步骤保存失败"
+                return f"滴液机取滴头失败"
     except Exception as e:
-        return f"滴液机取滴头步骤保存失败: {str(e)}"
+        return f"滴液机取滴头失败: {str(e)}"

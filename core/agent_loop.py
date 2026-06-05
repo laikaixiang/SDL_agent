@@ -298,19 +298,19 @@ class AgentLoop:
                 stop_heartbeat.set()
                 heartbeat_thread.join(timeout=1.0)
 
-            # ---- 超时控制 ----
-            if timeout is not None:
-                with ThreadPoolExecutor(max_workers=1) as pool:
-                    future = pool.submit(_run_loop)
-                    try:
-                        return future.result(timeout=timeout)
-                    except TimeoutError:
-                        return {
-                            "final_message": None,
-                            "tool_turns": tool_turns,
-                            "error": f"Agent loop timed out after {timeout} seconds",
-                        }
-            return _run_loop()
+        # ---- 超时控制 ----
+        if timeout is not None:
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(_run_loop)
+                try:
+                    return future.result(timeout=timeout)
+                except TimeoutError:
+                    return {
+                        "final_message": None,
+                        "tool_turns": tool_turns,
+                        "error": f"Agent loop timed out after {timeout} seconds",
+                    }
+        return _run_loop()
 
     # =================================================================
     # ask_user 超时 + 压缩 + 项目总结

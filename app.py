@@ -2748,6 +2748,90 @@ def api_literature_detail(unique_id):
 # Agent tool-use API (Phase 1)
 # =============================================================================
 
+def _mode_label(mode: str) -> str:
+    """模式的中文标签"""
+    return {
+        "normal": "自由",
+        "extraction": "文献提取",
+        "hardware": "硬件控制",
+        "experiment": "实验设计",
+        "analysis": "数据分析",
+    }.get(mode, mode)
+
+
+def _get_mode_system_prompt(mode: str, available_tools: list) -> str:
+    """
+    根据 mode 返回不同的系统提示, 强制 agent 按用户明确的意图行动。
+
+    关键设计:
+    - "实验设计" 模式下, agent **不能**直接调用硬件工具 (即使它们存在),
+      必须先用 design_experiment 设计完整方案, 推送到前端, 然后用 ask_user
+      询问用户是否执行。用户在前端点击"运行"才会真正执行。
+    - "硬件控制" 模式下, agent 可以直接调用硬件工具 (用户已明确说"硬件控制")
+    - "文献提取" 模式下, agent 使用 search_literature/extract_from_pdf/preview_pdf_page
+    - "数据分析" 模式下, agent 使用 software 算法
+    - "normal" 模式下, 全部工具可用 (向后兼容)
+    """
+    tool_list = ", ".join(available_tools)
+
+    base_rules = (
+        "通用行为准则:\n"
+        "1. 先理解用户意图, 再选择合适的工具, 不要急于回复文本。\n"
+        "2. 如果意图模糊, 使用 ask_user 工具向用户确认。\n"
+        "3. 工具返回结果后, 用清晰简洁的中文向用户汇报。\n"
+    )
+
+    if mode == "experiment":
+        return (
+            f"你当前可用的工具: {tool_list}\n\n"
+            "**关键约束 (实验设计模式)**:\n"
+            "- 你**不能**直接调用任何硬件工具, 即使用户的描述听起来像'现在去动一下机械臂'。\n"
+            "- 你必须**始终**使用 `design_experiment` 工具来设计完整的实验方案(返回 JSON 格式)。\n"
+            "- 设计完成后, JSON 会自动推送到前端的实验设计面板, 用户可以看到完整步骤。\n"
+            "- 然后**必须**用 `ask_user` 询问用户'是否要执行这个实验?'。\n"
+            "- **只有当用户在前端点击'运行'按钮时, 实验才会真正执行**。\n"
+            "- 你自己的工具调用**不会**触发硬件, 不要让用户误以为执行了。\n\n"
+            f"{base_rules}"
+        )
+
+    if mode == "hardware":
+        return (
+            f"你当前可用的工具: {tool_list}\n\n"
+            "**关键约束 (硬件控制模式)**:\n"
+            "- 用户已明确选择'硬件控制'模式, 可以直接调用硬件工具。\n"
+            "- 但仍然要谨慎: 危险操作前用 ask_user 二次确认。\n"
+            "- 工具调用会立刻触发 MQTT 消息下发到硬件, 没有'撤销'。\n\n"
+            f"{base_rules}"
+        )
+
+    if mode == "extraction":
+        return (
+            f"你当前可用的工具: {tool_list}\n\n"
+            "**关键约束 (文献提取模式)**:\n"
+            "- 主要使用 search_literature / extract_from_pdf / preview_pdf_page。\n"
+            "- 论文统一识别标识是**标题**(不是文件名), 用标题传给 extract_from_pdf。\n\n"
+            f"{base_rules}"
+        )
+
+    if mode == "analysis":
+        return (
+            f"你当前可用的工具: {tool_list}\n\n"
+            "**关键约束 (数据分析模式)**:\n"
+            "- 主要使用软件算法对 CSV/数据进行分析。\n"
+            "- data 字段填要分析的数据(从 temporal/extraction.csv 读)。\n\n"
+            f"{base_rules}"
+        )
+
+    # normal / default
+    return (
+        f"你当前可用的工具: {tool_list}\n\n"
+        "你可以根据用户需求选择任何工具。但请注意:\n"
+        "- 实验/硬件操作: 优先用 design_experiment 设计, 让用户审核后再执行。\n"
+        "- 直接调硬件工具前用 ask_user 二次确认。\n\n"
+        f"{base_rules}"
+    )
+
+
 @app.route('/api/chat/agent', methods=['POST'])
 def chat_agent():
     """Agent tool-use 对话端点 — SSE 流式响应"""
@@ -2758,30 +2842,31 @@ def chat_agent():
     user_message = data.get('message', '').strip()
     session_id = data.get('session_id', 'default')
     history = data.get('history', [])
+    # chat_mode 决定 agent 可用的工具集:
+    #   normal/extraction/hardware/experiment/analysis
+    chat_mode = data.get('chat_mode', 'normal')
 
     if not user_message:
         return jsonify({"type": "error", "reply": "消息不能为空"}), 400
 
+    # 根据 chat_mode 创建对应的 executor (工具集受 mode 限制)
+    from core.agent_tools import create_main_executor
+    mode_executor = create_main_executor(chat_mode=chat_mode)
+    print(f"[Agent] session={session_id} mode={chat_mode!r} tools={mode_executor.names}")
+
     # Build messages from history
     messages = []
 
-    # System prompt: instruct the model to act as an agent
+    # System prompt: 根据 mode 不同, 行为准则不同
     templates = _agent_orchestrator.list_templates() if _agent_orchestrator else []
+    mode_specific = _get_mode_system_prompt(chat_mode, mode_executor.names)
     messages.append({
         "role": "system",
         "content": (
             "你是 SDL_agent，一个 AI 驱动的实验室自动化助手。\n\n"
-            "你有多种工具可用，包括：文献搜索、文献提取、硬件控制、实验设计、数据分析、算法生成。\n"
-            "用户不会告诉你该调用哪个工具——你需要根据用户的需求自己决定。\n\n"
-            "行为准则：\n"
-            "1. 先理解用户意图，再选择合适的工具。不要急于回复文本，先想清楚需要什么信息。\n"
-            "2. 如果意图明确，直接调用工具获取结果。\n"
-            "3. 如果意图模糊、有多种可行方案、或涉及危险硬件操作，使用 ask_user 工具向用户确认。\n"
-            "4. 禁止用 ask_user 询问系统已定义好的参数范围。\n"
-            "5. 工具返回结果后，用清晰简洁的中文向用户汇报。\n"
-            "6. 如果需要大量文献调研，使用 spawn_agent 创建子 Agent 来执行。\n"
-            f"7. 可用的子 Agent 模板: {templates}。\n"
-            "\n"
+            f"你当前处于「{_mode_label(chat_mode)}」模式。\n\n"
+            f"{mode_specific}\n\n"
+            f"可用的子 Agent 模板: {templates}。\n"
             "每次收到用户消息后，重新评估当前状态，决定下一步行动。"
         ),
     })
@@ -2799,8 +2884,12 @@ def chat_agent():
             messages.append(msg)
     messages.append({"role": "user", "content": user_message})
 
-    # Create per-session executor with spawn_agent
+    # Create per-session executor with spawn_agent, 然后用 mode-aware 工具集覆盖
+    # (用户的 chat_mode 决定 agent 暴露哪些工具 — 详见 create_main_executor)
     session_executor = _make_session_executor()
+    for tool_name in list(session_executor._tools.keys()):
+        if tool_name not in mode_executor._tools:
+            del session_executor._tools[tool_name]
 
     # Create ask_user queue for this session
     ask_queue = queue_module.Queue()

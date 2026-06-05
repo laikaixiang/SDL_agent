@@ -254,6 +254,27 @@ class AgentLoop:
                                 timeout_at=TIMEOUT_AT_SEC,
                             )
                             status = "success"
+                        elif tool_name == "design_experiment":
+                            # ---- 实验设计: 分发后自动询问用户是否执行 ----
+                            # 重要: 硬件工具已被 mode-filter 屏蔽, 用户必须在前端点"运行"才会执行
+                            # 这里主动推一个 agent_question 事件, 让前端显示确认卡片
+                            result = self.executor.dispatch(tool_name, arguments)
+                            status = "error" if "错误" in result or "未找到" in result else "success"
+                            # 推送 design_experiment 结果后再追加确认问题
+                            if status == "success" and event_callback:
+                                try:
+                                    event_callback({
+                                        "type": "agent_question",
+                                        "question": (
+                                            "实验方案已设计完成, 已推送到右侧'实验设计'面板。"
+                                            "请查看完整步骤。\n\n"
+                                            "**如需执行, 请在面板中点击'编译并运行'按钮。**\n"
+                                            "是否需要我调整方案?"
+                                        ),
+                                        "options": '["继续调整", "我去执行", "就这样"]',
+                                    })
+                                except Exception:
+                                    pass
                         else:
                             # ---- 常规工具分发 ----
                             result = self.executor.dispatch(tool_name, arguments)

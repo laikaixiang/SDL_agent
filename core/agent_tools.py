@@ -861,17 +861,21 @@ class UnifiedToolExecutor:
 # Factory
 # =============================================================================
 
-def create_main_executor() -> UnifiedToolExecutor:
+def create_main_executor(chat_mode: str = "normal") -> UnifiedToolExecutor:
     """
     工厂函数：扫描硬件工具 + 软件算法 + 合并内置工具，创建 UnifiedToolExecutor
+
+    chat_mode 控制哪些工具暴露给 agent:
+      "normal"     - 所有工具 (默认)
+      "extraction" - 仅文献搜索/提取/预览 (无硬件、无软件算法)
+      "hardware"   - 仅硬件工具 + ask_user (用户明确说了"硬件控制"才暴露硬件)
+      "experiment" - 仅 design_experiment + ask_user (硬件工具被屏蔽, 强制走设计流程)
+      "analysis"   - 仅软件算法 + ask_user (数据分析)
 
     启动时打印工具扫描摘要:
         [AgentTools] Found N hardware tools: [...]
         [AgentTools] Found N software algorithms: [...]
         [AgentTools] Total: N tools
-
-    Returns:
-        已填充所有工具的 UnifiedToolExecutor 实例
     """
     hw_tools = scan_hardware_tools()
     hw_names = [t.name for t in hw_tools]
@@ -881,7 +885,33 @@ def create_main_executor() -> UnifiedToolExecutor:
     sw_names = [t.name for t in sw_tools]
     print(f"[AgentTools] Found {len(sw_tools)} software algorithms: {sw_names}")
 
-    all_tools = list(BUILTIN_TOOLS) + hw_tools + sw_tools
-    print(f"[AgentTools] Total: {len(all_tools)} tools")
+    # 始终包含的内置工具
+    base_builtin = [t for t in BUILTIN_TOOLS if t.name == "ask_user"]
 
+    if chat_mode == "normal":
+        # 全部工具
+        all_tools = list(BUILTIN_TOOLS) + hw_tools + sw_tools
+    elif chat_mode == "extraction":
+        # 文献提取: search/extract/preview + ask_user
+        all_tools = [
+            t for t in BUILTIN_TOOLS
+            if t.name in ("ask_user", "search_literature", "extract_from_pdf", "preview_pdf_page")
+        ] + sw_tools  # 软件算法可用 (例如对提取后的 CSV 做分析)
+    elif chat_mode == "hardware":
+        # 硬件控制: 硬件工具 + ask_user (用户明确说"硬件控制", 允许直接调用)
+        all_tools = base_builtin + hw_tools
+    elif chat_mode == "experiment":
+        # 实验设计: 仅 design_experiment + ask_user (强制走设计流程, 不让 agent 直接动硬件)
+        all_tools = [
+            t for t in BUILTIN_TOOLS
+            if t.name in ("ask_user", "design_experiment")
+        ]
+    elif chat_mode == "analysis":
+        # 数据分析: 软件算法 + ask_user
+        all_tools = base_builtin + sw_tools
+    else:
+        # 未知模式: 全部工具
+        all_tools = list(BUILTIN_TOOLS) + hw_tools + sw_tools
+
+    print(f"[AgentTools] Mode={chat_mode!r}: Total: {len(all_tools)} tools")
     return UnifiedToolExecutor(all_tools)

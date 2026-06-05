@@ -290,7 +290,15 @@ async function sendToAgent(message: string) {
   }
 
   const history = store.messages.slice(0, -1).map(m => ({ role: m.role, content: m.content }))
-  await sendAgentMessage({ message, session_id: sessionId.value, history }, callbacks)
+  // 传当前 chat_mode 给 agent endpoint, 让后端按 mode 过滤工具集
+  // 详见 app.py:_get_mode_system_prompt
+  const chatMode = store.currentMode || 'normal'
+  await sendAgentMessage({
+    message,
+    session_id: sessionId.value,
+    history,
+    chat_mode: chatMode,
+  }, callbacks)
 }
 
 async function handleAgentQuestionAnswer(answer: string) {

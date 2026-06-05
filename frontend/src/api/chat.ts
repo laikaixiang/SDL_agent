@@ -149,7 +149,12 @@ export async function uploadPDF(file: File): Promise<{ success: boolean; filenam
 }
 
 export async function sendAgentMessage(
-  body: { message: string; session_id: string; history?: Pick<Message, 'role' | 'content'>[] },
+  body: {
+    message: string
+    session_id: string
+    history?: Pick<Message, 'role' | 'content'>[]
+    chat_mode?: string  // 'normal' | 'extraction' | 'hardware' | 'experiment' | 'analysis'
+  },
   callbacks: AgentCallbacks,
   signal?: AbortSignal,
 ): Promise<AgentResult> {

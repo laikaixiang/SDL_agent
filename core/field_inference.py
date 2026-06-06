@@ -5,6 +5,7 @@
 
 import json
 import os
+import re
 from typing import List, Tuple, Dict, Any
 from pydantic import BaseModel, Field, ValidationError
 
@@ -397,7 +398,14 @@ class ExperimentDesignAgent:
                 experiment_json = self._parse_experiment_json(content)
 
                 if experiment_json is None:
-                    return False, f"JSON解析失败: 无法从LLM响应提取JSON。原始输出: {content[:200]}"
+                    diag = (
+                        f"JSON解析失败: 无法从LLM响应提取JSON。"
+                        f"长度={len(content)} 字符,首字符={content[:30]!r},"
+                        f"首{{位置={content.find('{')},末}}位置={content.rfind('}')}。"
+                        f"原始输出: {content[:200]}"
+                    )
+                    print(f"[实验设计] {diag}")
+                    return False, diag
 
                 # 规范化变量：为缺少 type 的变量从 default_value 推断类型
                 self._normalize_variables(experiment_json)
@@ -496,10 +504,14 @@ class ExperimentDesignAgent:
         experiment_json = self._parse_experiment_json(content)
 
         if experiment_json is None:
-            yield self._sse_event(
-                "error",
-                f"JSON解析失败: 无法从LLM响应提取JSON。原始输出: {content[:200]}"
+            diag = (
+                f"JSON解析失败: 无法从LLM响应提取JSON。"
+                f"长度={len(content)} 字符,首字符={content[:30]!r},"
+                f"首{{位置={content.find('{')},末}}位置={content.rfind('}')}。"
+                f"原始输出: {content[:200]}"
             )
+            print(f"[实验设计-流式] {diag}")
+            yield self._sse_event("error", diag)
             return
 
         # 规范化变量：为缺少 type 的变量从 default_value 推断类型
@@ -586,27 +598,67 @@ class ExperimentDesignAgent:
         return experiment_json
 
     def _parse_experiment_json(self, content: str):
-        """多策略解析实验设计JSON"""
+        """多策略解析实验设计JSON,按从最直接到最宽松的顺序尝试"""
+        if not content:
+            return None
+
         # 策略1: 标准markdown清理
         cleaned = content.replace("```json", "").replace("```", "").strip()
-        try:
-            return json.loads(cleaned)
-        except json.JSONDecodeError:
-            pass
+        parsed = self._try_json_loads(cleaned)
+        if parsed is not None:
+            return parsed
 
         # 策略2: 提取最外层{...}块
         start = content.find('{')
         end = content.rfind('}')
         if start != -1 and end != -1 and end > start:
             block = content[start:end + 1]
-            # Clean markdown from the block
             block = block.replace("```json", "").replace("```", "").strip()
-            try:
-                return json.loads(block)
-            except json.JSONDecodeError:
-                pass
+            parsed = self._try_json_loads(block)
+            if parsed is not None:
+                return parsed
+
+        # 策略3: 修复常见 LLM JSON 错误(尾随逗号、单引号、Python None/True/False)后再尝试
+        repaired = self._repair_common_json_errors(cleaned)
+        parsed = self._try_json_loads(repaired)
+        if parsed is not None:
+            return parsed
+
+        # 策略4: 提取最外层 {...} 块后再次修复
+        if start != -1 and end != -1 and end > start:
+            repaired_block = self._repair_common_json_errors(block)
+            parsed = self._try_json_loads(repaired_block)
+            if parsed is not None:
+                return parsed
 
         return None
+
+    @staticmethod
+    def _try_json_loads(text: str):
+        """静默的 json.loads 包装,失败返回 None"""
+        if not text:
+            return None
+        try:
+            return json.loads(text)
+        except (json.JSONDecodeError, ValueError):
+            return None
+
+    @staticmethod
+    def _repair_common_json_errors(text: str) -> str:
+        """修复 LLM 常见的 JSON 格式问题:
+        - Python 风格 None/True/False → JSON null/true/false
+        - 单引号字符串 → 双引号
+        - 尾部逗号 (在 ] 或 } 之前)
+        """
+        if not text:
+            return text
+        # Python 字面量 → JSON
+        text = re.sub(r'\bNone\b', 'null', text)
+        text = re.sub(r'\bTrue\b', 'true', text)
+        text = re.sub(r'\bFalse\b', 'false', text)
+        # 尾随逗号: ,] 或 ,}
+        text = re.sub(r',(\s*[\]\}])', r'\1', text)
+        return text
 
     def validate_experiment_json(self, experiment_json: Dict) -> bool:
         """

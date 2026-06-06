@@ -426,7 +426,8 @@ class LiteratureIndexer:
             try:
                 self._embedding_service = create_embedding_service()
                 self._vector_store = ChromaVectorStore(
-                    persist_dir=self.config.CHROMADB_PERSIST_DIR
+                    persist_dir=self.config.CHROMADB_PERSIST_DIR,
+                    expected_dim=self.config.EMBEDDING_DIM
                 )
                 self._pdf_processor = PDFProcessor()
 

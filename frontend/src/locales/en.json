@@ -25,11 +25,13 @@
   },
   "modes": {
     "chat": "Chat",
+    "agent": "Agent",
     "literatureExtraction": "Literature Extraction",
     "hardwareControl": "Hardware Control",
     "experimentDesign": "Experiment Design",
     "dataAnalysis": "Data Analysis",
     "hintNormal": "Free chat",
+    "hintAgent": "AI Agent with tool-use support",
     "hintExtraction": "Auto-add \"Search for me:\" prefix for literature extraction",
     "hintHardware": "Enter hardware commands to control devices",
     "hintExperiment": "Enter experiment description to design experiment",
@@ -61,7 +63,8 @@
   },
   "thinking": {
     "thinking": "Thinking...",
-    "thoughtFor": "Thought for {duration}s..."
+    "thoughtFor": "Thought for {duration}s...",
+    "thinkingProcess": "Thinking Process"
   },
   "experiment": {
     "compiling": "Compiling...",
@@ -332,6 +335,7 @@
     "folderNameLengthInvalid": "Folder name must be 1-50 characters",
     "folderNotFound": "Folder not found",
     "semanticSearchNotInitialized": "Semantic search service not initialized, please check EMBEDDING_API_KEY configuration",
+    "semanticSearchFailed": "Semantic search failed: {error}. Please verify EMBEDDING_API_KEY is valid and quota is sufficient.",
     "queryEmpty": "query cannot be empty",
     "pdfPathEmpty": "pdf_path cannot be empty",
     "pageNumInvalid": "page_num must be >= 0",

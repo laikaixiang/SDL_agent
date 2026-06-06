@@ -119,6 +119,17 @@ export async function compileExperiment(json: ExperimentPlan): Promise<{
   })
 }
 
+export async function logCompileError(error: string, experimentJson?: unknown): Promise<{
+  success: boolean
+  log_path?: string
+  message?: string
+}> {
+  return request('/api/log_compile_error', {
+    method: 'POST',
+    body: { error, experiment_json: experimentJson },
+  })
+}
+
 export async function compileAndRun(json: ExperimentPlan): Promise<{
   success: boolean
   code: string

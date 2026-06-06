@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import type { Message } from '@/types/chat'
-import { sendChatMessage } from '@/api/chat'
+import { sendChatMessage, sendAgentMessage } from '@/api/chat'
 import { generateExperimentStream } from '@/api/experiment'
 import { saveHistoryBatch } from '@/api/history'
 import { isTimeoutError } from '@/api/client'
@@ -11,6 +11,7 @@ import { useExperimentStore } from '@/stores/experiment'
 import i18n from '@/i18n'
 
 export type ChatMode = 'normal' | 'extraction' | 'hardware' | 'experiment' | 'analysis'
+export type ChatEngine = 'chat' | 'agent'
 
 // NOTE: MODE_PREFIX values are protocol strings matched by the backend (app.py).
 // Do NOT localize these — changing them would break mode detection on the server.
@@ -42,6 +43,8 @@ export const useChatStore = defineStore('chat', () => {
   const abortController = ref<AbortController | null>(null)
   const currentMode = ref<ChatMode>('normal')
   const extractionRunning = ref(false)
+  // Chat engine mode: 'chat' = prefix-based router (/api/chat), 'agent' = tool-use loop (/api/chat/agent)
+  const chatEngine = ref<ChatEngine>('chat')
   let extractionDisconnect: (() => void) | null = null
 
   // Two-round extraction: field_confirm → start_extraction
@@ -64,6 +67,10 @@ export const useChatStore = defineStore('chat', () => {
     } else {
       currentMode.value = mode
     }
+  }
+
+  function setChatEngine(engine: ChatEngine) {
+    chatEngine.value = engine
   }
 
   function enableExtraction() { currentMode.value = 'extraction' }
@@ -412,7 +419,9 @@ export const useChatStore = defineStore('chat', () => {
     extractionPdfPath,
     extractionFilename,
     streamingMessage,
+    chatEngine,
     setMode,
+    setChatEngine,
     enableExtraction,
     disableExtraction,
     addMessage,

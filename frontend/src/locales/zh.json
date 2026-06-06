@@ -25,11 +25,13 @@
   },
   "modes": {
     "chat": "对话",
+    "agent": "Agent",
     "literatureExtraction": "文献提取",
     "hardwareControl": "硬件控制",
     "experimentDesign": "实验设计",
     "dataAnalysis": "数据分析",
     "hintNormal": "自由对话",
+    "hintAgent": "AI Agent，支持工具调用",
     "hintExtraction": "自动添加\"帮我搜寻：\"前缀进行文献提取",
     "hintHardware": "输入硬件指令操控设备",
     "hintExperiment": "输入实验描述设计实验",
@@ -61,7 +63,8 @@
   },
   "thinking": {
     "thinking": "思考中...",
-    "thoughtFor": "思考了 {duration}s..."
+    "thoughtFor": "思考了 {duration}s...",
+    "thinkingProcess": "思考过程"
   },
   "experiment": {
     "compiling": "编译中...",
@@ -332,6 +335,7 @@
     "folderNameLengthInvalid": "文件夹名需在 1-50 字符之间",
     "folderNotFound": "文件夹不存在",
     "semanticSearchNotInitialized": "语义搜索服务未初始化，请检查 EMBEDDING_API_KEY 配置",
+    "semanticSearchFailed": "语义搜索失败: {error}。请检查 EMBEDDING_API_KEY 是否有效/配额是否充足。",
     "queryEmpty": "query 不能为空",
     "pdfPathEmpty": "pdf_path 不能为空",
     "pageNumInvalid": "page_num 必须 >= 0",

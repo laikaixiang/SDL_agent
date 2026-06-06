@@ -14,6 +14,11 @@ __pycache__/
 # 敏感配置（包含 API Key 等，由用户从 config.example.json 复制）
 config.json
 
+# .step
+*.STEP
+*.step
+*.stp
+
 # IDE
 .idea/
 .vscode/
@@ -21,17 +26,12 @@ hardware/platform_csharp/.vs
 
 # CLAUDE
 .claude/
-.doc/
-.superpowers/
+/docs/
+.superpowers
 CLAUDE.md
 
 # Prompt overrides (运行时修改，源文件在 registry 中)
 prompts/overrides/
-
-# 3D模型STEP文件
-*.step
-*.stp
-*.STEP
 
 # nmp
 frontend/node_modules

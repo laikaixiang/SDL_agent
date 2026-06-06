@@ -54,6 +54,9 @@ from extract.semantic_search import SemanticSearch
 from extract.literature_indexer import LiteratureIndexer
 from utils import CSVWriter
 from prompts.api import prompts_bp
+from core.agent_tools import create_main_executor, AgentTool, UnifiedToolExecutor
+from core.agent_loop import AgentLoop, AgentOrchestrator
+import queue as queue_module
 
 # 初始化Flask应用，static 文件夹指向 Vue 前端构建产物
 app = Flask(__name__, static_folder='frontend/dist', static_url_path='/static')
@@ -74,11 +77,33 @@ algorithm_parser = AlgorithmParser(llm_client)    # 算法解析器
 hardware_controller = HardwareController()
 task_manager = TaskManager()
 
+# Agent engine（Phase 1 — 启动时初始化）
+_agent_executor = None
+_agent_orchestrator = None
+_agent_ask_queues: dict = {}  # session_id -> queue.Queue
+if config.AGENT_ENABLED:
+    try:
+        _agent_executor = create_main_executor()
+        _agent_orchestrator = AgentOrchestrator(executor=_agent_executor)
+        print(f"[Agent]   Tools: {len(_agent_executor.names)} registered")
+        print(f"[Agent]   Templates: {_agent_orchestrator.list_templates()}")
+    except Exception as e:
+        print(f"[Agent] 初始化失败: {e}，Agent 功能不可用")
+        _agent_executor = None
+        _agent_orchestrator = None
+
 # Phase 3: 语义搜索基础设施（提前初始化，供 ExtractionEngine 复用）
 _semantic_search_instance = None
 try:
     _embedding_service = create_embedding_service()
-    _vector_store = ChromaVectorStore(persist_dir=config.CHROMADB_PERSIST_DIR)
+    # 自动检测 embedding 模型的实际维度(一次 API 调用)
+    # 避免 config.EMBEDDING_DIM 与模型不匹配导致 ChromaDB 报错
+    test_emb = _embedding_service.embed_text("dimension_test")
+    detected_dim = len(test_emb)
+    if detected_dim != config.EMBEDDING_DIM:
+        print(f"[语义搜索] embedding 维度已更新: {config.EMBEDDING_DIM} → {detected_dim}")
+        config.EMBEDDING_DIM = detected_dim
+    _vector_store = ChromaVectorStore(persist_dir=config.CHROMADB_PERSIST_DIR, expected_dim=config.EMBEDDING_DIM)
     _sqlite_path = os.path.join(config.CHROMADB_PERSIST_DIR, "page_metadata.db")
     _semantic_search_instance = SemanticSearch(_embedding_service, _vector_store, _sqlite_path)
     print(f"[语义搜索] 初始化成功，已索引 {_vector_store.count()} 个页面向量")
@@ -294,6 +319,115 @@ software_manager = SoftwareManager(
 def open_browser():
     """打开浏览器 — 默认打开 Vue 前端"""
     webbrowser.open("http://127.0.0.1:5000/")
+
+
+# =============================================================================
+# Agent engine helpers (Phase 1)
+# =============================================================================
+
+def _spawn_agent_impl(template: str, task: str, context: dict = None, mode: str = "single", siblings: list = None, pipeline: list = None) -> dict:
+    """
+    Implementation of the spawn_agent tool.
+    Called by AgentLoop when the LLM decides to spawn a sub-agent.
+
+    Returns:
+        {"result": "summary string"}
+    """
+    if _agent_orchestrator is None:
+        return {"result": "错误: Agent 引擎未启用"}
+
+    if mode == "pipeline" and pipeline:
+        results = _agent_orchestrator.spawn_pipeline(pipeline)
+        summary_parts = []
+        for i, r in enumerate(results):
+            step = pipeline[i] if i < len(pipeline) else {}
+            tmpl = step.get("template", "unknown")
+            if r and not r.get("error"):
+                fm = r.get("final_message", {})
+                content = fm.get("content", "") if fm else str(r)
+                summary_parts.append(f"[{tmpl}]: {str(content)[:200]}")
+            else:
+                err = r.get("error", "unknown") if r else "unknown"
+                summary_parts.append(f"[{tmpl}]: 失败 - {str(err)[:200]}")
+        return {"result": "流水线执行完成:\n" + "\n".join(summary_parts) if summary_parts else "流水线执行完成"}
+
+    if mode == "parallel" and siblings:
+        tasks = [s.get("task", "") for s in siblings]
+        results = _agent_orchestrator.spawn_parallel(template, tasks)
+        summary_parts = []
+        for i, r in enumerate(results):
+            if r and not r.get("error"):
+                fm = r.get("final_message", {})
+                content = fm.get("content", "") if fm else str(r)
+                summary_parts.append(f"[{template}_{i}]: {str(content)[:200]}")
+        return {"result": "并行执行完成:\n" + "\n".join(summary_parts) if summary_parts else "并行执行完成"}
+
+    # mode == "single"
+    result = _agent_orchestrator.spawn(template, task, context)
+    if result.get("error"):
+        return {"result": f"子 Agent 执行失败: {result['error']}"}
+    fm = result.get("final_message", {})
+    content = fm.get("content", "") if fm else str(result)
+    return {"result": str(content)}
+
+
+def _make_session_executor() -> UnifiedToolExecutor:
+    """Create a per-session executor with spawn_agent added."""
+    if _agent_executor is None:
+        return UnifiedToolExecutor([])
+
+    # Get available templates
+    templates_list = _agent_orchestrator.list_templates() if _agent_orchestrator else []
+
+    # Build spawn_agent tool
+    spawn_tool = AgentTool(
+        name="spawn_agent",
+        description=(
+            "创建一个子 Agent 来执行专门任务。子 Agent 有自己的工具集，独立于主对话历史运行，完成后返回结果摘要。"
+            "用于需要大量上下文或长时间运行的任务（如文献检索、数据提取、实验设计）。"
+            "mode='single' 创建单个子 Agent，'parallel' 并行创建多个。"
+            f"可用模板: {templates_list}"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "template": {
+                    "type": "string",
+                    "description": f"Agent 模板名。可用模板: {templates_list}",
+                    "enum": templates_list if templates_list else ["literature_searcher"]
+                },
+                "task": {
+                    "type": "string",
+                    "description": "子 Agent 的任务描述"
+                },
+                "context": {
+                    "type": "object",
+                    "description": "可选的上下文数据字典"
+                },
+                "mode": {
+                    "type": "string",
+                    "description": "执行模式: single=单个子Agent, parallel=并行多个, pipeline=流水线顺序执行",
+                    "enum": ["single", "parallel", "pipeline"]
+                },
+                "pipeline": {
+                    "type": "array",
+                    "description": "流水线模式下步骤列表 [{'template': '...', 'task': '...'}, ...]"
+                },
+                "siblings": {
+                    "type": "array",
+                    "description": "并行模式下额外的任务列表 [{'task': '...'}, ...]"
+                },
+            },
+            "required": ["template", "task"],
+        },
+        required=["template", "task"],
+        func=lambda args: _spawn_agent_impl(**args),
+        category="builtin",
+    )
+
+    # Merge with main executor's tools
+    all_tools = list(_agent_executor._tools.values()) + [spawn_tool]
+    return UnifiedToolExecutor(all_tools)
 
 
 @app.route('/')
@@ -1892,6 +2026,48 @@ def compile_experiment():
         }), 500
 
 
+@app.route('/api/log_compile_error', methods=['POST'])
+def log_compile_error():
+    """
+    把编译失败的错误日志保存到当前会话的 dialogue data/history
+    方便用户事后查阅
+
+    请求体:
+    {
+        "error": "错误信息",
+        "experiment_json": {...}  # 可选, 用于排查上下文
+    }
+
+    返回:
+    {
+        "success": true,
+        "log_path": "..."
+    }
+    """
+    import json as _json
+    from datetime import datetime
+    data = request.get_json(silent=True) or {}
+    error = data.get('error', '').strip()
+    exp_json = data.get('experiment_json')
+
+    if not error:
+        return jsonify({"success": False, "message": "error 不能为空"}), 400
+
+    # 保存到 dialogue data/history/<session>/compile_errors.log
+    log_path = os.path.join(SESSION_BASE_PATH, 'compile_errors.log')
+    try:
+        with open(log_path, 'a', encoding='utf-8') as f:
+            f.write(f"\n{'='*60}\n")
+            f.write(f"[{datetime.now().isoformat(timespec='seconds')}]\n")
+            f.write(f"Error: {error}\n")
+            if exp_json:
+                f.write(f"Experiment JSON:\n{_json.dumps(exp_json, ensure_ascii=False, indent=2)}\n")
+            f.write(f"{'='*60}\n")
+        return jsonify({"success": True, "log_path": log_path})
+    except Exception as e:
+        return jsonify({"success": False, "message": f"写入日志失败: {e}"}), 500
+
+
 @app.route('/api/compile_and_run_experiment', methods=['POST'])
 def compile_and_run_experiment():
     """
@@ -2362,8 +2538,15 @@ def semantic_search():
     if top_k < 1 or top_k > 100:
         top_k = 10
 
-    results = _semantic_search_instance.search(query, top_k=top_k)
-    total_pages = _semantic_search_instance.get_total_pages()
+    try:
+        results = _semantic_search_instance.search(query, top_k=top_k)
+        total_pages = _semantic_search_instance.get_total_pages()
+    except Exception as e:
+        lang = i18n.get_lang(request)
+        return jsonify({
+            "success": False,
+            "error": i18n.get('errors.semanticSearchFailed', lang).format(error=str(e))
+        }), 500
 
     return jsonify({
         "success": True,
@@ -2575,6 +2758,255 @@ def api_literature_detail(unique_id):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+# =============================================================================
+# Agent tool-use API (Phase 1)
+# =============================================================================
+
+def _mode_label(mode: str) -> str:
+    """模式的中文标签"""
+    return {
+        "normal": "自由",
+        "extraction": "文献提取",
+        "hardware": "硬件控制",
+        "experiment": "实验设计",
+        "analysis": "数据分析",
+    }.get(mode, mode)
+
+
+def _get_mode_system_prompt(mode: str, available_tools: list) -> str:
+    """
+    根据 mode 返回不同的系统提示, 强制 agent 按用户明确的意图行动。
+
+    关键设计:
+    - "实验设计" 模式下, agent **不能**直接调用硬件工具 (即使它们存在),
+      必须先用 design_experiment 设计完整方案, 推送到前端, 然后用 ask_user
+      询问用户是否执行。用户在前端点击"运行"才会真正执行。
+    - "硬件控制" 模式下, agent 可以直接调用硬件工具 (用户已明确说"硬件控制")
+    - "文献提取" 模式下, agent 使用 search_literature/extract_from_pdf/preview_pdf_page
+    - "数据分析" 模式下, agent 使用 software 算法
+    - "normal" 模式下, 全部工具可用 (向后兼容)
+    """
+    tool_list = ", ".join(available_tools)
+
+    base_rules = (
+        "通用行为准则:\n"
+        "1. 先理解用户意图, 再选择合适的工具, 不要急于回复文本。\n"
+        "2. 如果意图模糊, 使用 ask_user 工具向用户确认。\n"
+        "3. 工具返回结果后, 用清晰简洁的中文向用户汇报。\n"
+    )
+
+    if mode == "experiment":
+        return (
+            f"你当前可用的工具: {tool_list}\n\n"
+            "**关键约束 (实验设计模式)**:\n"
+            "- 你**不能**直接调用任何硬件工具, 即使用户的描述听起来像'现在去动一下机械臂'。\n"
+            "- 你必须**始终**使用 `design_experiment` 工具来设计完整的实验方案(返回 JSON 格式)。\n"
+            "- 设计完成后, JSON 会自动推送到前端的实验设计面板, 用户可以看到完整步骤。\n"
+            "- 然后**必须**用 `ask_user` 询问用户'是否要执行这个实验?'。\n"
+            "- **只有当用户在前端点击'运行'按钮时, 实验才会真正执行**。\n"
+            "- 你自己的工具调用**不会**触发硬件, 不要让用户误以为执行了。\n\n"
+            f"{base_rules}"
+        )
+
+    if mode == "hardware":
+        return (
+            f"你当前可用的工具: {tool_list}\n\n"
+            "**关键约束 (硬件控制模式)**:\n"
+            "- 用户已明确选择'硬件控制'模式, 可以直接调用硬件工具。\n"
+            "- 但仍然要谨慎: 危险操作前用 ask_user 二次确认。\n"
+            "- 工具调用会立刻触发 MQTT 消息下发到硬件, 没有'撤销'。\n\n"
+            f"{base_rules}"
+        )
+
+    if mode == "extraction":
+        return (
+            f"你当前可用的工具: {tool_list}\n\n"
+            "**关键约束 (文献提取模式)**:\n"
+            "- 主要使用 search_literature / extract_from_pdf / preview_pdf_page。\n"
+            "- 论文统一识别标识是**标题**(不是文件名), 用标题传给 extract_from_pdf。\n\n"
+            f"{base_rules}"
+        )
+
+    if mode == "analysis":
+        return (
+            f"你当前可用的工具: {tool_list}\n\n"
+            "**关键约束 (数据分析模式)**:\n"
+            "- 主要使用软件算法对 CSV/数据进行分析。\n"
+            "- data 字段填要分析的数据(从 temporal/extraction.csv 读)。\n\n"
+            f"{base_rules}"
+        )
+
+    # normal / default
+    return (
+        f"你当前可用的工具: {tool_list}\n\n"
+        "你可以根据用户需求选择任何工具。但请注意:\n"
+        "- 实验/硬件操作: 优先用 design_experiment 设计, 让用户审核后再执行。\n"
+        "- 直接调硬件工具前用 ask_user 二次确认。\n\n"
+        f"{base_rules}"
+    )
+
+
+@app.route('/api/chat/agent', methods=['POST'])
+def chat_agent():
+    """Agent tool-use 对话端点 — SSE 流式响应"""
+    if _agent_executor is None:
+        return jsonify({"type": "error", "reply": "Agent 模式未启用"}), 400
+
+    data = request.get_json(silent=True) or {}
+    user_message = data.get('message', '').strip()
+    session_id = data.get('session_id', 'default')
+    history = data.get('history', [])
+    # chat_mode 决定 agent 可用的工具集:
+    #   normal/extraction/hardware/experiment/analysis
+    chat_mode = data.get('chat_mode', 'normal')
+
+    if not user_message:
+        return jsonify({"type": "error", "reply": "消息不能为空"}), 400
+
+    # 根据 chat_mode 创建对应的 executor (工具集受 mode 限制)
+    from core.agent_tools import create_main_executor
+    mode_executor = create_main_executor(chat_mode=chat_mode)
+    print(f"[Agent] session={session_id} mode={chat_mode!r} tools={mode_executor.names}")
+
+    # Build messages from history
+    messages = []
+
+    # System prompt: 根据 mode 不同, 行为准则不同
+    templates = _agent_orchestrator.list_templates() if _agent_orchestrator else []
+    mode_specific = _get_mode_system_prompt(chat_mode, mode_executor.names)
+    messages.append({
+        "role": "system",
+        "content": (
+            "你是 SDL_agent，一个 AI 驱动的实验室自动化助手。\n\n"
+            f"你当前处于「{_mode_label(chat_mode)}」模式。\n\n"
+            f"{mode_specific}\n\n"
+            f"可用的子 Agent 模板: {templates}。\n"
+            "每次收到用户消息后，重新评估当前状态，决定下一步行动。"
+        ),
+    })
+
+    if history:
+        for m in history:
+            role = m.get("role", "user")
+            content = m.get("content", "")
+            if not content:
+                continue
+            api_role = "assistant" if role == "ai" else "user"
+            msg = {"role": api_role, "content": content}
+            if role == "ai" and m.get("reasoning_content"):
+                msg["reasoning_content"] = m["reasoning_content"]
+            messages.append(msg)
+    messages.append({"role": "user", "content": user_message})
+
+    # Create per-session executor with spawn_agent, 然后用 mode-aware 工具集覆盖
+    # (用户的 chat_mode 决定 agent 暴露哪些工具 — 详见 create_main_executor)
+    session_executor = _make_session_executor()
+    for tool_name in list(session_executor._tools.keys()):
+        if tool_name not in mode_executor._tools:
+            del session_executor._tools[tool_name]
+
+    # Create ask_user queue for this session
+    ask_queue = queue_module.Queue()
+    _agent_ask_queues[session_id] = ask_queue
+
+    # Create LLM client
+    _talk_extra = config.get_extra_body("TALK")
+    agent_llm = LLMClient(
+        api_key=config.TALK_API_KEY,
+        api_url=config.TALK_API_URL,
+        extra_body=_talk_extra,
+    )
+
+    # Create AgentLoop
+    loop = AgentLoop(
+        llm=agent_llm,
+        executor=session_executor,
+        model=config.MODEL_NAME_TALK,
+        max_turns=config.AGENT_MAX_TURNS,
+        extra_body=_talk_extra,
+    )
+
+    # Event queue for SSE streaming
+    event_queue = []
+    loop_done = threading.Event()
+    result_container = {}
+
+    def event_callback(event: dict):
+        event_queue.append(event)
+
+    def run_loop():
+        try:
+            result = loop.run(
+                messages=messages,
+                event_callback=event_callback,
+                ask_user_queue=ask_queue,
+            )
+            result_container["result"] = result
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            result_container["error"] = str(e)
+        finally:
+            loop_done.set()
+
+    # Run agent in daemon thread
+    loop_thread = threading.Thread(target=run_loop, daemon=True)
+    loop_thread.start()
+
+    def agent_sse_stream():
+        idx = 0
+        while not loop_done.is_set() or idx < len(event_queue):
+            while idx < len(event_queue):
+                event = event_queue[idx]
+                idx += 1
+                if event.get("type") in ("done", "error"):
+                    continue
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+            if not loop_done.is_set() and idx >= len(event_queue):
+                import time
+                time.sleep(0.05)
+
+        # Cleanup
+        _agent_ask_queues.pop(session_id, None)
+
+        # Emit final event
+        result = result_container.get("result", {})
+        if result.get("error"):
+            error_event = {"type": "agent_error", "message": result["error"]}
+            yield f"data: {json.dumps(error_event, ensure_ascii=False)}\n\n"
+        else:
+            yield f"data: {json.dumps({'type': 'agent_done'}, ensure_ascii=False)}\n\n"
+
+    return Response(
+        agent_sse_stream(),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+@app.route('/api/chat/agent/respond', methods=['POST'])
+def chat_agent_respond():
+    """用户响应 ask_user 问题"""
+    data = request.get_json(silent=True) or {}
+    session_id = data.get('session_id', 'default')
+    answer = data.get('answer', '').strip()
+
+    if not answer:
+        return jsonify({"type": "error", "reply": "回答不能为空"}), 400
+
+    ask_queue = _agent_ask_queues.get(session_id)
+    if ask_queue is None:
+        return jsonify({"type": "error", "reply": "没有等待中的问题，或会话已过期"}), 404
+
+    ask_queue.put(answer)
+    return jsonify({"type": "ok", "reply": "回答已接收"})
+
+
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='SDL Agent - AI-driven lab automation')
@@ -2586,6 +3018,18 @@ if __name__ == '__main__':
     from utils.i18n import init_i18n
     init_i18n(default_lang=args.default_language)
     print(f"[i18n] Default language: {args.default_language}")
+
+    # ---- Initialize Agent Engine (Phase 1) ----
+    if config.AGENT_ENABLED:
+        print("[Agent] Initializing agent toolkit...")
+        _agent_executor = create_main_executor()
+        _agent_orchestrator = AgentOrchestrator(executor=_agent_executor)
+        print(f"[Agent]   Tools: {len(_agent_executor.names)} registered")
+        print(f"[Agent]   Templates: {_agent_orchestrator.list_templates()}")
+    else:
+        _agent_executor = None
+        _agent_orchestrator = None
+        print("[Agent] Agent mode disabled (AGENT_ENABLED=false)")
 
     print("服务即将启动...")
     Timer(1.5, open_browser).start()

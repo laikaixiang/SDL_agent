@@ -96,6 +96,13 @@ if config.AGENT_ENABLED:
 _semantic_search_instance = None
 try:
     _embedding_service = create_embedding_service()
+    # 自动检测 embedding 模型的实际维度(一次 API 调用)
+    # 避免 config.EMBEDDING_DIM 与模型不匹配导致 ChromaDB 报错
+    test_emb = _embedding_service.embed_text("dimension_test")
+    detected_dim = len(test_emb)
+    if detected_dim != config.EMBEDDING_DIM:
+        print(f"[语义搜索] embedding 维度已更新: {config.EMBEDDING_DIM} → {detected_dim}")
+        config.EMBEDDING_DIM = detected_dim
     _vector_store = ChromaVectorStore(persist_dir=config.CHROMADB_PERSIST_DIR, expected_dim=config.EMBEDDING_DIM)
     _sqlite_path = os.path.join(config.CHROMADB_PERSIST_DIR, "page_metadata.db")
     _semantic_search_instance = SemanticSearch(_embedding_service, _vector_store, _sqlite_path)

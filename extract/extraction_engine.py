@@ -97,7 +97,7 @@ class ExtractionEngine:
             # 2. 创建 ChromaDB 向量存储（如果外部已注入则复用）
             chroma_dir = self.config.CHROMADB_PERSIST_DIR
             if self.vector_store is None:
-                self.vector_store = ChromaVectorStore(persist_dir=chroma_dir)
+                self.vector_store = ChromaVectorStore(persist_dir=chroma_dir, expected_dim=self.config.EMBEDDING_DIM)
 
             # 3. 创建页面索引器（用于一次性预索引 PDF 文献库）
             sqlite_path = os.path.join(chroma_dir, "page_metadata.db")

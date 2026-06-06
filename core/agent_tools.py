@@ -197,7 +197,7 @@ def _resolve_pdf_path(pdf_path: str, cfg) -> str:
         from extract.vector_store import ChromaVectorStore
 
         emb = create_embedding_service()
-        vs = ChromaVectorStore(persist_dir=cfg.CHROMADB_PERSIST_DIR)
+        vs = ChromaVectorStore(persist_dir=cfg.CHROMADB_PERSIST_DIR, expected_dim=cfg.EMBEDDING_DIM)
         sqlite_path = _os.path.join(cfg.CHROMADB_PERSIST_DIR, "page_metadata.db")
         ss = SemanticSearch(emb, vs, sqlite_path)
         results = ss.search(pdf_path, top_k=1)
@@ -258,7 +258,7 @@ def _search_literature_func(args: dict) -> str:
     import sqlite3 as _sqlite
     _cfg = _Config()
     emb = create_embedding_service()
-    vs = ChromaVectorStore(persist_dir=_cfg.CHROMADB_PERSIST_DIR)
+    vs = ChromaVectorStore(persist_dir=_cfg.CHROMADB_PERSIST_DIR, expected_dim=_cfg.EMBEDDING_DIM)
     sqlite_path = _os.path.join(_cfg.CHROMADB_PERSIST_DIR, "page_metadata.db")
     ss = SemanticSearch(emb, vs, sqlite_path)
     query = args.get("query", "")

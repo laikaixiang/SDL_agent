@@ -140,19 +140,38 @@ class ChromaVectorStore(VectorStore):
     - 多进程并发写入（ChromaDB 不支持，需外部加锁）
     """
 
-    def __init__(self, persist_dir: str, collection_name: str = "page_embeddings"):
+    def __init__(self, persist_dir: str, collection_name: str = "page_embeddings",
+                 expected_dim: int = None):
         """
         初始化 ChromaDB 客户端和集合
 
         Args:
             persist_dir: ChromaDB 数据持久化目录，应使用 config.CHROMADB_PERSIST_DIR
             collection_name: 集合名称，默认 "page_embeddings"
-                           可通过不同名称创建多个集合以隔离不同用途
+            expected_dim: 期望的 embedding 维度。若集合中有数据且维度不匹配，自动删除旧集合重建
         """
         import chromadb
+        import sys as _sys
         self.client = chromadb.PersistentClient(path=persist_dir)
-        # get_or_create_collection：如果集合已存在则打开，否则自动创建
-        # hnsw:space = cosine 指定使用余弦距离
+        self.collection_name = collection_name
+        self.expected_dim = expected_dim
+
+        # 维度校验：防止切换 embedding 模型后 ChromaDB 维度假死
+        if expected_dim is not None:
+            try:
+                existing = self.client.get_collection(name=collection_name)
+                if existing.count() > 0:
+                    sample = existing.get(limit=1, include=["embeddings"])
+                    if sample["embeddings"] and sample["embeddings"][0]:
+                        stored_dim = len(sample["embeddings"][0])
+                        if stored_dim != expected_dim:
+                            print(f"[ChromaDB] 维度不匹配: 已存储 {stored_dim}维，"
+                                  f"当前配置 {expected_dim}维，自动删除旧集合重建",
+                                  file=_sys.stderr)
+                            self.client.delete_collection(name=collection_name)
+            except Exception:
+                pass
+
         self.collection = self.client.get_or_create_collection(
             name=collection_name,
             metadata={"hnsw:space": "cosine"}

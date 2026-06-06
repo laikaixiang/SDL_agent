@@ -33,7 +33,7 @@
     "EMBEDDING_API_KEY": "sk-your-api-key-here",
     "EMBEDDING_API_URL": "https://api.siliconflow.cn/v1/embeddings",
     "EMBEDDING_MODEL": "Qwen/Qwen3-VL-Embedding-8B",
-    "EMBEDDING_DIM": 4096,
+    "EMBEDDING_DIM": 1024,
     "EMBEDDING_MAX_CHARS": 1000,
     "LOCAL_EMBEDDING_MODEL": "",
 

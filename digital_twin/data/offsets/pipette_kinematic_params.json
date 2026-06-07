@@ -37,8 +37,8 @@
       "type": "prismatic",
       "description": "中梁在横梁上沿X方向滑动",
       "mechanical_range": [
-        44.1,
-        384.9
+        71,
+        310
       ],
       "stroke_mm": 340.8,
       "reference_mm": 300.3
@@ -47,8 +47,8 @@
       "type": "prismatic",
       "description": "横梁沿框架Y方向移动",
       "mechanical_range": [
-        59.1,
-        600
+        -150.1,
+        384
       ],
       "stroke_mm": 308.0,
       "reference_mm": 416.1

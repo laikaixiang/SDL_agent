@@ -57,6 +57,28 @@ input[type=range].z-slider { accent-color:var(--accent2); }
 .config-row input[type=range] { flex:1; accent-color:var(--accent); height:4px; }
 .pos-display { font-size:11px; color:var(--accent); font-variant-numeric:tabular-nums; }
 .pos-display span { color:var(--text-bright); }
+
+/* 孪生状态条 */
+.twin-status-idle { color: var(--success); }
+.twin-status-busy { color: var(--accent2); }
+.twin-status-error { color: var(--danger); }
+
+/* 多行执行列表 */
+.twin-line { padding: 3px 6px; font-size: 11px; font-family: monospace; border-radius: 3px; margin: 2px 0; line-height: 1.4; }
+.twin-line-status { display: inline-block; width: 18px; text-align: center; font-weight: 700; }
+.twin-line-cmd { color: var(--text-bright); }
+.twin-line-msg { color: var(--text); margin-left: 6px; font-size: 10px; }
+.twin-line-pending { opacity: 0.5; }
+.twin-line-pending .twin-line-status { color: var(--text); }
+.twin-line-running { background: var(--success); color: #1a1d23; font-weight: 600; box-shadow: 0 0 0 1px var(--success); animation: twin-pulse 0.8s ease-in-out infinite; }
+.twin-line-running .twin-line-status, .twin-line-running .twin-line-msg, .twin-line-running .twin-line-cmd { color: #1a1d23; }
+.twin-line-success { background: rgba(152, 195, 121, 0.12); }
+.twin-line-success .twin-line-status { color: var(--success); }
+.twin-line-error { background: rgba(224, 108, 117, 0.12); }
+.twin-line-error .twin-line-status { color: var(--danger); }
+.twin-line-skipped { opacity: 0.5; }
+.twin-line-skipped .twin-line-status { color: var(--text); }
+@keyframes twin-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
 </style>
 </head>
 <body>
@@ -107,11 +129,18 @@ input[type=range].z-slider { accent-color:var(--accent2); }
 
   <div class="group">
     <h3>TCP 协议模拟 (30003端口)</h3>
-    <textarea id="cmd-input" rows="2" style="width:100%;background:var(--bg);color:var(--text-bright);border:1px solid var(--border);padding:6px;border-radius:4px;font-size:12px;font-family:monospace;resize:vertical" placeholder="输入运动指令...">MovJ(200, 50, 150, 0)</textarea>
+    <textarea id="cmd-input" rows="5" style="width:100%;background:var(--bg);color:var(--text-bright);border:1px solid var(--border);padding:6px;border-radius:4px;font-size:12px;font-family:monospace;resize:vertical" placeholder="每行一条指令,支持: move_robot_arm(...) / MovJ / sleep(N秒) ...">move_robot_arm(177, -337, 155, -85)
+time.sleep(1.0)
+move_robot_arm(177, -337, 355, -85)
+time.sleep(1.0)
+move_robot_arm(400, 0, 155, -85)
+move_robot_arm(400, 0, 355, -85)</textarea>
     <div style="display:flex;gap:6px;margin-top:4px">
       <button class="btn btn-sm btn-accent" onclick="sendCommand()">发送</button>
       <select id="cmd-type" style="background:var(--bg);color:var(--text);border:1px solid var(--border);padding:4px;border-radius:4px;font-size:12px">
+        <option value="move_robot_arm">move_robot_arm (笛卡尔坐标)</option>
         <option value="MovJ">MovJ (笛卡尔关节运动)</option><option value="MovL">MovL (笛卡尔直线)</option><option value="JointMovJ">JointMovJ (关节空间)</option><option value="MovJExt">MovJExt (Z直线电机)</option>
+      </select>
       </select>
     </div>
     <div id="cmd-response" style="font-size:11px;margin-top:4px;font-family:monospace;min-height:16px"></div>
@@ -162,6 +191,13 @@ input[type=range].z-slider { accent-color:var(--accent2); }
       <button class="module-tab" id="mtab-solutionTray" onclick="switchModuleTab('solutionTray')">溶液瓶托盘</button>
     </div>
     <div id="mod-config-body"></div>
+  </div>
+
+  <!-- ====== 数字孪生状态 ====== -->
+  <div class="group" style="padding:8px 12px">
+    <div id="twin-status-bar" class="twin-status-idle" style="font-size:13px;font-weight:600;text-align:center;padding:4px 0">
+      [就绪] 等待指令
+    </div>
   </div>
 
   <div style="font-size:11px;color:var(--text);text-align:center;margin-top:auto;padding-top:8px">
@@ -227,11 +263,13 @@ const scene = new THREE.Scene();
 scene.background=new THREE.Color('#1e2127');
 // No fog — infinite render distance
 
+const ORIGIN_Y = 800;  // 原 Y 最小值=-800 → 平移+800,所有坐标不再负
+
 const camera = new THREE.PerspectiveCamera(45,1,20,4000);
-camera.position.set(800,500,600);
+camera.position.set(800,500,600+ORIGIN_Y);
 
 const controls = new OrbitControls(camera,renderer.domElement);
-controls.target.set(500,200,0);
+controls.target.set(500,200,ORIGIN_Y);
 controls.enableDamping=true; controls.dampingFactor=0.1;
 controls.minDistance=200; controls.maxDistance=2500;
 controls.maxPolarAngle=Math.PI*0.72;
@@ -248,15 +286,15 @@ scene.add(key);
 scene.add((l=>{l.position.set(-200,150,-200);return l})(new THREE.DirectionalLight('#aaccff',0.8)));
 scene.add((l=>{l.position.set(0,60,-350);return l})(new THREE.DirectionalLight('#ffffff',1.8)));
 
-// Platform: 1600×1600, X≥0
+// Platform: 1600×1600, X≥0, Y≥0 (origin at bottom-left)
 const PLATFORM_W = 1600;
 const table = new THREE.Mesh(new THREE.PlaneGeometry(PLATFORM_W, PLATFORM_W),
   new THREE.MeshStandardMaterial({color:'#3d424b',roughness:0.65,metalness:0.1}));
-table.rotation.x=-Math.PI/2; table.position.set(PLATFORM_W/2, 0, 0); table.receiveShadow=true; scene.add(table);
+table.rotation.x=-Math.PI/2; table.position.set(PLATFORM_W/2, 0, ORIGIN_Y); table.receiveShadow=true; scene.add(table);
 
 // Grid on platform + debug axes
-scene.add((g=>{g.position.set(PLATFORM_W/2, 0.015, 0);return g})(new THREE.GridHelper(PLATFORM_W, 32, '#4a4f59', '#2a2d33')));
-// Debug axes with robot coordinate labels (Z=up, matches TCP display)
+scene.add((g=>{g.position.set(PLATFORM_W/2, 0.015, ORIGIN_Y);return g})(new THREE.GridHelper(PLATFORM_W, 32, '#4a4f59', '#2a2d33')));
+// Debug axes at origin (bottom-left: X=0, Y=0) with labels (Z=vertical=blue)
 scene.add(new THREE.AxesHelper(300));
 try {
   const lbl = (text, x, y, z, color) => {
@@ -267,22 +305,22 @@ try {
     const s = new THREE.Sprite(new THREE.SpriteMaterial({map: new THREE.CanvasTexture(c), depthTest: false}));
     s.position.set(x, y, z); s.scale.set(40, 40, 1); return s;
   };
-  scene.add(lbl('X', 330, 0, 0, '#ff4444'));
-  scene.add(lbl('Z', 0, 330, 0, '#4488ff'));    // Z: World Y (UP, J3 lift direction)
-  scene.add(lbl('Y', 0, 0, 330, '#44ff44'));    // Y: World Z (left)
+  scene.add(lbl('X', 330, 0, ORIGIN_Y, '#ff4444'));
+  scene.add(lbl('Z', 0, 330, ORIGIN_Y, '#4488ff'));    // Z: 垂直=World Y=J3升降方向
+  scene.add(lbl('Y', 0, 0, 330+ORIGIN_Y, '#44ff44'));  // Y: 水平=World Z
 } catch(e) { console.warn('Axis labels:', e); }
 
 // Workspace rings
 function ring(r,color,opacity) {
-  const pts=[]; for(let i=0;i<=160;i++){const a=(i/160)*Math.PI*2; pts.push(new THREE.Vector3(r*Math.cos(a),0.04,r*Math.sin(a)));}
+  const pts=[]; for(let i=0;i<=160;i++){const a=(i/160)*Math.PI*2; pts.push(new THREE.Vector3(r*Math.cos(a),r*Math.sin(a),0));}
   return new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({color,transparent:true,opacity,depthTest:true}));
 }
 const wsGroup = new THREE.Group();
 wsGroup.add(ring(A1+A2,'#61afef',0.28));
 wsGroup.add(ring(Math.abs(A1-A2),'#e06c75',0.28));
 for(let a=0;a<360;a+=30){const ra=D2R(a),i=Math.abs(A1-A2),o=A1+A2;
-  wsGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(i*Math.cos(ra),0.03,i*Math.sin(ra)),new THREE.Vector3(o*Math.cos(ra),0.03,o*Math.sin(ra))]),new THREE.LineBasicMaterial({color:'#61afef',transparent:true,opacity:0.12})));}
-// wsGroup added to robotRoot below
+  wsGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(i*Math.cos(ra),i*Math.sin(ra),0),new THREE.Vector3(o*Math.cos(ra),o*Math.sin(ra),0)]),new THREE.LineBasicMaterial({color:'#61afef',transparent:true,opacity:0.12})));}
+// wsGroup → j1Pivot → SCARA J1 轴心 X-Y 水平工作面 (Z=0)
 
 // Materials
 const M=(c,r,m)=>new THREE.MeshStandardMaterial({color:c,roughness:r,metalness:m});
@@ -302,13 +340,14 @@ const box=(w,h,d)=>new THREE.BoxGeometry(w,h,d);
 // edited in the platform_config.json "placement.dobot" entry.
 const dobotPlacement = new THREE.Group(); dobotPlacement.name = 'DobotPlacement'; scene.add(dobotPlacement);
 const robotRoot = new THREE.Group(); robotRoot.name = 'DobotRoot'; dobotPlacement.add(robotRoot);
-robotRoot.add(wsGroup);
+// wsGroup added to j1Pivot below — SCARA J1 轴心, X-Y 水平工作面
 
 const dobotPivot = new THREE.Group(); dobotPivot.rotation.x = -Math.PI / 2; robotRoot.add(dobotPivot);
 
 const baseGroup    = new THREE.Group(); dobotPivot.add(baseGroup);
 const liftCarriage = new THREE.Group(); baseGroup.add(liftCarriage);
 const j1Pivot      = new THREE.Group(); liftCarriage.add(j1Pivot);
+j1Pivot.add(wsGroup);  // 工作空间环在 J1 轴心 X-Y 水平面 (Z=0)
 const j2Pivot      = new THREE.Group(); j1Pivot.add(j2Pivot);
 const j4Pivot      = new THREE.Group(); j2Pivot.add(j4Pivot);
 
@@ -336,7 +375,7 @@ STL_LOADER.load('/models/plates/托盘V3.0(1).STL', (geo) => {
   geo.computeBoundingBox(); const c = new THREE.Vector3(); geo.boundingBox.getCenter(c);
   geo.translate(-c.x, -c.y, -c.z);
   const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({color:0xd0d0d0, roughness:0.5, metalness:0.2}));
-  m.position.set(300, 0.005, -300); m.rotation.y = -Math.PI/2;
+  m.position.set(300, 0.005, -300+ORIGIN_Y); m.rotation.y = -Math.PI/2;
   m.castShadow = true; m.receiveShadow = true; m.name = 'SamplePlate';
   scene.add(m);
 });
@@ -493,40 +532,176 @@ window.moveCartesian = () => {
 };
 
 // ============================================================
-// TCP Protocol commands
+// TCP Protocol commands + Python Tool calls
 // ============================================================
-window.sendCommand = () => {
-  const raw=document.getElementById('cmd-input').value.trim(), ct=document.getElementById('cmd-type').value, re=document.getElementById('cmd-response');
-  let cmd=raw;
-  if(!cmd){cmd=({MovJ:'MovJ(200,50,150,0)',MovL:'MovL(200,50,150,0)',JointMovJ:'JointMovJ(30,-30,0,45)',MovJExt:'MovJExt(300)'})[ct];document.getElementById('cmd-input').value=cmd;}
-  const m=cmd.match(/^(\w+)\((.*)\)$/i);
-  if(!m){re.innerHTML=`<span style="color:#e06c75">-10000,{},${cmd};  [格式无效]</span>`;return;}
-  const nm=m[1], args=m[2].trim()?m[2].split(',').map(s=>+s.trim()):[];
-  if(args.some(isNaN)){re.innerHTML=`<span style="color:#e06c75">-10001,{},${cmd};  [参数错误]</span>`;return;}
-  if(nm==='MovJ'||nm==='MovL'){
-    if(args.length<4){re.innerHTML=`<span style="color:#e06c75">-10002,{},${cmd};  [需X,Y,Z,R]</span>`;return;}
-    const sol=ik(args[0],args[1],args[2],args[3],true);
-    if(!sol.valid){re.innerHTML=`<span style="color:#e06c75">-1,{},${nm}(${args.join(',')}); [IK] ${sol.reason}</span>`;return;}
-    animateTo(sol.j1,sol.j2,sol.j3deg,sol.j4,1200);
-    re.innerHTML=`<span style="color:#98c379">0,{},${nm}(${args.join(',')}); [OK] -> J=(${sol.j1.toFixed(1)}°,${sol.j2.toFixed(1)}°,${sol.j3deg.toFixed(0)}°,${sol.j4.toFixed(1)}°)</span>`;
-    updateRobot(sol.j1,sol.j2,sol.j3deg,sol.j4);
-  }else if(nm==='JointMovJ'){
-    if(args.length<4){re.innerHTML=`<span style="color:#e06c75">-10002,{},${cmd};  [需J1,J2,J3,J4]</span>`;return;}
-    const d3c=j3deg2d3(args[2]);
-    if(args[0]<J1_MIN||args[0]>J1_MAX||args[1]<J2_MIN||args[1]>J2_MAX||args[3]<J4_MIN||args[3]>J4_MAX||d3c<D3_MIN||d3c>D3_MAX){re.innerHTML=`<span style="color:#e06c75">-2,{},${cmd};  [关节限位]</span>`;return;}
-    animateTo(args[0],args[1],args[2],args[3],1200);
-    re.innerHTML=`<span style="color:#98c379">0,{},JointMovJ(${args.join(',')}); [OK]</span>`;
-    updateRobot(args[0],args[1],args[2],args[3]);
-  }else if(nm==='MovJExt'){
-    if(args.length<1){re.innerHTML=`<span style="color:#e06c75">-10002,{},${cmd};  [需目标距离]</span>`;return;}
-    const td3=clamp(args[0],D3_MIN,D3_MAX), tj3=d32j3deg(td3);
-    animateTo(currentJoints.j1,currentJoints.j2,tj3,currentJoints.j4,1200);
-    re.innerHTML=`<span style="color:#98c379">0,{},MovJExt(${args[0]}); [OK] 升降柱->${td3.toFixed(0)}mm</span>`;
-    updateRobot(currentJoints.j1,currentJoints.j2,tj3,currentJoints.j4);
-  }else{re.innerHTML=`<span style="color:#e06c75">-10000,{},${cmd};  [未知指令]</span>`;}
+const TCP_COMMANDS = ['MovJ', 'MovL', 'JointMovJ', 'MovJExt'];
+
+// ============================================================
+// 多行执行:每行一条,按顺序串行执行,运行行绿色高亮
+// ============================================================
+const DEFAULT_CMDS = {
+  move_robot_arm: 'move_robot_arm(220, -220, 200, 0)',
+  MovJ: 'MovJ(200,50,150,0)',
+  MovL: 'MovL(200,50,150,0)',
+  JointMovJ: 'JointMovJ(30,-30,0,45)',
+  MovJExt: 'MovJExt(300)',
 };
 
-function animateTo(tj1,tj2,tj3,tj4,dur){
+const escapeHtml = (s) => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+/** 执行单条 TCP 指令 (MovJ/MovL/JointMovJ/MovJExt),返回 {ok, message} */
+function execTcpCommand(nm, args) {
+  if (nm === 'MovJ' || nm === 'MovL') {
+    if (args.length < 4) return {ok:false, message:'需 X,Y,Z,R 四个参数'};
+    const sol = ik(args[0], args[1], args[2], args[3], true);
+    if (!sol.valid) return {ok:false, message:`IK: ${sol.reason}`};
+    animateTo(sol.j1, sol.j2, sol.j3deg, sol.j4, 1200);
+    updateRobot(sol.j1, sol.j2, sol.j3deg, sol.j4);
+    return {ok:true, message:`J=(${sol.j1.toFixed(1)}°, ${sol.j2.toFixed(1)}°, ${sol.j3deg.toFixed(0)}°, ${sol.j4.toFixed(1)}°)`};
+  }
+  if (nm === 'JointMovJ') {
+    if (args.length < 4) return {ok:false, message:'需 J1,J2,J3,J4 四个参数'};
+    const d3c = j3deg2d3(args[2]);
+    if (args[0]<J1_MIN||args[0]>J1_MAX||args[1]<J2_MIN||args[1]>J2_MAX||args[3]<J4_MIN||args[3]>J4_MAX||d3c<D3_MIN||d3c>D3_MAX)
+      return {ok:false, message:'关节越限'};
+    animateTo(args[0], args[1], args[2], args[3], 1200);
+    updateRobot(args[0], args[1], args[2], args[3]);
+    return {ok:true, message:'OK'};
+  }
+  if (nm === 'MovJExt') {
+    if (args.length < 1) return {ok:false, message:'需目标距离(mm)'};
+    const td3 = clamp(args[0], D3_MIN, D3_MAX), tj3 = d32j3deg(td3);
+    animateTo(currentJoints.j1, currentJoints.j2, tj3, currentJoints.j4, 1200);
+    updateRobot(currentJoints.j1, currentJoints.j2, tj3, currentJoints.j4);
+    return {ok:true, message:`升降柱→${td3.toFixed(0)}mm`};
+  }
+  return {ok:false, message:'未知 TCP 指令'};
+}
+
+/** 执行单条 Python 工具调用,POST /api/twin/call_tool */
+async function execPythonTool(name, args) {
+  const r = await fetch('/api/twin/call_tool', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({name, args}),
+  });
+  const body = await r.json();
+  // status: 'ok' 才算成功,'rejected' / 'warn' / 'error' 都算失败
+  const accepted = body.status === 'ok';
+  return {ok: accepted, message: body.result || body.error || '无响应'};
+}
+
+/** 解析一行指令,返回 {nm, args, kind:'tcp'|'py'|null} */
+function parseCmdLine(line) {
+  const m = line.match(/^(\w+(?:\.\w+)?)\(([^)]*)\)$/);
+  if (!m) return {kind:null, raw:line};
+  const nm = m[1], argsStr = m[2].trim();
+  // time.sleep / sleep: 单个数字参数 (秒)
+  if (nm === 'time.sleep' || nm === 'sleep') {
+    const sec = parseFloat(argsStr);
+    if (isNaN(sec)) return {kind:null, raw:line};
+    return {kind:'sleep', sec, raw:line};
+  }
+  const args = argsStr ? argsStr.split(',').map(s => +s.trim()) : [];
+  if (args.some(isNaN)) return {kind:null, raw:line};
+  if (TCP_COMMANDS.includes(nm)) return {kind:'tcp', nm, args, raw:line};
+  return {kind:'py', name:nm, args, raw:line};
+}
+
+window.sendCommand = async () => {
+  const ta = document.getElementById('cmd-input');
+  const ct = document.getElementById('cmd-type').value;
+  const re = document.getElementById('cmd-response');
+
+  let lines = ta.value.split('\n').map(l => l.trim()).filter(l => l);
+
+  // 空输入 → 用下拉框选的默认命令填一行
+  if (lines.length === 0) {
+    const def = DEFAULT_CMDS[ct] || DEFAULT_CMDS.move_robot_arm;
+    lines = [def];
+    ta.value = def;
+  }
+
+  // 渲染初始列表
+  re.innerHTML = '';
+  const elems = lines.map(line => {
+    const el = document.createElement('div');
+    el.className = 'twin-line twin-line-pending';
+    el.innerHTML = `<span class="twin-line-status">·</span><span class="twin-line-cmd">${escapeHtml(line)}</span><span class="twin-line-msg"></span>`;
+    re.appendChild(el);
+    return el;
+  });
+
+  // 串行执行 — 遇到失败立刻中断
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const el = elems[i];
+    const parsed = parseCmdLine(line);
+
+    // 标记为运行中
+    el.classList.remove('twin-line-pending');
+    el.classList.add('twin-line-running');
+    el.querySelector('.twin-line-status').textContent = '▶';
+
+    let result;
+    try {
+      if (parsed.kind === 'tcp') {
+        result = execTcpCommand(parsed.nm, parsed.args);
+      } else if (parsed.kind === 'py') {
+        result = await execPythonTool(parsed.name, parsed.args);
+      } else if (parsed.kind === 'sleep') {
+        // 浏览器侧 sleep(秒) — 让用户控制多动作节奏
+        await new Promise(r => setTimeout(r, parsed.sec * 1000));
+        result = {ok:true, message:`slept ${parsed.sec}s`};
+      } else {
+        result = {ok:false, message:'格式无效'};
+      }
+    } catch (e) {
+      result = {ok:false, message: e.message || String(e)};
+    }
+
+    // 标记完成
+    el.classList.remove('twin-line-running');
+    el.classList.add(result.ok ? 'twin-line-success' : 'twin-line-error');
+    el.querySelector('.twin-line-status').textContent = result.ok ? '✓' : '✗';
+    el.querySelector('.twin-line-msg').textContent = result.message;
+
+    // 失败 → 中断,后续行标记为跳过
+    if (!result.ok) {
+      for (let j = i + 1; j < elems.length; j++) {
+        elems[j].classList.remove('twin-line-pending');
+        elems[j].classList.add('twin-line-skipped');
+        elems[j].querySelector('.twin-line-status').textContent = '—';
+        elems[j].querySelector('.twin-line-msg').textContent = '已跳过 (上一行失败)';
+      }
+      break;
+    }
+  }
+};
+
+/** Python tool call: POST to twin backend, display result */
+async function callPythonTool(name, argsStr) {
+  const re = document.getElementById('cmd-response');
+  const raw = argsStr.trim();
+  const args = raw ? raw.split(',').map(s => {
+    const t = s.trim();
+    const n = Number(t);
+    return isNaN(n) ? t : n;
+  }) : [];
+  re.innerHTML = `<span style="color:var(--accent2)">调用 ${name}(${args.join(', ')})...</span>`;
+  try {
+    const r = await fetch('/api/twin/call_tool', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name, args}),
+    });
+    const body = await r.json();
+    re.innerHTML = `<span style="color:${r.ok ? '#98c379' : '#e06c75'}">${body.result || body.error || '无响应'}</span>`;
+  } catch (e) {
+    re.innerHTML = `<span style="color:#e06c75">网络错误: ${e.message}</span>`;
+  }
+}
+
+function animateTo(tj1,tj2,tj3,tj4,dur, onComplete){
   const s={j1:currentJoints.j1,j2:currentJoints.j2,j3deg:currentJoints.j3deg,j4:currentJoints.j4}, t0=performance.now();
   (function step(now){
     const p=Math.min((now-t0)/dur,1), e=p<0.5?2*p*p:-1+(4-2*p)*p;
@@ -534,7 +709,8 @@ function animateTo(tj1,tj2,tj3,tj4,dur){
     document.getElementById('s-j1').value=j1; document.getElementById('s-j2').value=j2;
     document.getElementById('s-j3').value=j3; document.getElementById('s-j4').value=j4;
     updateRobot(j1,j2,j3,j4);
-    if(p<1)requestAnimationFrame(step);
+    if(p<1) requestAnimationFrame(step);
+    else if (onComplete) onComplete();
   })(t0);
 }
 
@@ -566,13 +742,13 @@ const moduleDefs = {
   desktop: {
     label: '桌面',
     physical: true,
-    defaultPos: new THREE.Vector3(550, 0, -250),
+    defaultPos: new THREE.Vector3(550, 0, -250+ORIGIN_Y),
     defaultConfig: { gridX: 50, gridZ: 50, sizeX: 800, sizeZ: 800 },
   },
   slideBox: {
     label: '载玻片盒',
     physical: true,
-    defaultPos: new THREE.Vector3(100, 0, -50),
+    defaultPos: new THREE.Vector3(100, 0, -50+ORIGIN_Y),
     defaultConfig: { quantity: 25, distribution: 'grid', size: 1.0, hSpacing: 4, vSpacing: 4, slideW: 25, slideL: 25 },
     sizeRange: [0.1, 2.0, 0.1],
     spacingRange: [1, 20, 1],
@@ -580,7 +756,7 @@ const moduleDefs = {
   spinCoater: {
     label: '匀胶机',
     physical: true,
-    defaultPos: new THREE.Vector3(175, 0, 175),
+    defaultPos: new THREE.Vector3(175, 0, 175+ORIGIN_Y),
     defaultConfig: { quantity: 1, distribution: 'single', size: 1.0, spacing: 50 },
     sizeRange: [0.5, 2.0, 0.1],
     spacingRange: [2, 200, 1],
@@ -588,7 +764,7 @@ const moduleDefs = {
   dropperBox: {
     label: '滴管头盒',
     physical: true,
-    defaultPos: new THREE.Vector3(-175, 0, 100),
+    defaultPos: new THREE.Vector3(-175, 0, 100+ORIGIN_Y),
     defaultConfig: { quantity: 96, distribution: 'grid', size: 0.3, colSpacing: 3, rowSpacing: 3, cols: 8, rows: 12 },
     sizeRange: [0.1, 1.0, 0.05],
     spacingRange: [1, 10, 1],
@@ -596,7 +772,7 @@ const moduleDefs = {
   solutionTray: {
     label: '溶液瓶托盘',
     physical: true,
-    defaultPos: new THREE.Vector3(-100, 0, -175),
+    defaultPos: new THREE.Vector3(-100, 0, -175+ORIGIN_Y),
     defaultConfig: { quantity: 20, distribution: 'grid', size: 1.0, colSpacing: 5, rowSpacing: 5, cols: 4, rows: 5, bottleDiameter: 20 },
     sizeRange: [0.1, 2.0, 0.1],
     spacingRange: [1, 30, 1],
@@ -616,8 +792,8 @@ Object.keys(moduleDefs).forEach(type => {
 // Stored in platform_config.json under "placement".
 // ============================================================
 const placementDefaults = {
-  dobot:   { x: 150,  z: -600, yaw: 0 },
-  pipette: { x: 950,  z: -250, yaw: 0 },
+  dobot:   { x: 150,  z: -600+ORIGIN_Y, yaw: 0 },
+  pipette: { x: 950,  z: -250+ORIGIN_Y, yaw: 0 },
 };
 const placementConfig = {
   dobot:   { ...placementDefaults.dobot },
@@ -629,7 +805,8 @@ function applyPlacement(robot) {
   if (!p) return;
   const grp = (robot === 'dobot') ? dobotPlacement : pipettePlacement;
   grp.position.set(p.x, 0, p.z);
-  grp.rotation.set(0, 0, D2R(p.yaw));
+  // yaw 绕垂直轴转 (J3 移动方向 = World Y,Three.js 中是 Y 轴)
+  grp.rotation.set(0, D2R(p.yaw), 0);
 }
 
 // Apply default placement immediately so STLs that load before
@@ -1697,6 +1874,60 @@ resize();
     updatePipette(300.3, 213.1, 123.1, 123.1);
   }
 })();
+
+// === SSE 实时推送: 浏览器 ↔ 孪生服务器长连接 ===
+// 服务端主动推送 status / joint 事件,无需轮询。
+const sse = new EventSource('/api/twin/stream');
+
+sse.addEventListener('hello', e => {
+  console.log('[SSE] Connected:', e.data);
+});
+
+sse.addEventListener('status', e => {
+  const s = JSON.parse(e.data);
+  const bar = document.getElementById('twin-status-bar');
+  if (s.status === 'busy') {
+    bar.textContent = `[中断] 正在执行: ${s.current_task || '未知'}`;
+    bar.className = 'twin-status-busy';
+  } else if (s.status === 'error') {
+    bar.textContent = `[错误] ${s.reason || s.current_task || '未知错误'}`;
+    bar.className = 'twin-status-error';
+  } else {
+    bar.textContent = '[就绪] 等待指令';
+    bar.className = 'twin-status-idle';
+  }
+});
+
+sse.addEventListener('joint', e => {
+  const jj = JSON.parse(e.data);
+  console.log('[SSE] 收到 joint 事件,animateTo:', jj);
+  document.getElementById('s-j1').value = jj.j1;
+  document.getElementById('s-j2').value = jj.j2;
+  document.getElementById('s-j3').value = jj.j3_deg;
+  document.getElementById('s-j4').value = jj.j4;
+
+  const t0 = performance.now();
+  animateTo(jj.j1, jj.j2, jj.j3_deg, jj.j4, 800, () => {
+    // 动画完成 → 等下一帧渲染到屏幕再发 done (保证 Z 等关节真的到位)
+    requestAnimationFrame(() => {
+      const duration = performance.now() - t0;
+      fetch('/api/twin/publish/done', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({joint: jj, duration}),
+      });
+    });
+  });
+});
+
+sse.onerror = e => {
+  console.warn('[SSE] 连接断开,浏览器会自动重连...');
+  // 断线时显示离线状态(状态条会保持上次值,不影响使用)
+  const bar = document.getElementById('twin-status-bar');
+  if (bar.className === 'twin-status-busy') {
+    bar.textContent = '[SSE 重连中...]';
+  }
+};
 
 (function render() {
   requestAnimationFrame(render);

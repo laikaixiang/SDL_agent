@@ -8,6 +8,10 @@ for kinematics computation.
 import json
 import sys
 import os
+import time
+import queue
+
+from flask import Flask, request, jsonify, render_template, Response
 
 # Fix Windows encoding
 if sys.platform == 'win32':
@@ -19,8 +23,10 @@ if sys.platform == 'win32':
 
 from flask import Flask, request, jsonify, render_template
 
-# Add project root for kinematics import
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
+# Add project root for kinematics import + hardware.utils/tools import
+_DT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _DT_DIR)                        # digital_twin/
+sys.path.insert(0, os.path.dirname(_DT_DIR))       # project root (for hardware/)
 
 from kinematics_M1Pro import (
     JointState, CartesianPose, IKSolution,
@@ -294,6 +300,35 @@ def _load_platform_config():
         return {}
 
 
+# ============================================================
+# 统一坐标转换: Z=垂直(J3方向), X/Y=水平面
+# move_robot_arm(x,y,z,r) 与 IK(x,y,z) 一致
+# placement.yaw 绕 Z (垂直)转, Z 高度不变
+# ============================================================
+import math as _m
+
+
+def _get_placement(robot: str) -> dict:
+    cfg = _load_platform_config()
+    return cfg.get('placement', {}).get(robot, {'x': 0, 'z': 0, 'yaw': 0})
+
+
+def _world_to_local(x: float, y: float, z: float, p: dict) -> tuple[float, float, float]:
+    """世界 (X,Y,Z=高度) → 机器人本地。只在 X-Y 水平面反向旋转,Z 不变。"""
+    dx, dy = x - p.get('x', 0), y - p.get('z', 0)
+    rad = _m.radians(p.get('yaw', 0))
+    c, s = _m.cos(rad), _m.sin(rad)
+    return c * dx + s * dy, -s * dx + c * dy, z
+
+
+def _local_to_world(x: float, y: float, z: float, p: dict) -> tuple[float, float, float]:
+    """机器人本地 → 世界。只在 X-Y 水平面正向旋转,Z 不变。"""
+    px, pz = p.get('x', 0), p.get('z', 0)
+    rad = _m.radians(p.get('yaw', 0))
+    c, s = _m.cos(rad), _m.sin(rad)
+    return c * x - s * y + px, s * x + c * y + pz, z
+
+
 def _save_platform_config(data):
     """Write platform_config.json. Returns True on success."""
     try:
@@ -531,10 +566,367 @@ def api_set_pipette_state():
 
 
 # -------------------------------------------------------
+# 离线规划器 — 数字孪生执行端点
+# 背后是 index.html 的 Three.js 3D 动画
+# -------------------------------------------------------
+
+_twin_state = {"status": "idle", "current_task": "", "reason": ""}
+
+# ============================================================
+# SSE (Server-Sent Events) — 服务端主动推送到浏览器
+# ============================================================
+# 每个浏览器连上 /api/twin/stream 就分配一个 Queue,
+# 后端动作完成后 notify() 把事件塞到所有 Queue 里,
+# 浏览器 EventSource 收到事件触发 animateTo / 更新状态条。
+# ============================================================
+_sse_subscribers = []
+
+# ============================================================
+# 主题 pub/sub — 内存字典实现的"伪 MQTT"
+# 服务端可以 publish,前端通过 /api/twin/publish/<topic> 也能 publish
+# 内部模块可订阅等待事件
+# ============================================================
+_topics = {
+    "joint":   [],   # 服务端发布 → SSE 推给所有浏览器
+    "done":    [],   # 前端动画完成后发布 → call_tool 等这个
+    "anomaly": [],
+}
+
+# 每个主题保留最后一次事件(兜底:避免 publish 在 subscribe 之前到达丢失)
+_topic_last = {}
+
+
+def publish(topic: str, data: dict):
+    """向一个主题的所有订阅者派发事件(同步),同时保留最后一次事件作为兜底。"""
+    _topic_last[topic] = data
+    for cb in list(_topics.get(topic, [])):
+        try:
+            cb(data)
+        except Exception as e:
+            print(f"[topic:{topic}] subscriber error: {e}")
+
+
+def subscribe(topic: str, callback):
+    """订阅一个主题,返回 unsubscribe 函数。"""
+    if topic not in _topics:
+        _topics[topic] = []
+    _topics[topic].append(callback)
+    def _unsub():
+        try:
+            _topics[topic].remove(callback)
+        except ValueError:
+            pass
+    return _unsub
+
+
+def wait_event(topic: str, timeout: float = 10.0):
+    """阻塞等待主题的第一个事件。返回事件数据,超时返回 None。
+    兜底:如果 publish 在 subscribe 之前到达,事件已存到 _topic_last,直接取走。"""
+    # 先看 buffer 里有"积压事件"没
+    if topic in _topic_last:
+        return _topic_last.pop(topic)
+
+    import threading
+    result = [None]
+    done = threading.Event()
+
+    def _listener(data):
+        if not done.is_set():
+            result[0] = data
+            done.set()
+
+    unsubscribe = subscribe(topic, _listener)
+    try:
+        done.wait(timeout=timeout)
+    finally:
+        unsubscribe()
+    return result[0]
+
+
+def _notify(event_type: str, data: dict):
+    """向所有 SSE 订阅者推送一个事件。"""
+    payload = json.dumps(data, ensure_ascii=False)
+    dead = []
+    for q in _sse_subscribers:
+        try:
+            q.put_nowait((event_type, payload))
+        except Exception:
+            dead.append(q)
+    for q in dead:
+        try:
+            _sse_subscribers.remove(q)
+        except ValueError:
+            pass
+
+
+def _set_twin_state(status, current_task="", reason=""):
+    """更新 _twin_state 并通过 SSE 推送。"""
+    _twin_state["status"] = status
+    _twin_state["current_task"] = current_task
+    _twin_state["reason"] = reason
+    _notify("status", _twin_state)
+
+
+@app.route('/api/twin/stream')
+def twin_stream():
+    """SSE 推送端点。客户端 EventSource 连接后,后端主动推送 status / joint 事件。"""
+    def gen():
+        q = queue.Queue()
+        _sse_subscribers.append(q)
+        yield "event: hello\ndata: {\"subscribers\": %d}\n\n" % len(_sse_subscribers)
+        try:
+            while True:
+                try:
+                    evt, payload = q.get(timeout=15)
+                    yield f"event: {evt}\ndata: {payload}\n\n"
+                except queue.Empty:
+                    yield ": ping\n\n"  # 防止代理超时
+        except GeneratorExit:
+            pass
+        finally:
+            try:
+                _sse_subscribers.remove(q)
+            except ValueError:
+                pass
+    return Response(gen(), mimetype="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    })
+
+
+@app.route('/api/twin/health', methods=['GET'])
+def twin_health():
+    return jsonify({"status": "ok"})
+
+
+@app.route('/api/twin/status', methods=['GET'])
+def twin_status():
+    return jsonify(_twin_state)
+
+
+@app.route('/api/twin/execute', methods=['POST'])
+def twin_execute():
+    """
+    接收 move_robot_arm 指令,碰撞检测 → IK → 状态保存 → 返 done。
+    状态变更通过 SSE 主动推给浏览器 (无需轮询)。
+    """
+    data = request.get_json(force=True)
+    msg = data.get('msg', '')
+
+    _set_twin_state("busy", current_task=msg)
+
+    import re
+    m = re.match(r'^a([-\d.]+),([-\d.]+),([-\d.]+),([-\d.]+),(\d+)$', msg)
+    if not m:
+        _set_twin_state("error", reason=f"格式无效: {msg}")
+        return jsonify({"result": "error", "reason": f"格式无效: {msg}"}), 400
+
+    x, y, z, r = (float(m.group(i)) for i in (1, 2, 3, 4))
+
+    # 世界坐标 → 本地 (Z=高度不变,只转 X-Y)
+    p = _get_placement('dobot')
+    lx, ly, lz = _world_to_local(x, y, z, p)
+
+    # 碰撞检测 (本地坐标)
+    from hardware.utils.collision import check_collision
+    code, reason = check_collision({"x": lx, "y": ly, "z": lz, "r": r})
+    if code != 200:
+        _set_twin_state("error", reason=reason)
+        return jsonify({"result": "error", "reason": reason}), 400
+
+    # IK 求解 (本地坐标)
+    sol = inverse_kinematics(lx, ly, lz, r, elbow_up=True)
+    if not sol.valid:
+        _set_twin_state("error", reason=sol.reason)
+        return jsonify({"result": "error", "reason": sol.reason}), 400
+
+    # FK→世界 TCP
+    lp = fk_compact(sol.j1_deg, sol.j2_deg, sol.d3_mm, sol.j4_deg)
+    wx, wy, wz = _local_to_world(lp.x, lp.y, lp.z, p)
+
+    # 保存到 dobot_state.json
+    from datetime import datetime
+    joint = {"j1": sol.j1_deg, "j2": sol.j2_deg,
+             "j3_deg": d3_to_j3_deg(sol.d3_mm),
+             "j4": sol.j4_deg, "d3_mm": sol.d3_mm}
+    _save_dobot_state({
+        "joint": joint,
+        "tcp": {"x": round(wx, 3), "y": round(wy, 3), "z": round(wz, 3), "r": r},
+        "updated_at": datetime.now().isoformat(timespec='seconds'),
+    })
+
+    # 主动推 joint 事件 — 浏览器 SSE 立刻收到,触发动画
+    _notify("joint", joint)
+
+    # 阻塞等前端动画完成后发 "done" 事件 (事件驱动,无 sleep)
+    event = wait_event("done", timeout=10.0)
+    _set_twin_state("idle")
+
+    if event is None:
+        return jsonify({"result": "done", "tcp": {"x": x, "y": y, "z": z, "r": r}, "anim": "timeout"})
+    return jsonify({
+        "result": "done",
+        "tcp": {"x": x, "y": y, "z": z, "r": r},
+        "anim_ms": int(event.get("duration", 0)),
+    })
+
+
+@app.route('/api/twin/publish/<topic>', methods=['POST'])
+def twin_publish(topic):
+    """浏览器发布消息到指定主题(模拟 MQTT publish)。"""
+    if topic not in _topics:
+        return jsonify({"ok": False, "error": f"unknown topic: {topic}"}), 400
+    data = request.get_json(force=True, silent=True) or {}
+    publish(topic, data)
+    print(f"[publish:{topic}] ← {data}")
+    return jsonify({"ok": True, "topic": topic, "subscribers": len(_topics[topic])})
+
+
+@app.route('/api/twin/call_tool', methods=['POST'])
+def twin_call_tool():
+    """
+    浏览器调用 hardware/tools 中的 Python 函数。
+    前端输入 move_robot_arm(220,-220,200,0) → 解析 → 调用 → 返回结果。
+    直接执行碰撞检测 + IK + 状态保存,不走 HTTP 自引用。
+    """
+    data = request.get_json(force=True)
+    name = data.get('name')
+    args = data.get('args', [])
+
+    if name != 'move_robot_arm':
+        return jsonify({"result": f"不支持的工具: {name}", "status": "error"}), 400
+
+    if len(args) < 4:
+        return jsonify({"result": "参数不足,需 x,y,z,r", "status": "error"}), 400
+
+    try:
+        x, y, z, r = (float(v) for v in args[:4])
+    except (ValueError, TypeError) as e:
+        return jsonify({"result": f"参数转换失败: {e}", "status": "error"}), 400
+
+    task_name = f"move:({x:.0f},{y:.0f},{z:.0f},{r:.0f})"
+
+    # 世界坐标 → 本地 (Z=高度不变,只转 X-Y)
+    p = _get_placement('dobot')
+    lx, ly, lz = _world_to_local(x, y, z, p)
+
+    # 碰撞检测 (本地坐标)
+    from hardware.utils.collision import check_collision
+    code, reason = check_collision({"x": lx, "y": ly, "z": lz, "r": r})
+    if code != 200:
+        _set_twin_state("error", reason=reason)
+        return jsonify({"result": f"机械臂移动拒绝 [400]: {reason}", "status": "rejected"})
+
+    # IK 求解 (本地坐标)
+    sol = inverse_kinematics(lx, ly, lz, r, elbow_up=True)
+    if not sol.valid:
+        _set_twin_state("error", reason=sol.reason)
+        return jsonify({"result": f"机械臂移动拒绝: {sol.reason}", "status": "rejected"})
+
+    # FK→世界 TCP
+    lp = fk_compact(sol.j1_deg, sol.j2_deg, sol.d3_mm, sol.j4_deg)
+    wx, wy, wz = _local_to_world(lp.x, lp.y, lp.z, p)
+
+    # 保存状态 (世界坐标)
+    from datetime import datetime
+    joint = {"j1": sol.j1_deg, "j2": sol.j2_deg,
+             "j3_deg": d3_to_j3_deg(sol.d3_mm),
+             "j4": sol.j4_deg, "d3_mm": sol.d3_mm}
+    _save_dobot_state({
+        "joint": joint,
+        "tcp": {"x": round(wx, 3), "y": round(wy, 3), "z": round(wz, 3), "r": r},
+        "updated_at": datetime.now().isoformat(timespec='seconds'),
+    })
+
+    # SSE 推送: status=busy + joint 事件
+    _set_twin_state("busy", current_task=task_name)
+    _notify("joint", joint)
+
+    # 阻塞等待前端动画完成后发 "done" 事件
+    # 真实的握手,响应时间 = 动画实际时长
+    event = wait_event("done", timeout=10.0)
+    _set_twin_state("idle")
+
+    if event is None:
+        return jsonify({
+            "result": f"机械臂已移动至坐标 ({x}, {y}, {z}, {r}, 0) [孪生] (动画超时 10s)",
+            "status": "warn"
+        })
+
+    duration = event.get("duration", 0)
+    return jsonify({
+        "result": f"机械臂已移动至坐标 ({x}, {y}, {z}, {r}, 0) [孪生] (动画 {duration:.0f}ms)",
+        "status": "ok"
+    })
+
+
+# -------------------------------------------------------
+# 进程管理 — 启动杀旧 / 退出杀自己
+# -------------------------------------------------------
+import atexit
+import subprocess
+
+PORT = 5001
+
+
+def kill_port(port):
+    """杀掉监听指定端口的所有进程(Windows)。"""
+    try:
+        out = subprocess.run(
+            ['netstat', '-ano', '-p', 'TCP'],
+            capture_output=True, text=True, timeout=5,
+        ).stdout
+    except Exception:
+        return 0
+    killed = set()
+    for line in out.splitlines():
+        if f':{port}' not in line or 'LISTENING' not in line:
+            continue
+        parts = line.split()
+        if len(parts) < 5:
+            continue
+        pid = parts[-1]
+        if pid == str(os.getpid()):
+            continue
+        if pid in killed:
+            continue
+        killed.add(pid)
+        try:
+            subprocess.run(
+                ['taskkill', '/F', '/PID', pid, '/T'],
+                capture_output=True, timeout=5,
+            )
+        except Exception:
+            pass
+    return len(killed)
+
+
+def kill_self_and_children():
+    """退出时:杀当前进程 + 所有子进程(Flask reloader 也会被带走)。"""
+    pid = os.getpid()
+    try:
+        subprocess.run(
+            ['taskkill', '/F', '/PID', str(pid), '/T'],
+            capture_output=True, timeout=5,
+        )
+    except Exception:
+        pass
+
+
+atexit.register(kill_self_and_children)
+
+
+# -------------------------------------------------------
 # Start
 # -------------------------------------------------------
 
 if __name__ == '__main__':
+    # 启动时清掉所有 5001 上的旧进程
+    n = kill_port(PORT)
+    if n:
+        print(f"[CleanUp] Killed {n} stale process(es) on :{PORT}")
+    time.sleep(0.5)
+
     print(f"[DigitalTwin] Dobot M1Pro SCARA Robot")
     print(f"  DH: a1={A1}mm, a2={A2}mm, d1={D1}mm, d4={D4}mm")
     print(f"  Reach: {abs(A1-A2):.0f}–{A1+A2:.0f}mm")
@@ -547,4 +939,10 @@ if __name__ == '__main__':
     print(f"  Z1/Z2: [{PZ_MIN:.0f}, {PZ_MAX:.0f}]mm, stroke={PZ_MAX-PZ_MIN:.0f}mm, ref={PZ_REF:.1f}")
     print(f"  ADP spacing: {ADP_SPACING_X:.1f}mm")
     print(f"  Open http://127.0.0.1:5001")
-    app.run(host='0.0.0.0', port=5001, debug=True)
+    print(f"  Ctrl+C to stop (auto-cleanup)")
+
+    try:
+        app.run(host='0.0.0.0', port=PORT, debug=False)
+    except KeyboardInterrupt:
+        print(f"\n[CleanUp] KeyboardInterrupt, killing self + children")
+        kill_self_and_children()

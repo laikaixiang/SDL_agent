@@ -314,7 +314,9 @@ def _get_placement(robot: str) -> dict:
 
 
 def _world_to_local(x: float, y: float, z: float, p: dict) -> tuple[float, float, float]:
-    """世界 (X,Y,Z=高度) → 机器人本地。只在 X-Y 水平面反向旋转,Z 不变。"""
+    """世界 (X,Y,Z=高度) → 机器人本地。只在 X-Y 水平面反向旋转,Z 不变。
+    用户 Y 方向与 SCARA 本地 Y 一致(机器人伸臂方向)。
+    """
     dx, dy = x - p.get('x', 0), y - p.get('z', 0)
     rad = _m.radians(p.get('yaw', 0))
     c, s = _m.cos(rad), _m.sin(rad)
@@ -757,6 +759,8 @@ def twin_execute():
 
     # 主动推 joint 事件 — 浏览器 SSE 立刻收到,触发动画
     _notify("joint", joint)
+    # 同时推 tcp 事件 (世界坐标) — 前端 TCP 显示用
+    _notify("tcp", {"x": round(wx, 3), "y": round(wy, 3), "z": round(wz, 3), "r": r})
 
     # 阻塞等前端动画完成后发 "done" 事件 (事件驱动,无 sleep)
     event = wait_event("done", timeout=10.0)
@@ -841,6 +845,7 @@ def twin_call_tool():
     # SSE 推送: status=busy + joint 事件
     _set_twin_state("busy", current_task=task_name)
     _notify("joint", joint)
+    _notify("tcp", {"x": round(wx, 3), "y": round(wy, 3), "z": round(wz, 3), "r": r})
 
     # 阻塞等待前端动画完成后发 "done" 事件
     # 真实的握手,响应时间 = 动画实际时长

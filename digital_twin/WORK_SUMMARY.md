@@ -1,3 +1,4 @@
+
 # 双机械臂平台数字孪生 — 工作记录
 
 ## 完成时间
@@ -718,3 +719,124 @@ data/runtime/dobot_state.json     ← load_state() / save_state()
 | POST | `/api/runtime/dobot_state` | 写入 `data/runtime/dobot_state.json` |
 | GET | `/api/runtime/pipette_state` | 读取 `data/runtime/pipette_state.json` |
 | POST | `/api/runtime/pipette_state` | 写入 `data/runtime/pipette_state.json` |
+
+
+---
+
+# Phase 6: 离线规划器 + 事件驱动 + 坐标统一 (2026-06-07 ~ 06-08)
+
+## 概述
+
+将数字孪生从「被动可视化 viewer」升级为「主动事件驱动离线规划器」,用户能用 Python 风格指令串行执行,后端通过 SSE 实时推送到浏览器动画。
+
+## 完成的改动
+
+### 后端 (`digital_twin.py`)
+
+| 功能 | 实现 | 行数 |
+|------|------|------|
+| SSE 推送端点 | `GET /api/twin/stream` 一直连,服务器推 `status`/`joint`/`tcp` 事件 | ~30 |
+| 字典式 pub/sub | `_topics` + `publish()` / `subscribe()` / `wait_event()` + `_topic_last` buffer 兜底 | ~50 |
+| 事件驱动执行 | `twin_call_tool` / `twin_execute` 用 `wait_event("done", 10)` 代替 `time.sleep(1.0)` | ~20 |
+| 浏览器 publish 端点 | `POST /api/twin/publish/<topic>` 模拟 MQTT publish | ~10 |
+| 坐标转换 | `_world_to_local` / `_local_to_world` 绕 Z 反/正旋转,只变换水平 X-Y,Z 高度不变 | ~30 |
+| 平台配置读取 | `_get_placement(robot)` 从 `platform_config.json` 读 `placement.{robot}` | ~10 |
+| 进程管理 | `kill_port(5001)` 启动时清理 + `atexit` 退出时杀自身子进程 | ~30 |
+| `import time` | 加进顶部 imports,用于 `time.sleep(0.5)` 等 | 1 |
+
+### 前端 (`index.html`)
+
+| 功能 | 实现 | 行数 |
+|------|------|------|
+| 改轮询为 SSE | 删 50 行 `pollTwinExecute` setInterval,改用 `new EventSource('/api/twin/stream')` | -50/+30 |
+| `EventSource` 监听 | `status` / `joint` / `tcp` / `hello` 4 个事件 | ~30 |
+| 多行执行器 | `parseCmdLine` 解析 TCP / Python / `time.sleep` / `sleep` 4 种 | ~40 |
+| 拒绝中断 | 失败行 `✗` 红底,后续行 `—` 灰底 "已跳过 (上一行失败)" | ~20 |
+| `time.sleep(N)` 支持 | 浏览器侧 `setTimeout`,用户控制多动作节奏 | ~15 |
+| Z 到位再发 done | `animateTo` 回调包 `requestAnimationFrame` 等渲染 | ~5 |
+| TCP 显示世界坐标 | `localToWorldPose` 把 FK 输出转世界,显示用世界值 | ~15 |
+| 工作空间环 → j1Pivot | 改在 `j1Pivot` 的 X-Y 平面绘制,SCARA 真实工作面 | ~10 |
+| 自定义坐标轴 | 删 `AxesHelper`,用 `THREE.Line` 自定义画 X/Y/Z + 文字标签,确保一致 | ~30 |
+| 原点平移到左下 | `ORIGIN_Y=800` 整体平移,所有 Y 坐标非负 | ~10 |
+| 端点 TCP 显示 | `pv-x/y/z/r` 显示世界坐标 | ~15 |
+| yaw 改用 `rotation.y` | 绕垂直轴(World Y)转,符合 J3 移动方向 | 1 |
+
+### 配置文件 (`data/config/platform_config.json`)
+
+- 移液机械臂 (Pipette) placement 新增
+- 所有 `position` 值的 Y 坐标 `+800` 平移,统一为非负
+- `placement.dobot` 和 `placement.pipette` 包含 `x, z, yaw`
+
+### 新建文件
+
+- `hardware/utils/collision.py` — 碰撞检测模块(Z < 5mm 撞桌 / reach ∉ [100, 400]mm)
+
+---
+
+## 调试 bug 清单
+
+| # | Bug | 根因 | 修复 |
+|---|----|------|------|
+| 1 | 多个 Flask 进程抢端口 5001 | `kill %1` 只杀最近后台,旧进程残留 | 启动时 `kill_port(5001)` 主动清理 |
+| 2 | 前端不显示(白屏) | `<script type="module>` 静默失败,JS 语法错误 | 查 `const` 提前 + 删孤儿代码 |
+| 3 | `time` NameError | `time.sleep(1.0)` 但顶部没 `import time` | 顶部 import |
+| 4 | `Tuple` NameError | `from typing import Tuple` 没加,改用小写 `tuple` 也行 | 不再 import,直接用 `tuple[...]` |
+| 5 | 死锁 `OSError: Errno 22` | call_tool 在 Flask 单线程里又 `requests.post` 调同服务 | 改为内联执行碰撞+IK,不走 HTTP 自引用 |
+| 6 | publish done 早于 subscribe | race condition,done 事件丢失 | 加 `_topic_last` buffer,wait_event 先查 buffer |
+| 7 | WSGI 时间显示 `0.0ms` | twin_execute 走 time.sleep(1.0) 是假的 | 改 wait_event("done") 真握手 |
+| 8 | buffer 没生效 | `def publish` 被定义两次,第二个覆盖第一个(不写 buffer) | 删重复的 publish 函数 |
+| 9 | 拒绝时仍标 ✓ | 后端 `status: "ok"` 即使拒绝,前端判断 `body.status === 'ok'` | 后端改 `status: "rejected"`,前端尊重 |
+| 10 | 坐标转换 tuple 顺序错 | `_world_to_local` 返回 `(lx, y, ly)` 但 IK 要 `(lx, ly, z_height)` | 改返回 `(lx, ly, y_world_height)` |
+| 11 | Z 没到位就发 done | `animateTo` 回调触发后,渲染帧还没画 | 回调包 `requestAnimationFrame(() => fetch(...))` |
+| 12 | yaw 转错轴 | 原来用 `rotation.z`(水平),应绕垂直 | 改 `rotation.y` (绕 Three.js Y = 世界垂直 = J3) |
+| 13 | 死循环重名 publish | 我编辑时插入第二个 `def publish` 没删旧的 | 只保留一个 |
+| 14 | 多行失败继续执行 | 失败行没中断 | 失败后 `break` + 后续行 `twin-line-skipped` 类 |
+| 15 | Origin 引用在 const 之前 | `const ORIGIN_Y` 在 line 289 声明,camera 在 267 引用 | 把 const 移到文件最前 |
+| 16 | 双重 `</select>` 孤儿 | 编辑替换时没包 `</select>`,旧 HTML 标签残留 | 删孤儿 |
+| 17 | SCARA 纯 Y 方向不可达 | J1 限位 ±85° 物理特性,纯 Y 方向需 J1≈±90° | 用户输入用 X 主导的目标,或放宽 J1 限位到 ±95° |
+
+---
+
+## 关键经验教训
+
+### 1. 启动清理要主动,别相信 `kill %1`
+多次启停后旧进程会占着端口,新进程 listen 失败或随机占用。启动时主动 `kill_port(5001)`,退出时 `atexit` 杀自己子进程树。
+
+### 2. ES Module 语法错误 = 静默白屏
+`<script type="module">` 里任何语法错误(`}`, `,` 缺失,`const` 提前等)都会让整个 module 不执行,但**没有 console 错误**指向原因。每次编辑完 index.html 必须 `Ctrl+Shift+R` 看效果,真白屏就 F12 查 Console。
+
+### 3. 字典式 pub/sub 比文件锁简单
+事件流(一次性消息)用内存 dict 维护,加 `_topic_last` buffer 防止 race。JSON 文件只存「最新状态」(如 `dobot_state.json`),不存事件流。
+
+### 4. 缓冲 buffer 防 race condition
+publish 在 subscribe 之前到达 → 事件丢失。`_topic_last[topic] = data` 缓存最后一次,`wait_event` 先查 buffer,再订阅等新事件。setTimeout/polling 都无解,只有 buffer 模式干净。
+
+### 5. 坐标系先约定再写代码
+中途发现 SCARA 几何(Z-up 旋转后 local Y 在 -World Z 方向)和用户直觉(Y 在 +World Z 方向)冲突。早先约定清楚能省后续大改。`X/Y/Z 三轴统一 + 不混(World Z vs User Y)` 一开始就要在 `CLAUDE.md` 写清。
+
+### 6. SCARA J1 限位别用满
+厂商给 ±85°(不是 ±90°)是保护余量。仿真场景下,改 `kinematics_M1Pro.py` 的 `J1_MIN/MAX` 到 ±95° 没什么实际副作用,反而避免纯 Y 方向目标被拒。
+
+### 7. 端点命名要语义化
+- `/api/twin/execute` (raw MQTT `a{x},{y},{z},{r},{grip}` 格式)
+- `/api/twin/call_tool` (Python `move_robot_arm(...)` 风格)
+- `/api/twin/publish/<topic>` (MQTT publish 模拟)
+- `/api/twin/status` (单次查)
+- `/api/twin/stream` (SSE 长连接)
+
+五个端点功能不重叠,用户和代码都能从 URL 看懂用途。
+
+### 8. 旋转矩阵别搞混
+Rx(θ) = `[1 0 0; 0 cos -sin; 0 sin cos]`。θ=-90° 时:
+- (0,1,0) → (0,0,-1) = -World Z
+- (0,0,1) → (0,1,0) = +World Y
+- Z 上 Y 在 -Z(SCARA 的"左"朝 -World Z)
+
+不要混 `cos/sin(-θ)` 符号,直接在矩阵代θ。
+
+### 9. 跨进程互调(自引用 HTTP)要避免
+Flask 单线程下,call_tool 又 `requests.post` 调同 Flask → 死锁。**把核心逻辑内联到端点里**,不绕 HTTP 二次调用。
+
+### 10. 状态变量别用 `r`
+`r = requests.post(...)` 会覆盖函数参数 `r`(旋转角)。用 `resp` 或别的名字。
+

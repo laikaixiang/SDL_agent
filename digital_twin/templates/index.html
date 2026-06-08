@@ -266,6 +266,7 @@ scene.background=new THREE.Color('#1e2127');
 const ORIGIN_Y = 800;  // 原 Y 最小值=-800 → 平移+800,所有坐标不再负
 
 const camera = new THREE.PerspectiveCamera(45,1,20,4000);
+// 相机在 +Y 方向(平台的后方)看进去,Y 轴往 -Y 方向(前方)指 = 视觉上"指远方"
 camera.position.set(800,500,600+ORIGIN_Y);
 
 const controls = new OrbitControls(camera,renderer.domElement);
@@ -294,8 +295,10 @@ table.rotation.x=-Math.PI/2; table.position.set(PLATFORM_W/2, 0, ORIGIN_Y); tabl
 
 // Grid on platform + debug axes
 scene.add((g=>{g.position.set(PLATFORM_W/2, 0.015, ORIGIN_Y);return g})(new THREE.GridHelper(PLATFORM_W, 32, '#4a4f59', '#2a2d33')));
-// Debug axes at origin (bottom-left: X=0, Y=0) with labels (Z=vertical=blue)
-scene.add(new THREE.AxesHelper(300));
+// Debug axes: 自定义画线 + 标签,确保线段和文字方向一致
+//   X: +World X(右)         红色
+//   Y: -World Z(反转,远端)  绿色 — 用户 Y 数值增加往相反方向(近端)走
+//   Z: +World Y(垂直上)     蓝色
 try {
   const lbl = (text, x, y, z, color) => {
     const c = document.createElement('canvas'); c.width=128; c.height=128;
@@ -305,9 +308,22 @@ try {
     const s = new THREE.Sprite(new THREE.SpriteMaterial({map: new THREE.CanvasTexture(c), depthTest: false}));
     s.position.set(x, y, z); s.scale.set(40, 40, 1); return s;
   };
-  scene.add(lbl('X', 330, 0, ORIGIN_Y, '#ff4444'));
-  scene.add(lbl('Z', 0, 330, ORIGIN_Y, '#4488ff'));    // Z: 垂直=World Y=J3升降方向
-  scene.add(lbl('Y', 0, 0, 330+ORIGIN_Y, '#44ff44'));  // Y: 水平=World Z
+  const L = 300;
+  // X: 沿 +World X 画红线
+  scene.add(new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(L,0,0)]),
+    new THREE.LineBasicMaterial({color:0xff4444})));
+  scene.add(lbl('X', L+40, 0, 0, '#ff4444'));
+  // Y: 沿 +World Z 画绿线 (用户 Y 数值正方向 = 平台方向)
+  scene.add(new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,L)]),
+    new THREE.LineBasicMaterial({color:0x44ff44})));
+  scene.add(lbl('Y', 0, 0, L+ORIGIN_Y, '#44ff44'));  // 标签在 Y 线末端 (没有偏移)
+  // Z: 沿 +World Y 画蓝线 (垂直上)
+  scene.add(new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,L,0)]),
+    new THREE.LineBasicMaterial({color:0x4488ff})));
+  scene.add(lbl('Z', 0, L+40, 0, '#4488ff'));
 } catch(e) { console.warn('Axis labels:', e); }
 
 // Workspace rings
@@ -488,12 +504,27 @@ function updateRobot(j1,j2,j3deg,j4) {
   return pose;
 }
 
+function localToWorldPose(lp) {
+  // 机器人本地 (x, y, z, r) → 世界 (x, y, z, r) 绕垂直轴 yaw 旋转
+  const p = placementConfig.dobot;
+  const yawRad = p.yaw * Math.PI / 180;
+  const c = Math.cos(yawRad), s = Math.sin(yawRad);
+  return {
+    x: c * lp.x - s * lp.y + p.x,
+    y: s * lp.x + c * lp.y + p.z,
+    z: lp.z,        // 高度不变
+    r: lp.r,
+  };
+}
+
 function updateUI(j1,j2,j3deg,d3,j4,pose) {
   document.getElementById('v-j1').textContent = `${j1.toFixed(1)}°`;
   document.getElementById('v-j2').textContent = `${j2.toFixed(1)}°`;
   document.getElementById('v-j3').textContent = `电机 ${j3deg.toFixed(0)}° | d₃=${d3.toFixed(1)}mm`;
   document.getElementById('v-j4').textContent = `${j4.toFixed(1)}°`;
-  ['x','y','z','r'].forEach(k=>{document.getElementById('pv-'+k).textContent=pose[k].toFixed(1);document.getElementById('oi-'+k).textContent=pose[k].toFixed(1);});
+  // TCP 显示用世界坐标 (跟用户输入 (x, y, z, r) 一致)
+  const wp = localToWorldPose(pose);
+  ['x','y','z','r'].forEach(k=>{document.getElementById('pv-'+k).textContent=wp[k].toFixed(1);document.getElementById('oi-'+k).textContent=wp[k].toFixed(1);});
   let ok=true,msgs=[];
   if(j1<J1_MIN||j1>J1_MAX){ok=false;msgs.push(`J1=${j1.toFixed(1)}°越限`);}
   if(j2<J2_MIN||j2>J2_MAX){ok=false;msgs.push(`J2=${j2.toFixed(1)}°越限`);}
@@ -1917,6 +1948,17 @@ sse.addEventListener('joint', e => {
         body: JSON.stringify({joint: jj, duration}),
       });
     });
+  });
+});
+
+// tcp 事件 (世界坐标) — 跟用户输入的 (x, y, z, r) 一致
+sse.addEventListener('tcp', e => {
+  const t = JSON.parse(e.data);
+  console.log('[SSE] 收到 tcp 事件 (世界坐标):', t);
+  ['x', 'y', 'z', 'r'].forEach(k => {
+    const v = t[k].toFixed(1);
+    document.getElementById('pv-' + k).textContent = v;
+    document.getElementById('oi-' + k).textContent = v;
   });
 });
 

@@ -128,6 +128,164 @@ Dobot M1Pro 和移液臂均使用真实 CAD 导出的 STL 零件替换了简化�
 
 ---
 
+## 新增功能 (2026-06-08)
+
+### 离线规划器 — 事件驱动 SSE 推送
+
+数字孪生从「被动 viewer」升级为「事件驱动离线规划器」,浏览器不再轮询,后端主动推送。
+
+**架构对比**:
+```
+旧 (轮询):
+  浏览器每 500ms 问服务器"有新数据吗?"
+  4 个请求/秒,即使什么都没发生
+
+新 (SSE 推送):
+  浏览器只开一条长连接
+  服务器主动推 status / joint / tcp 事件
+  空闲时 0 请求
+```
+
+**实现**:
+- `GET /api/twin/stream` — SSE 长连接端点,服务器推事件
+- `new EventSource(...)` — 浏览器原生支持,断线自动重连
+- 4 个事件类型:`hello`(连接)/`status`(忙碌状态)/`joint`(关节角度,触发动画)/`tcp`(世界坐标,显示用)
+
+### 字典式 pub/sub
+
+模拟 MQTT 的主题订阅,内存 dict 实现:
+
+```python
+_topics = {"joint": [], "done": [], "anomaly": []}
+_topic_last = {}   # 兜底 buffer,防止 publish 比 subscribe 早
+
+publish(topic, data)       # 派发给所有订阅者
+subscribe(topic, cb)        # 订阅
+wait_event(topic, timeout)  # 阻塞等事件(可超时)
+```
+
+`/api/twin/publish/<topic>` 端点供前端 POST 消息(模拟 MQTT publish)。
+
+**关键设计**:`_topic_last` buffer 防止 race condition。`publish` 写 buffer,`wait_event` 先查 buffer 再订阅。setTimeout/polling 都无解,只有 buffer 模式干净。
+
+### 事件驱动 call_tool
+
+`move_robot_arm(x,y,z,r)` 不再假等 1 秒,而是等前端动画完成后发回"done"事件:
+
+```
+[Python] move_robot_arm
+  ↓
+[Flask] call_tool 处理
+  ↓ notify 'joint' (SSE 推)
+[Browser] 收到 joint
+  ↓ animateTo (800ms 动画)
+  ↓ 动画完成,POST 'done'
+[Flask] wait_event("done") 解除阻塞
+  ↓ 返回响应 (真实动画时长)
+```
+
+**握手时间 = 真实动画时长**,不是猜的 1 秒。超时 10s 自动警告。
+
+### 多行执行器
+
+TCP 协议模拟区支持每行一条指令,串行执行,失败中断:
+
+```python
+move_robot_arm(220, -220, 200, 0)   # → ✓
+time.sleep(1.0)                       # → ✓ 浏览器侧 sleep
+move_robot_arm(220, -220, 0, 0)     # → ✗ 撞桌
+move_robot_arm(300, -100, 200, 0)   # → — 跳过
+move_robot_arm(400, 0, 200, 0)       # → — 跳过
+```
+
+- **运行中** `▶` 绿底闪烁
+- **成功** `✓` 浅绿底
+- **失败** `✗` 浅红底 + **中断后续行**
+- **跳过** `—` 灰底半透明
+
+`time.sleep(N)` / `sleep(N)` 是浏览器侧 `setTimeout`,只控制节奏,不打后端。
+
+### 进程管理
+
+启动时 `kill_port(5001)` 主动清理残留旧进程,退出时 `atexit` + `KeyboardInterrupt` 杀自身子进程。`debug=False` 关闭 watchdog 自动重载(避免反复 reload 卡死)。
+
+### 坐标统一 (Z = 垂直)
+
+整个项目统一约定 `Z = 垂直(J3 升降方向)`,X/Y 是水平面:
+
+```
+move_robot_arm(x, y, z, r)
+  x = 水平 X(World X)
+  y = 水平 Y(World Z)
+  z = 高度(World Y, = 调试轴 Z)
+  r = 绕垂直轴旋转(yaw)
+```
+
+**调试轴**(场景中红线 X、绿线 Y、蓝线 Z)与 TCP 显示的 XYZ 含义一致,刷新可看到。
+
+**平台配置 `data/config/platform_config.json`** 里 `placement.dobot/pipette` 的 yaw 控制机器人朝向,平台所有坐标都 `+800` 平移以保证非负。
+
+### 端点 TCP 显示
+
+后端 `twin_call_tool` 计算出世界 TCP,通过 `tcp` 事件推给浏览器,`pv-x/y/z/r` 直接显示世界值(跟用户输入对应)。不再用前端 FK 算本地然后转换,数值始终一致。
+
+### 自定义坐标轴
+
+场景里的 X/Y/Z 坐标轴从 `AxesHelper` 改用 `THREE.Line` 自定义绘制,线段方向和文字标签方向 100% 对齐。
+
+### 工作空间环
+
+`/api/workspace` 计算的内外圆环挂在 `j1Pivot`(SCARA 真实工作面 = X-Y 水平面),随 placement yaw 旋转。**圆环在 J1 轴心位置,不是桌面**(避免之前"在桌面"导致圈在错误高度的 bug)。
+
+### 新增端点
+
+| 方法 | 路径 | 用途 |
+|------|------|------|
+| GET  | `/api/twin/health` | 健康检查 |
+| GET  | `/api/twin/status` | 单次查忙碌状态 |
+| GET  | `/api/twin/stream` | **SSE 长连接**,推 status/joint/tcp 事件 |
+| POST | `/api/twin/execute` | raw MQTT `a{x},{y},{z},{r},{grip}` 格式 |
+| POST | `/api/twin/call_tool` | Python `move_robot_arm(x,y,z,r)` 格式 |
+| POST | `/api/twin/publish/<topic>` | 前端发布事件(模拟 MQTT publish) |
+| GET  | `/api/runtime/{dobot,pipette}_state` | 运行时关节状态(已存在) |
+
+### 新建/修改文件
+
+| 文件 | 操作 |
+|------|------|
+| `hardware/utils/collision.py` | 新建 — 碰撞检测(Z<5mm 撞桌 / reach ∉[100,400]mm) |
+| `hardware/tools/move_robot_arm.py` | 修改 — 加 `USE_MQTT` 开关 + 碰撞检查 + MQTT/Twin 双路径 |
+| `digital_twin.py` | 大量修改 — SSE/事件驱动/坐标转换/进程管理 |
+| `index.html` | 大量修改 — 多行/拒绝中断/time.sleep/SSE 监听/坐标轴 |
+| `data/config/platform_config.json` | 全部 position Y 平移 +800,新增 placement |
+| `WORK_SUMMARY.md` | Phase 6 — 离线规划器改动与教训记录 |
+
+### 使用示例
+
+```bash
+# 1. 启动
+python digital_twin/digital_twin.py
+# 浏览器 http://127.0.0.1:5001
+
+# 2. 在 TCP 协议模拟区输入多行
+move_robot_arm(220, -220, 200, 0)
+time.sleep(1.0)
+move_robot_arm(300, -100, 250, 0)
+time.sleep(1.0)
+move_robot_arm(100, 200, 200, 0)
+
+# 3. 点击"发送",看 3D 场景依次动画
+#    状态条显示"中断"/"就绪",运行行绿色高亮
+
+# 4. 通过 API 直接调用
+curl -X POST http://127.0.0.1:5001/api/twin/call_tool \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"move_robot_arm","args":[220,-220,200,0]}'
+# → {"result":"... 孪生 (动画 808ms)","status":"ok"}
+```
+
+---
+
 ## 机械臂构型
 
 ### 物理结构
@@ -348,6 +506,15 @@ Three.js 使用 Y-up 坐标，机器人 Z 轴映射到 Three.js Y 轴。
 | **平台配置** | | | |
 | GET | `/api/platform_config` | — | 读取平台模块配置 |
 | POST | `/api/platform_config` | JSON body | 保存平台模块配置到 `platform_config.json` |
+| GET | `/api/layout/placement` | — | `{placement:{dobot:{x,z,yaw}, pipette:{x,z,yaw}}}` |
+| POST | `/api/layout/placement` | JSON body | 只更新 placement,保留其他配置 |
+| **离线规划器 (SSE + pub/sub)** | | | |
+| GET | `/api/twin/health` | — | `{status:"ok"}` |
+| GET | `/api/twin/status` | — | `{status:"idle"\|"busy"\|"error", current_task, reason}` |
+| GET | `/api/twin/stream` | — | **SSE 长连接**,推 `hello`/`status`/`joint`/`tcp` 事件 |
+| POST | `/api/twin/execute` | `{msg:"a{x},{y},{z},{r},{grip}"}` | raw MQTT 格式,事件驱动,等前端 `done` |
+| POST | `/api/twin/call_tool` | `{name:"move_robot_arm", args:[x,y,z,r]}` | Python 风格,事件驱动,返回 `{result, status}` |
+| POST | `/api/twin/publish/<topic>` | 任意 JSON | 前端发布消息(模拟 MQTT publish) |
 
 ### IK 肘部选择
 

@@ -528,3 +528,6 @@ if __name__ == "__main__":
     print(f"  z_tcp = D1 + d3 - D4 = {D1} + d3 - {D4}")
     print(f"  d3 = D3_BASE + (J3_deg/360)*SCREW_LEAD = {D3_BASE} + J3_deg/360*{SCREW_LEAD}")
     print(f"  J3=-5400°→d3={D3_BASE + (-5400/360)*SCREW_LEAD:.0f}mm  J3=0°→d3={D3_BASE:.0f}mm  J3=+5400°→d3={D3_BASE + (5400/360)*SCREW_LEAD:.0f}mm")
+
+def get_current_joints():
+    pass

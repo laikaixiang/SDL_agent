@@ -902,8 +902,38 @@ namespace WinFormsApp_Draft
                                     if(Mqtt_connection.msg != "none")
                                     Response.Text = Mqtt_connection.msg;
                                 });
+                                
+                                if (Mqtt_connection.msg == "none"){ }
+                                
+                                //scan the platform
+                                //else if (Mqtt_connection.msg == "scan")
+                                //{
+                                //    Mqtt_connection.clear_msg();
+                                //    for (int i = 0; i < 6; i++)
+                                //    {
+                                //        Agent.init_queue();
+                                //        string point_name = Agent.scan_buffer.Dequeue();
+                                //        DKPoint tar_point = new DKPoint();
+                                //        dispenser_conf.Points.TryGetValue(point_name, out tar_point);
+                                //        await dispenserForm.MovL_hor(tar_point);
+                                //        Mqtt_connection.clear_msg();
+
+                                //        //used to stop the scan when it finishes
+                                //        await Task.Run(() =>
+                                //        {
+                                //            while (i != 5)
+                                //            {
+                                //                if (Mqtt_connection.msg == "scan")
+                                //                {
+                                //                    break;
+                                //                }
+                                //            }
+                                //        });
+                                //    }
+                                //}
+
                                 //do a whole round
-                                if (Mqtt_connection.msg != "none" & Mqtt_connection.msg != "scan")
+                                else
                                 {
                                     string parameters = Mqtt_connection.msg;
                                     switch (parameters[0])
@@ -932,6 +962,15 @@ namespace WinFormsApp_Draft
                                                     break;
                                                 default: break;
                                             }
+
+                                            // digital twin arm sync
+                                            List<string> current_pos = armForm.current_pos();
+                                            Mqtt_connection.Publish(SpecForm.client, "twin", string.Format
+                                                (
+                                                "{0},{1},{2},{3}",
+                                                current_pos[0], current_pos[1], current_pos[2], current_pos[3]
+                                                )
+                                            );
                                             break;
 
                                         //move dispenser if "d<action code>,tip,x,y,z,vol" read
@@ -996,33 +1035,7 @@ namespace WinFormsApp_Draft
                                             break;
                                     }
                                     await Agent.platform_respond();
-                                }
-
-                                //scan the platform
-                                else if (Mqtt_connection.msg == "scan")
-                                {
                                     Mqtt_connection.clear_msg();
-                                    for (int i = 0; i < 6; i++)
-                                    {
-                                        Agent.init_queue();
-                                        string point_name = Agent.scan_buffer.Dequeue();
-                                        DKPoint tar_point = new DKPoint();
-                                        dispenser_conf.Points.TryGetValue(point_name, out tar_point);
-                                        await dispenserForm.MovL_hor(tar_point);
-                                        Mqtt_connection.clear_msg();
-
-                                        //used to stop the scan when it finishes
-                                        await Task.Run(() =>
-                                        {
-                                            while (i != 5)
-                                            {
-                                                if (Mqtt_connection.msg == "scan")
-                                                {
-                                                    break;
-                                                }
-                                            }
-                                        });
-                                    }
                                 }
 
                                 if (AI_Agent.BackColor == Color.Red) break;

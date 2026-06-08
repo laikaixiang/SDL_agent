@@ -1,5 +1,6 @@
 import threading
 import time
+from typing import Optional
 import paho.mqtt.client as mqtt
 
 
@@ -20,13 +21,17 @@ class MQTTConnector:
     SUBSCRIBE_TOPICS = {
         "platform_respond": 2,
         "do_experiment": 0,
+        "twin": 0,  # 数字孪生实时关节角推送 (digital_twin 后台监听)
     }
 
-    def __init__(self):
+    def __init__(self, client_id: Optional[str] = None):
         self.client_config = Client_Conf()
+        if client_id is not None:
+            self.client_config.client_id = client_id
         self.client = None
         self.is_connected: bool = False
         self.message_received: str = "none"
+        self.twin_message_received: str = "none"
         self.connect_event = threading.Event()
         self._loop_started = False
         self._msg_lock = threading.Lock()
@@ -58,7 +63,10 @@ class MQTTConnector:
         except Exception:
             payload_str = message.payload.decode("utf-8", errors="replace")
         with self._msg_lock:
-            self.message_received = payload_str
+            if message.topic == "platform_respond":
+                self.message_received = payload_str
+            elif message.topic == "twin":
+                self.twin_message_received = payload_str
         # print(f"Received from {message.topic}: {payload_str}")
 
     def connect(self, timeout=5) -> bool:
@@ -133,6 +141,19 @@ class MQTTConnector:
         with self._msg_lock:
             msg = self.message_received
             self.message_received = "none"
+            return msg
+
+    def get_twin_message(self):
+        """Return latest received twin message and reset buffer.
+
+        用于 digital_twin 后台线程轮询,与 get_message 行为一致(读后清空,带锁)。
+        若没有新消息则返回 None。
+        """
+        with self._msg_lock:
+            if self.twin_message_received == "none":
+                return None
+            msg = self.twin_message_received
+            self.twin_message_received = "none"
             return msg
 
     def listen_to_message(self, matchstr: str, timeout: float = None):

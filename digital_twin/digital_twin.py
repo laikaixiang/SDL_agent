@@ -10,6 +10,9 @@ import sys
 import os
 import time
 import queue
+import re
+import threading
+from typing import Optional
 
 from flask import Flask, request, jsonify, render_template, Response
 
@@ -706,6 +709,29 @@ def twin_status():
     return jsonify(_twin_state)
 
 
+@app.route('/api/twin/listener/start', methods=['POST'])
+def twin_listener_start():
+    """启动 MQTT 'twin' 主题实时监听(后台线程,持续推送关节角到前端)。"""
+    start_twin_listener()
+    return jsonify({"ok": True, "running": is_twin_listener_running()})
+
+
+@app.route('/api/twin/listener/stop', methods=['POST'])
+def twin_listener_stop():
+    """停止实时监听线程。"""
+    stop_twin_listener()
+    return jsonify({"ok": True, "running": is_twin_listener_running()})
+
+
+@app.route('/api/twin/listener/status', methods=['GET'])
+def twin_listener_status():
+    return jsonify({
+        "running": is_twin_listener_running(),
+        "height_interpretation": _HEIGHT_INTERPRETATION,
+        "poll_interval_s": _TWIN_POLL_INTERVAL,
+    })
+
+
 @app.route('/api/twin/execute', methods=['POST'])
 def twin_execute():
     """
@@ -790,7 +816,7 @@ def twin_publish(topic):
 def twin_call_tool():
     """
     浏览器调用 hardware/tools 中的 Python 函数。
-    前端输入 move_robot_arm(220,-220,200,0) → 解析 → 调用 → 返回结果。
+    前端输入 (220,-220,200,0) → 解析 → 调用 → 返回结果。
     直接执行碰撞检测 + IK + 状态保存,不走 HTTP 自引用。
     """
     data = request.get_json(force=True)
@@ -921,6 +947,137 @@ def kill_self_and_children():
 atexit.register(kill_self_and_children)
 
 
+# ============================================================
+# 实时关节监听 — 持续读取 agent_client.twin_message_received
+# 消息格式: "j1,j2,d3,j4" (半角/全角逗号均可,空白忽略)
+#   高度3 解释为 d3 线性位移 (mm),与 kinematics_M1Pro 内部表示一致
+#   若 C# 端实际发送 TCP Z 高度,把 _HEIGHT_INTERPRETATION 改为 "z"
+# ============================================================
+_HEIGHT_INTERPRETATION = "d3"   # "d3" → 直接用; "z" → 视作 Z 高度,换算 d3 = z - D1 + D4
+_TWIN_POLL_INTERVAL = 0.05      # 20Hz
+
+_twin_listener_thread: Optional[threading.Thread] = None
+_twin_listener_stop = threading.Event()
+
+
+def _parse_twin_message(payload: str) -> Optional[dict]:
+    """
+    解析 "j1,j2,height3,j4" 格式。
+    高度3 视作 d3 线性位移 (mm),与 j3_deg 互转后一并返回。
+    返回 None 表示格式/数值不合法(已在内部 print)。
+    """
+    if not payload or payload == "none":
+        return None
+    parts = re.split(r'\s*[,，]\s*', payload.strip())
+    if len(parts) != 4:
+        print(f"[TwinListener] 格式错误,期望 4 段,实得 {len(parts)}: {payload!r}")
+        return None
+    try:
+        j1 = float(parts[0])
+        j2 = float(parts[1])
+        h3 = float(parts[2])
+        j4 = float(parts[3])
+    except ValueError as e:
+        print(f"[TwinListener] 数值解析失败: {payload!r} ({e})")
+        return None
+
+    if _HEIGHT_INTERPRETATION == "z":
+        d3_mm = h3 - D1 + D4
+    else:
+        d3_mm = h3
+
+    j3_deg = d3_to_j3_deg(d3_mm)
+    return {
+        "j1": j1, "j2": j2,
+        "j3_deg": j3_deg, "j4": j4,
+        "d3_mm": d3_mm,
+    }
+
+
+def _twin_listener_loop():
+    """
+    后台线程:独立 MQTTConnector 连接到 broker,订阅 'twin' 主题,
+    把每条新消息解析为关节角后:
+      1) 持久化到 dobot_state.json
+      2) 通过 _notify('joint'/'tcp') 推送给所有 SSE 订阅者(浏览器)
+    """
+    from hardware.agent_client import MQTTConnector
+
+    mqtt_client = MQTTConnector(client_id="digital_twin_listener")
+    print(f"[TwinListener] 正在连接 MQTT broker ({mqtt_client.client_config.ip}:{mqtt_client.client_config.port})...")
+    if not mqtt_client.connect(timeout=5):
+        print(f"[TwinListener] MQTT 连接失败,线程退出")
+        return
+    print(f"[TwinListener] 已连接,开始监听 'twin' 主题 (poll={1.0/_TWIN_POLL_INTERVAL:.0f}Hz)")
+
+    while not _twin_listener_stop.is_set():
+        try:
+            payload = mqtt_client.get_twin_message()
+            if payload is None:
+                _twin_listener_stop.wait(timeout=_TWIN_POLL_INTERVAL)
+                continue
+
+            # [测试] 收到 twin 主题消息的原始 payload,确认订阅 + 解析是否正常
+            print(f"[TwinListener] 收到 twin 消息 raw payload = {payload!r}")
+
+            joint = _parse_twin_message(payload)
+            if joint is None:
+                continue
+
+            # 1) FK 算 TCP (世界/本地一致 —— 实时映射是镜像,不参与碰撞/IK)
+            pose = fk_compact(joint["j1"], joint["j2"], joint["d3_mm"], joint["j4"])
+
+            # 2) 持久化
+            from datetime import datetime
+            _save_dobot_state({
+                "joint": {k: round(joint[k], 3) for k in ("j1", "j2", "j3_deg", "j4", "d3_mm")},
+                "tcp":   {"x": round(pose.x, 3), "y": round(pose.y, 3),
+                          "z": round(pose.z, 3), "r": round(pose.r, 3)},
+                "updated_at": datetime.now().isoformat(timespec='seconds'),
+            })
+
+            # 3) SSE 推送 (复用 _notify,前端 EventSource 已订阅 joint/tcp 事件)
+            _notify("joint", {k: round(joint[k], 3) for k in ("j1", "j2", "j3_deg", "j4", "d3_mm")})
+            _notify("tcp",   {"x": round(pose.x, 3), "y": round(pose.y, 3),
+                              "z": round(pose.z, 3), "r": round(pose.r, 3)})
+
+            print(f"[TwinListener] joint=({joint['j1']:.1f}, {joint['j2']:.1f}, "
+                  f"d3={joint['d3_mm']:.1f}, {joint['j4']:.1f})  "
+                  f"tcp=({pose.x:.1f}, {pose.y:.1f}, {pose.z:.1f}, {pose.r:.1f})")
+        except Exception as e:
+            print(f"[TwinListener] 异常: {e}")
+            import traceback
+            traceback.print_exc()
+            _twin_listener_stop.wait(timeout=_TWIN_POLL_INTERVAL)
+
+    try:
+        mqtt_client.disconnect()
+    except Exception:
+        pass
+    print(f"[TwinListener] 已停止")
+
+
+def start_twin_listener():
+    """启动后台监听线程(幂等)。"""
+    global _twin_listener_thread
+    if _twin_listener_thread and _twin_listener_thread.is_alive():
+        return
+    _twin_listener_stop.clear()
+    _twin_listener_thread = threading.Thread(
+        target=_twin_listener_loop, daemon=True, name="twin-listener"
+    )
+    _twin_listener_thread.start()
+
+
+def stop_twin_listener():
+    _twin_listener_stop.set()
+
+
+# 暴露给外部按需启停(已通过 /api/twin/listener/* 端点暴露,__main__ 也会默认启动)
+def is_twin_listener_running() -> bool:
+    return _twin_listener_thread is not None and _twin_listener_thread.is_alive()
+
+
 # -------------------------------------------------------
 # Start
 # -------------------------------------------------------
@@ -931,6 +1088,9 @@ if __name__ == '__main__':
     if n:
         print(f"[CleanUp] Killed {n} stale process(es) on :{PORT}")
     time.sleep(0.5)
+
+    # 默认启动实时关节角监听
+    start_twin_listener()
 
     print(f"[DigitalTwin] Dobot M1Pro SCARA Robot")
     print(f"  DH: a1={A1}mm, a2={A2}mm, d1={D1}mm, d4={D4}mm")

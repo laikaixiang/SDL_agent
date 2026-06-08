@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using CSharpTcpDemo;
 using CSharpTcpDemo.com.dobot.api;
 using DocumentFormat.OpenXml.Spreadsheet;
 using Newtonsoft.Json;
@@ -16,6 +17,7 @@ namespace Winform_platform.Auto
     class Agent
     {
         public const string topic = "do_experiment";
+        public static bool twin_flag = false;
         public static Queue<string> scan_buffer = new Queue<string>();
 
         public static void init_queue()
@@ -32,6 +34,7 @@ namespace Winform_platform.Auto
             scan_buffer.Clear();
         }
 
+        // return run status to backend
         public static async Task platform_respond()
         {
             Mqtt_connection.Publish(SpecForm.client, "platform_respond", "done");

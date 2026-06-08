@@ -319,6 +319,17 @@ namespace CSharpTcpDemo
             thd.Start();
         }
 
+        public List<string> current_pos()
+        {
+            List<string> pos = new List<string>{
+                string.Format("{0:F3}",mFeedback.feedbackData.QActual[0]),
+                string.Format("{0:F3}",mFeedback.feedbackData.QActual[1]),
+                string.Format("{0:F3}",mFeedback.feedbackData.QActual[2]),
+                string.Format("{0:F3}",mFeedback.feedbackData.QActual[3]),
+            };
+            return pos;
+        }
+
         private void Disconnect()
         {
             PrintLog("Disconnecting...");

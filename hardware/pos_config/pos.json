@@ -1,0 +1,25 @@
+{
+  "RobotArm": {
+    "description": "the positions for substrates",
+    "0": [220, -220, 200, 0],
+    "1": [300, -100, 200, 0]
+  },
+  "LeftDispenser": {
+    "description": "the positions of bottles and tip boxes for left tip, [x, y, lz]",
+    "Tip box": {
+      "0": [0, 0, 0]
+    },
+    "Bottle": {
+      "0": [0, 0, 0]
+    }
+  },
+  "RightDispenser": {
+    "description": "the positions of bottles and tip boxes for right tip, [x, y, rz]",
+    "Tip box": {
+      "0": [0, 0, 0]
+    },
+    "Bottle": {
+      "0": [0, 0, 0]
+    }
+  }
+}

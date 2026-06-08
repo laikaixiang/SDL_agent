@@ -1,31 +1,31 @@
 """
 取枪头
 """
-from typing import *
 from ..mqtt import get_mqtt_client, EXPERIMENT_TOPIC
 from .registry import register_tool
-
+from hardware.pos_config.parse_pos import parse_dispenser
 
 @register_tool(
     name="get_tips",
     description="空气泵取枪头",
     params={
-        "tip_pos": {"type": "Tuple[int,int,int]", "description": "枪头在枪头盒中位置,[x,y,z]", "required": True, "default": [0,0,0]},
+        "tip_pos": {"type": "int", "description": "枪头在枪头盒中位置编号", "required": True, "default": 0},
         "tip": {"type": "int", "description": "空气泵编号(1或者2,1为左泵,2为右泵)", "required": True, "default": 1},
     }
 )
-def get_tips(tip_pos: Tuple[int, int, int], tip: int) -> str:
+def get_tips(tip_pos: int, tip: int) -> str:
     """
     底层同步函数：空气泵取枪头
 
     Args:
-        "spit_pos": {"type": "Tuple[int,int,int]", "description": "枪头在枪头盒中位置,[x,y,z]", "required": True, "default": [0,0,0]},
+        "tip_pos": {"type": "int", "description": "枪头在枪头盒中位置编号", "required": True, "default": 0},
         "tip": {"type": "int", "description": "空气泵编号(1或者2,1为左泵,2为右泵)", "required": True, "default": 1},
 
     Returns:
         str: 返回结果消息
     """
     # "d<action code>,tip,x,y,z,vol", action code 3: spit
+    tip_pos = parse_dispenser(tip, 1, tip_pos)
     x, y, z = tip_pos[0], tip_pos[1], tip_pos[2]
     try:
         client = get_mqtt_client()

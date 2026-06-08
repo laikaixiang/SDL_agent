@@ -1860,18 +1860,18 @@ def execute_experiment_design():
 
             def on_progress(step_num, status, message):
                 msg_type = "info" if status in ("running", "completed") else "error"
-                task_manager.put_task_message({"type": msg_type, "data": message})
+                task_manager.put_task_message(msg_type, message)
 
-            task_manager.put_task_message({"type": "info", "data": i18n.get('status.experimentExecutionStarted', lang).format(name=experiment_name, total=total)})
+            task_manager.put_task_message("info", i18n.get('status.experimentExecutionStarted', lang).format(name=experiment_name, total=total))
             result = executor.execute_plan(data, progress_callback=on_progress)
 
             if result["success"]:
-                task_manager.put_task_message({"type": "complete", "data": {"message": i18n.get('success.experimentExecutionCompleted', lang).format(name=experiment_name)}})
+                task_manager.put_task_message("complete", {"message": i18n.get('success.experimentExecutionCompleted', lang).format(name=experiment_name)})
             else:
                 err = result.get("error") or i18n.get('errors.unknownError', lang)
-                task_manager.put_task_message({"type": "complete", "data": {"error": err}})
+                task_manager.put_task_message("complete", {"error": err})
         except Exception as e:
-            task_manager.put_task_message({"type": "complete", "data": {"error": i18n.get('errors.hardwareExecutionError', lang).format(error=str(e))}})
+            task_manager.put_task_message("complete", {"error": i18n.get('errors.hardwareExecutionError', lang).format(error=str(e))})
         finally:
             task_manager.task_running = False
 

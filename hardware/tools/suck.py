@@ -4,23 +4,24 @@
 from typing import *
 from ..mqtt import get_mqtt_client, EXPERIMENT_TOPIC
 from .registry import register_tool
+from hardware.pos_config.parse_pos import parse_dispenser
 
 
 @register_tool(
     name="suck",
     description="吸液",
     params={
-        "bottle_pos": {"type": "Tuple[int,int,int]", "description": "需要吸液的目标试剂瓶的位置,[x,y,z]", "required": True, "default": [0,0,0]},
+        "bottle_pos": {"type": "int", "description": "需要吸液的目标试剂瓶的位置", "required": True, "default": 0},
         "tip": {"type": "int", "description": "空气泵编号(1或者2,1为左泵,2为右泵)", "required": True, "default": 1},
         "vol": {"type": "int", "description": "吸液体积(uL)", "required": True, "default": 60},
     }
 )
-def suck(bottle_pos: Tuple[int, int, int], tip: int, vol: int) -> str:
+def suck(bottle_pos: int, tip: int, vol: int) -> str:
     """
     底层同步函数：吸液
 
     Args:
-        "spit_pos": {"type": "Tuple[int,int,int]", "description": "需要吸液的目标试剂瓶的位置,[x,y,z]", "required": True, "default": [0,0,0]},
+        "spit_pos": {"type": "int", "description": "需要吸液的目标试剂瓶的位置", "required": True, "default": 0},
         "tip": {"type": "int", "description": "空气泵编号(1或者2,1为左泵,2为右泵)", "required": True, "default": 1},
         "vol": {"type": "int", "description": "吸液体积(uL)", "required": True, "default": 60},
 
@@ -28,6 +29,7 @@ def suck(bottle_pos: Tuple[int, int, int], tip: int, vol: int) -> str:
         str: 返回结果消息
     """
     # "d<action code>,tip,x,y,z,vol", action code 2: suck
+    bottle_pos = parse_dispenser(tip, 2, bottle_pos)
     x, y, z = bottle_pos[0], bottle_pos[1], bottle_pos[2]
     try:
         client = get_mqtt_client()

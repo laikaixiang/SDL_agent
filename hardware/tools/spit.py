@@ -4,23 +4,24 @@
 from typing import *
 from ..mqtt import get_mqtt_client, EXPERIMENT_TOPIC
 from .registry import register_tool
+from hardware.pos_config.parse_pos import parse_dispenser
 
 
 @register_tool(
     name="spit",
     description="滴液",
     params={
-        "spit_pos": {"type": "Tuple[int,int,int]", "description": "需要滴液的目标基底的位置,[x,y,z]", "required": True, "default": [0,0,0]},
+        "spit_pos": {"type": "int", "description": "需要滴液的目标基底的位置", "required": True, "default": 0},
         "tip": {"type": "int", "description": "空气泵编号(1或者2,1为左泵,2为右泵)", "required": True, "default": 1},
         "vol": {"type": "int", "description": "滴液体积(uL)", "required": True, "default": 60},
     }
 )
-def spit(spit_pos: Tuple[int, int, int], tip: int, vol: int) -> str:
+def spit(spit_pos: int, tip: int, vol: int) -> str:
     """
     底层同步函数：滴液
 
     Args:
-        "spit_pos": {"type": "Tuple[int,int,int]", "description": "需要滴液的目标基底的位置,[x,y,z]", "required": True, "default": [0,0,0]},
+        "spit_pos": {"type": "int", "description": "需要滴液的目标基底的位置", "required": True, "default": 0},
         "tip": {"type": "int", "description": "空气泵编号(1或者2,1为左泵,2为右泵)", "required": True, "default": 1},
         "vol": {"type": "int", "description": "滴液体积(uL)", "required": True, "default": 60},
 
@@ -28,6 +29,7 @@ def spit(spit_pos: Tuple[int, int, int], tip: int, vol: int) -> str:
         str: 返回结果消息
     """
     # "d<action code>,tip,x,y,z,vol", action code 3: spit
+    spit_pos = parse_dispenser(tip, 2, spit_pos)
     x, y, z = spit_pos[0], spit_pos[1], spit_pos[2]
     try:
         client = get_mqtt_client()

@@ -124,7 +124,7 @@ class MQTTConnector:
         info = self.client.publish(topic, msg, qos=2)
         try:
             info.wait_for_publish(timeout=2)
-            print("message sent")
+            # print("message sent")
         except Exception:
             pass
 

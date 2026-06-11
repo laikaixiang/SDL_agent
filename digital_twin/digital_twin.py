@@ -12,7 +12,7 @@ import time
 import queue
 import re
 import threading
-from typing import Optional
+from typing import Optional, Tuple
 
 from flask import Flask, request, jsonify, render_template, Response
 
@@ -727,8 +727,12 @@ def twin_listener_stop():
 def twin_listener_status():
     return jsonify({
         "running": is_twin_listener_running(),
-        "height_interpretation": _HEIGHT_INTERPRETATION,
         "poll_interval_s": _TWIN_POLL_INTERVAL,
+        "supported_prefixes": {"arm": "a", "pipette": "d"},
+        "formats": {
+            "arm":     "a{x},{y},{z},{r}",
+            "pipette": "d{x},{y},{lz},{rz}",
+        },
     })
 
 
@@ -948,58 +952,128 @@ atexit.register(kill_self_and_children)
 
 
 # ============================================================
-# 实时关节监听 — 持续读取 agent_client.twin_message_received
-# 消息格式: "j1,j2,d3,j4" (半角/全角逗号均可,空白忽略)
-#   高度3 解释为 d3 线性位移 (mm),与 kinematics_M1Pro 内部表示一致
-#   若 C# 端实际发送 TCP Z 高度,把 _HEIGHT_INTERPRETATION 改为 "z"
+# 实时监听 — 持续读取 agent_client.twin_message_received
+# 两条消息流(通过首字母区分,避免格式冲突):
+#   - 机械臂:  "a{x},{y},{z},{r}"          (Cartesian 位置)
+#   - 移液臂:  "d{x},{y},{lz},{rz}"        (x,y 平面 + 左右滴头 Z)
 # ============================================================
-_HEIGHT_INTERPRETATION = "d3"   # "d3" → 直接用; "z" → 视作 Z 高度,换算 d3 = z - D1 + D4
 _TWIN_POLL_INTERVAL = 0.05      # 20Hz
 
 _twin_listener_thread: Optional[threading.Thread] = None
 _twin_listener_stop = threading.Event()
 
 
-def _parse_twin_message(payload: str) -> Optional[dict]:
+def _parse_arm_message(payload: str) -> Optional[Tuple[float, float, float, float]]:
     """
-    解析 "j1,j2,height3,j4" 格式。
-    高度3 视作 d3 线性位移 (mm),与 j3_deg 互转后一并返回。
-    返回 None 表示格式/数值不合法(已在内部 print)。
+    解析机械臂消息 "a{x},{y},{z},{r}" (Cartesian 位置)。
+    返回 (x, y, z, r) 或 None(格式/数值不合法)。
     """
-    if not payload or payload == "none":
+    if not payload or not payload.startswith('a'):
         return None
-    parts = re.split(r'\s*[,，]\s*', payload.strip())
+    rest = payload[1:]  # 去掉 'a' 前缀
+    parts = re.split(r'\s*[,，]\s*', rest.strip())
     if len(parts) != 4:
-        print(f"[TwinListener] 格式错误,期望 4 段,实得 {len(parts)}: {payload!r}")
+        print(f"[TwinListener][arm] 格式错误,期望 4 段,实得 {len(parts)}: {payload!r}")
         return None
     try:
-        j1 = float(parts[0])
-        j2 = float(parts[1])
-        h3 = float(parts[2])
-        j4 = float(parts[3])
+        x, y, z, r = (float(p) for p in parts)
     except ValueError as e:
-        print(f"[TwinListener] 数值解析失败: {payload!r} ({e})")
+        print(f"[TwinListener][arm] 数值解析失败: {payload!r} ({e})")
         return None
+    return x, y, z, r
 
-    if _HEIGHT_INTERPRETATION == "z":
-        d3_mm = h3 - D1 + D4
-    else:
-        d3_mm = h3
 
-    j3_deg = d3_to_j3_deg(d3_mm)
-    return {
-        "j1": j1, "j2": j2,
-        "j3_deg": j3_deg, "j4": j4,
-        "d3_mm": d3_mm,
-    }
+def _parse_pipette_message(payload: str) -> Optional[Tuple[float, float, float, float]]:
+    """
+    解析移液臂消息 "d{x},{y},{lz},{rz}" (x, y 平面 + 左右滴头 Z)。
+    返回 (x, y, lz, rz) 或 None。
+    """
+    if not payload or not payload.startswith('d'):
+        return None
+    rest = payload[1:]  # 去掉 'd' 前缀
+    parts = re.split(r'\s*[,，]\s*', rest.strip())
+    if len(parts) != 4:
+        print(f"[TwinListener][pipette] 格式错误,期望 4 段,实得 {len(parts)}: {payload!r}")
+        return None
+    try:
+        x, y, lz, rz = (float(p) for p in parts)
+    except ValueError as e:
+        print(f"[TwinListener][pipette] 数值解析失败: {payload!r} ({e})")
+        return None
+    return x, y, lz, rz
+
+
+def _handle_arm_message(payload: str):
+    """处理机械臂消息:解析 → IK 求关节角 → 保存 → SSE 推送 joint/tcp。"""
+    parsed = _parse_arm_message(payload)
+    if parsed is None:
+        return
+    x, y, z, r = parsed
+
+    # IK 求解关节角(实时映射是镜像,失败仅打印,不阻塞)
+    sol = inverse_kinematics(x, y, z, r, elbow_up=True)
+    if not sol.valid:
+        print(f"[TwinListener][arm] IK 无效: {sol.reason}  payload={payload!r}")
+        return
+
+    # 持久化(用 IK 解得的关节角 + 原始 TCP)
+    from datetime import datetime
+    joint = {"j1": sol.j1_deg, "j2": sol.j2_deg,
+             "j3_deg": d3_to_j3_deg(sol.d3_mm),
+             "j4": sol.j4_deg, "d3_mm": sol.d3_mm}
+    _save_dobot_state({
+        "joint": joint,
+        "tcp": {"x": round(x, 3), "y": round(y, 3), "z": round(z, 3), "r": round(r, 3)},
+        "updated_at": datetime.now().isoformat(timespec='seconds'),
+    })
+
+    # SSE 推送:
+    #   rt_arm   — 实时(MQTT),无动画,适配 20Hz 高频流;前端 updateRobot() 直接跳
+    #   tcp      — 文本标签(世界坐标),实时和工具调用通用
+    #   joint    — 留给 /api/twin/execute / /api/twin/call_tool 的"动画"路径(自带 done 副作用,不适合实时流)
+    _notify("rt_arm", {k: round(joint[k], 3) for k in ("j1", "j2", "j3_deg", "j4", "d3_mm")})
+    _notify("tcp",    {"x": round(x, 3), "y": round(y, 3), "z": round(z, 3), "r": round(r, 3)})
+
+    print(f"[TwinListener][arm] tcp=({x:.1f}, {y:.1f}, {z:.1f}, {r:.1f})  "
+          f"joint=({joint['j1']:.1f}, {joint['j2']:.1f}, d3={joint['d3_mm']:.1f}, {joint['j4']:.1f})")
+
+
+def _handle_pipette_message(payload: str):
+    """处理移液臂消息:解析 → FK 算 tip 位置 → 保存 → SSE 推送 pipette 事件。"""
+    parsed = _parse_pipette_message(payload)
+    if parsed is None:
+        return
+    x, y, lz, rz = parsed
+
+    # 构建 PipetteState 并 FK(纯平移关节,FK 即坐标变换)
+    state = PipetteState(x=x, y=y, z1=lz, z2=rz)
+    pose = pipette_fk(state)
+
+    # 持久化
+    from datetime import datetime
+    _save_pipette_state({
+        "axis": {"x": x, "y": y, "z1": lz, "z2": rz},
+        "tip1": pose.tip1.to_dict(),
+        "tip2": pose.tip2.to_dict(),
+        "updated_at": datetime.now().isoformat(timespec='seconds'),
+    })
+
+    # SSE 推送 — rt_pipette(实时,无动画,适配 20Hz 高频流;前端 updatePipette() 直接跳)
+    _notify("rt_pipette", {
+        "axis": {"x": x, "y": y, "z1": lz, "z2": rz},
+        "tip1": pose.tip1.to_dict(),
+        "tip2": pose.tip2.to_dict(),
+    })
+
+    print(f"[TwinListener][pipette] axis=(x={x:.1f}, y={y:.1f}, z1={lz:.1f}, z2={rz:.1f})  "
+          f"tip1=({pose.tip1.x:.1f}, {pose.tip1.y:.1f}, {pose.tip1.z:.1f})  "
+          f"tip2=({pose.tip2.x:.1f}, {pose.tip2.y:.1f}, {pose.tip2.z:.1f})")
 
 
 def _twin_listener_loop():
     """
-    后台线程:独立 MQTTConnector 连接到 broker,订阅 'twin' 主题,
-    把每条新消息解析为关节角后:
-      1) 持久化到 dobot_state.json
-      2) 通过 _notify('joint'/'tcp') 推送给所有 SSE 订阅者(浏览器)
+    后台线程:订阅 'twin' 主题,根据首字母 'a'/'d' 分派到机械臂或移液臂处理。
+    各自用 last_seen 跟踪避免重复处理(同一个值被 MQTT 重复推送时不会触发多次)。
     """
     from hardware.agent_client import MQTTConnector
 
@@ -1009,6 +1083,10 @@ def _twin_listener_loop():
         print(f"[TwinListener] MQTT 连接失败,线程退出")
         return
     print(f"[TwinListener] 已连接,开始监听 'twin' 主题 (poll={1.0/_TWIN_POLL_INTERVAL:.0f}Hz)")
+    print(f"[TwinListener]   机械臂 → 'a{{x}},{{y}},{{z}},{{r}}'")
+    print(f"[TwinListener]   移液臂 → 'd{{x}},{{y}},{{lz}},{{rz}}'")
+
+    last_seen = {"arm": None, "pipette": None}
 
     while not _twin_listener_stop.is_set():
         try:
@@ -1020,30 +1098,17 @@ def _twin_listener_loop():
             # [测试] 收到 twin 主题消息的原始 payload,确认订阅 + 解析是否正常
             print(f"[TwinListener] 收到 twin 消息 raw payload = {payload!r}")
 
-            joint = _parse_twin_message(payload)
-            if joint is None:
-                continue
-
-            # 1) FK 算 TCP (世界/本地一致 —— 实时映射是镜像,不参与碰撞/IK)
-            pose = fk_compact(joint["j1"], joint["j2"], joint["d3_mm"], joint["j4"])
-
-            # 2) 持久化
-            from datetime import datetime
-            _save_dobot_state({
-                "joint": {k: round(joint[k], 3) for k in ("j1", "j2", "j3_deg", "j4", "d3_mm")},
-                "tcp":   {"x": round(pose.x, 3), "y": round(pose.y, 3),
-                          "z": round(pose.z, 3), "r": round(pose.r, 3)},
-                "updated_at": datetime.now().isoformat(timespec='seconds'),
-            })
-
-            # 3) SSE 推送 (复用 _notify,前端 EventSource 已订阅 joint/tcp 事件)
-            _notify("joint", {k: round(joint[k], 3) for k in ("j1", "j2", "j3_deg", "j4", "d3_mm")})
-            _notify("tcp",   {"x": round(pose.x, 3), "y": round(pose.y, 3),
-                              "z": round(pose.z, 3), "r": round(pose.r, 3)})
-
-            print(f"[TwinListener] joint=({joint['j1']:.1f}, {joint['j2']:.1f}, "
-                  f"d3={joint['d3_mm']:.1f}, {joint['j4']:.1f})  "
-                  f"tcp=({pose.x:.1f}, {pose.y:.1f}, {pose.z:.1f}, {pose.r:.1f})")
+            # 根据首字母分派(避免两路消息格式冲突)
+            if payload.startswith('a'):
+                if payload != last_seen["arm"]:
+                    _handle_arm_message(payload)
+                    last_seen["arm"] = payload
+            elif payload.startswith('d'):
+                if payload != last_seen["pipette"]:
+                    _handle_pipette_message(payload)
+                    last_seen["pipette"] = payload
+            else:
+                print(f"[TwinListener] 忽略未知前缀消息: {payload!r}")
         except Exception as e:
             print(f"[TwinListener] 异常: {e}")
             import traceback

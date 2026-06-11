@@ -1962,6 +1962,31 @@ sse.addEventListener('tcp', e => {
   });
 });
 
+// rt_arm 事件 — 来自 MQTT 的机械臂实时关节角,直接跳到目标(无动画,适配 20Hz)
+sse.addEventListener('rt_arm', e => {
+  const jj = JSON.parse(e.data);
+  // 同步滑块(便于用户观察当前关节值,不影响 3D 模型)
+  document.getElementById('s-j1').value  = jj.j1;
+  document.getElementById('s-j2').value  = jj.j2;
+  document.getElementById('s-j3').value  = jj.j3_deg;
+  document.getElementById('s-j4').value  = jj.j4;
+  // 直接跳到目标姿态 —— 不走 animateTo,避免高频流下动画队列堆积
+  updateRobot(jj.j1, jj.j2, jj.j3_deg, jj.j4);
+});
+
+// rt_pipette 事件 — 来自 MQTT 的移液臂实时轴位置,直接跳到目标
+sse.addEventListener('rt_pipette', e => {
+  const p = JSON.parse(e.data);
+  const a = p.axis;
+  // 同步滑块
+  document.getElementById('sp-x').value  = a.x;
+  document.getElementById('sp-y').value  = a.y;
+  document.getElementById('sp-z1').value = a.z1;
+  document.getElementById('sp-z2').value = a.z2;
+  // 直接跳到目标姿态
+  updatePipette(a.x, a.y, a.z1, a.z2);
+});
+
 sse.onerror = e => {
   console.warn('[SSE] 连接断开,浏览器会自动重连...');
   // 断线时显示离线状态(状态条会保持上次值,不影响使用)

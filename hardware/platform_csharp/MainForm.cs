@@ -595,21 +595,19 @@ namespace WinFormsApp_Draft
             if (pipette == 1 && tip == "get" && free_right_tips.Contains(point))
             {
                 dispenser_pt.lz = 135000;
-                int wait_time = dispenserForm.MovL_ver(dispenser_pt, 0, 1).Result;
-                await dispenserForm.MovL_ver(dispenser_pt, wait_time, 1);
+                await dispenserForm.MovL_ver(dispenser_pt, 1);
                 free_right_tips.Remove(point);
                 dispenser_pt.lz = 0;
-                await dispenserForm.MovL_ver(dispenser_pt, wait_time, 1);
+                await dispenserForm.MovL_ver(dispenser_pt, 1);
                 dispenser_pt.x += 4000;
             }
             if (pipette == 2 && tip == "get" && free_right_tips.Contains(point))
             {
                 dispenser_pt.rz = 135000;
-                int wait_time = dispenserForm.MovL_ver(dispenser_pt, 0, 2).Result;
-                await dispenserForm.MovL_ver(dispenser_pt, wait_time, 2);
+                await dispenserForm.MovL_ver(dispenser_pt, 2);
                 free_right_tips.Remove(point);
                 dispenser_pt.rz = 0;
-                await dispenserForm.MovL_ver(dispenser_pt, wait_time, 2);
+                await dispenserForm.MovL_ver(dispenser_pt, 2);
             }
 
             else if (tip == "pop")
@@ -657,7 +655,6 @@ namespace WinFormsApp_Draft
             }
 
             await dispenserForm.MovL_hor(dispenser_pt);
-            int wait_time0 = 0;
 
             if (tip == 1)
             {
@@ -667,11 +664,11 @@ namespace WinFormsApp_Draft
             {
                 dispenser_pt.rz = 100000;//coater z
             }
-            wait_time0 = dispenserForm.MovL_ver(dispenser_pt, 0, tip).Result;
+            dispenserForm.MovL_ver(dispenser_pt, tip);
 
             if (pump == "spit")
             {
-                await dispenserForm.MovL_ver(dispenser_pt, wait_time0, tip);
+                await dispenserForm.MovL_ver(dispenser_pt, tip);
                 await dispenserForm.Tip_Spit(volume, tip);//right tip by default
                 if (tip == 1)
                 {
@@ -681,7 +678,7 @@ namespace WinFormsApp_Draft
                 {
                     dispenser_pt.rz = 0;
                 }
-                await dispenserForm.MovL_ver(dispenser_pt, wait_time0, tip);
+                await dispenserForm.MovL_ver(dispenser_pt, tip);
             }
             else if (pump == "suck")
             {
@@ -693,8 +690,7 @@ namespace WinFormsApp_Draft
                 {
                     dispenser_pt.rz = 175000;
                 }
-                int wait_time = dispenserForm.MovL_ver(dispenser_pt, 0, tip).Result;
-                await dispenserForm.MovL_ver(dispenser_pt, wait_time, tip);
+                await dispenserForm.MovL_ver(dispenser_pt, tip);
                 await dispenserForm.Tip_Suck(volume, tip);//right tip by default
                 if (tip == 1)
                 {
@@ -704,16 +700,16 @@ namespace WinFormsApp_Draft
                 {
                     dispenser_pt.rz = 0;
                 }
-                await dispenserForm.MovL_ver(dispenser_pt, wait_time, tip);
+                await dispenserForm.MovL_ver(dispenser_pt, tip);
             }
             else if (pump == "descend")
             {
-                await dispenserForm.MovL_ver(dispenser_pt, wait_time0, tip);
+                await dispenserForm.MovL_ver(dispenser_pt, tip);
             }
             else if (pump == "ascend")
             {
                 dispenser_pt.rz = 0;
-                await dispenserForm.MovL_ver(dispenser_pt, wait_time0, tip);
+                await dispenserForm.MovL_ver(dispenser_pt, tip);
             }
 
             if (tip == 1)
@@ -964,11 +960,11 @@ namespace WinFormsApp_Draft
                                             }
 
                                             // digital twin arm sync
-                                            List<string> current_pos = armForm.current_pos();
+                                            List<string> current_pos0 = armForm.current_pos();
                                             Mqtt_connection.Publish(SpecForm.client, "twin", string.Format
                                                 (
-                                                "{0},{1},{2},{3}",
-                                                current_pos[0], current_pos[1], current_pos[2], current_pos[3]
+                                                "a{0},{1},{2},{3}",
+                                                current_pos0[0], current_pos0[1], current_pos0[2], current_pos0[3]
                                                 )
                                             );
                                             break;
@@ -1021,6 +1017,15 @@ namespace WinFormsApp_Draft
                                                 default:
                                                     break;
                                             }
+
+                                            //// digital twin dispenser sync
+                                            List<int> current_pos1 = dispenserForm.current_pos();
+                                            Mqtt_connection.Publish(SpecForm.client, "twin", string.Format
+                                                (
+                                                "d{0},{1},{2},{3}",
+                                                current_pos1[0], current_pos1[1], current_pos1[2], current_pos1[3]
+                                                )
+                                            );
                                             break;
 
                                         //do spin coating if "c<spin_speed>,<spin_acc>,<spin_dur>" read

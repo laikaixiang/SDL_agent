@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Winform_platform")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+d8026223685e3fc2caa905692a3adc6e7f69f484")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+cb8f2d3899dd133104dfae10933cf419de3573cf")]
 [assembly: System.Reflection.AssemblyProductAttribute("Winform_platform")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Winform_platform")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

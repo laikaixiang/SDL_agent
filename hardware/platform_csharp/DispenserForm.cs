@@ -143,8 +143,8 @@ namespace WinFormsApp_Draft
                         Axes.Enable_motor_c(index, right_z, 1);
                         Axes.Enable_motor_c(index, left_tip, 1);
                         Axes.Enable_motor_c(index, right_tip, 1);
-                        Axes.Set_speed_ac_de_time_c(index, x_id, 300, 200, 200);
-                        Axes.Set_speed_ac_de_time_c(index, y_id, 300, 200, 200);
+                        Axes.Set_speed_ac_de_time_c(index, x_id, 200, 200, 200);
+                        Axes.Set_speed_ac_de_time_c(index, y_id, 200, 200, 200);
                         Axes.Set_speed_ac_de_time_c(index, left_z, 800, 200, 200);
                         Axes.Set_speed_ac_de_time_c(index, right_z, 800, 200, 200);
 
@@ -194,7 +194,6 @@ namespace WinFormsApp_Draft
             point.lz = Convert.ToInt32(LeftZ.Text);
             point.rz = Convert.ToInt32(RightZ.Text);
             await Task.Run(() => MovL_hor(point));
-            await Task.Run(() => MovL_ver(point));
             check_pipette();
         }
         private async void AxesManeuver_back_Click(object sender, EventArgs e)
@@ -203,8 +202,7 @@ namespace WinFormsApp_Draft
             point.y = Convert.ToInt32(Y.Text);
             point.lz = Convert.ToInt32(LeftZ.Text);
             point.rz = Convert.ToInt32(RightZ.Text);
-            await Task.Run(() => MovL_ver(point, 3000));
-            await Task.Run(() => MovL_hor(point));
+            await Task.Run(() => MovL_ver(point));
             check_pipette();
         }
 
@@ -223,10 +221,6 @@ namespace WinFormsApp_Draft
                 Axes.Motor_Absolute_movement_c(index, x_id, point.x);
                 Axes.Motor_Absolute_movement_c(index, y_id, point.y);
                 await Task.Delay(2000);
-
-                //Axes.Motor_Absolute_movement_c(index, left_z, point.lz);
-                //Axes.Motor_Absolute_movement_c(index, right_z, point.rz);
-                //await Task.Delay(1500);
             }
         }
         /// <summary>
@@ -245,36 +239,41 @@ namespace WinFormsApp_Draft
         /// </summary>
         /// <param name="point"></param>
         /// <returns></returns>
-        public async Task<int> MovL_ver(DKPoint point, int delay = 0, byte pipette = right_tip)
+        public async Task MovL_ver(DKPoint point, byte pipette = right_tip)
         {
-            if (point == null) return 0;
+            if (point == null) return;
             else
             {
-                if (delay == 0)
+                Axes.Motor_Absolute_movement_c(index, left_z, point.lz);
+                Axes.Motor_Absolute_movement_c(index, right_z, point.rz);
+                if(pipette == left_tip)
                 {
-                    if (pipette == left_tip)
-                    {
-                        int real_delay = point.lz / 100;
-                        return real_delay;
-                    }
-                    else if (pipette == right_tip)
-                    {
-                        int real_delay = point.rz / 100;
-                        return real_delay;
-                    }
-                    else
-                    {
-                        return 0;
-                    }
+                    int cur_pos = current_pos()[2];
+                    int delay = Math.Abs((cur_pos - point.lz) / 50);
+                    await Task.Delay(delay);
                 }
                 else
                 {
-                    Axes.Motor_Absolute_movement_c(index, left_z, point.lz);
-                    Axes.Motor_Absolute_movement_c(index, right_z, point.rz);
+                    int cur_pos = current_pos()[3];
+                    int delay = Math.Abs((cur_pos - point.rz) / 50);
                     await Task.Delay(delay);
-                    return delay;
                 }
             }
+        }
+
+        /// <summary>
+        /// gets the current pos of dispenser
+        /// </summary>
+        /// <returns>List<int>{ x, y, lz, rz }</returns>
+        public List<int> current_pos()
+        {
+            int x = 0; int y = 0; int lz = 0; int rz = 0;
+            Axes.Read_Motor_position_c(index, x_id, ref x);
+            Axes.Read_Motor_position_c(index, y_id, ref y);
+            Axes.Read_Motor_position_c(index, left_z, ref lz);
+            Axes.Read_Motor_position_c(index, right_z, ref rz);
+            List<int> position = new List<int> { x, y, lz, rz };
+            return position;
         }
 
         private void CheckTip_Click(object sender, EventArgs e)

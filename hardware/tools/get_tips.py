@@ -31,7 +31,9 @@ def get_tips(tip_pos: int, tip: int) -> str:
         client = get_mqtt_client()
         if client.is_connected:
             client.publish(EXPERIMENT_TOPIC, f"d0,0,{x},{y},0,0")# move horizontal
+            client.listen_to_message("done")
             client.publish(EXPERIMENT_TOPIC, f"d1,{tip},0,0,{z},0,0")# move tip vertical
+            client.listen_to_message("done")
             client.publish(EXPERIMENT_TOPIC, f"d1,{tip},0,0,0,0,0")# move tip back
             client.listen_to_message("done")
             return f"滴液机已执行:{tip}号泵取x={tip_pos[0]},y={tip_pos[1]},z={tip_pos[2]}位置的滴头"
@@ -39,7 +41,9 @@ def get_tips(tip_pos: int, tip: int) -> str:
             connect_state = client.connect()
             if connect_state:
                 client.publish(EXPERIMENT_TOPIC, f"d0,0,{x},{y},0,0")
+                client.listen_to_message("done")
                 client.publish(EXPERIMENT_TOPIC, f"d1,{tip},0,0,{z},0,0")
+                client.listen_to_message("done")
                 client.publish(EXPERIMENT_TOPIC, f"d1,{tip},0,0,0,0,0")
                 client.listen_to_message("done")
                 return f"滴液机已执行:{tip}号泵在x={tip_pos[0]},y={tip_pos[1]},z={tip_pos[2]}位置的滴头"

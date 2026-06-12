@@ -37,41 +37,41 @@
       "type": "prismatic",
       "description": "中梁在横梁上沿X方向滑动",
       "mechanical_range": [
-        71,
-        310
+        84.6,
+        290.0
       ],
-      "stroke_mm": 340.8,
-      "reference_mm": 300.3
+      "stroke_mm": 205.4,
+      "reference_mm": 290.0
     },
     "Z": {
       "type": "prismatic",
       "description": "横梁沿框架Y方向移动",
       "mechanical_range": [
-        -150.1,
-        384
+        -105.6,
+        420.0
       ],
-      "stroke_mm": 308.0,
-      "reference_mm": 416.1
+      "stroke_mm": 525.6,
+      "reference_mm": 420.0
     },
     "Y1": {
       "type": "prismatic",
       "description": "ADP1模块垂直升降",
       "mechanical_range": [
-        94.0,
-        160.7
+        48.0,
+        150.0
       ],
-      "stroke_mm": 66.6,
-      "reference_mm": 123.1
+      "stroke_mm": 102.0,
+      "reference_mm": 150.0
     },
     "Y2": {
       "type": "prismatic",
       "description": "ADP2模块垂直升降",
       "mechanical_range": [
-        94.0,
-        160.7
+        48.0,
+        150.0
       ],
-      "stroke_mm": 66.6,
-      "reference_mm": 123.1
+      "stroke_mm": 102.0,
+      "reference_mm": 150.0
     }
   },
   "adp_spacing_mm": 30.2,

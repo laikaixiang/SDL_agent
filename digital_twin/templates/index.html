@@ -456,14 +456,50 @@ let pipJoints = { x:300.3, y:213.1, z1:123.1, z2:123.1 };
 
 function updatePipette(x, y, z1, z2) {
   pipJoints = { x, y, z1, z2 };
-  pipetteX.position.x  = x  - 300.3;    // X: World X (horizontal)
-  pipetteY.position.z  = -(y - 416.1);  // Y: World Z (horizontal, was .y with pivot)
-  pipetteZ1.position.y = z1 - 123.1;    // Z1: World Y (UP = Z axis, was .z)
-  pipetteZ2.position.y = z2 - 123.1;    // Z2: World Y (UP = Z axis, was .z)
+  // Home/零点 (软件=0 时的真实位置, 工作区上界):
+  //   x   = 290 mm, y = 420 mm, z1 = z2 = 150 mm
+  // 3D 模型显示的"实际位置" = 真实值 − home, 零点时为 0
+  pipetteX.position.x  = x  - 290;       // X: World X (horizontal)
+  pipetteY.position.z  = -(y - 420);     // Y: World Z (horizontal, was .y with pivot)
+  pipetteZ1.position.y = z1 - 150;       // Z1: World Y (UP = Z axis, was .z)
+  pipetteZ2.position.y = z2 - 150;       // Z2: World Y (UP = Z axis, was .z)
   document.getElementById('vp-x').textContent  = x.toFixed(0) + 'mm';
   document.getElementById('vp-y').textContent  = y.toFixed(0) + 'mm';
   document.getElementById('vp-z1').textContent = z1.toFixed(0) + 'mm';
   document.getElementById('vp-z2').textContent = z2.toFixed(0) + 'mm';
+}
+
+// 移液臂平滑过渡(给 MQTT 实时流用) —— 同 animateTo 的实现风格
+// 每次新事件到达时,取消正在进行的动画,改从"当前已插值到的位置"平滑过渡到新目标。
+// 这样在 20Hz 实时流下不会出现"跳一下又跳一下"的抖动,而是"始终在追最新目标"的丝滑效果。
+let _pipAnimFrameId = null;
+
+function animatePipetteTo(tx, ty, tz1, tz2, dur = 500) {
+  // 取消上一次未完成的动画(20Hz 流下会被频繁打断)
+  if (_pipAnimFrameId) cancelAnimationFrame(_pipAnimFrameId);
+  // 从 pipJoints 当前值开始(动画过程中此值会被持续更新)
+  const s = { x: pipJoints.x, y: pipJoints.y, z1: pipJoints.z1, z2: pipJoints.z2 };
+  const t0 = performance.now();
+  (function step(now) {
+    const p = Math.min((now - t0) / dur, 1);
+    // ease-in-out,与 animateTo 保持一致
+    const e = p < 0.5 ? 2*p*p : -1 + (4-2*p)*p;
+    const x  = s.x  + (tx  - s.x)  * e;
+    const y  = s.y  + (ty  - s.y)  * e;
+    const z1 = s.z1 + (tz1 - s.z1) * e;
+    const z2 = s.z2 + (tz2 - s.z2) * e;
+    // 同步滑块 + 3D 模型 + 文本(都通过 updatePipette 完成)
+    document.getElementById('sp-x').value  = x;
+    document.getElementById('sp-y').value  = y;
+    document.getElementById('sp-z1').value = z1;
+    document.getElementById('sp-z2').value = z2;
+    updatePipette(x, y, z1, z2);
+    if (p < 1) {
+      _pipAnimFrameId = requestAnimationFrame(step);
+    } else {
+      _pipAnimFrameId = null;
+    }
+  })(t0);
 }
 
 window.onPipetteJoint = () => {
@@ -1974,17 +2010,12 @@ sse.addEventListener('rt_arm', e => {
   updateRobot(jj.j1, jj.j2, jj.j3_deg, jj.j4);
 });
 
-// rt_pipette 事件 — 来自 MQTT 的移液臂实时轴位置,直接跳到目标
+// rt_pipette 事件 — 来自 MQTT 的移液臂实时轴位置,平滑过渡到目标(取消旧动画,从头开始)
 sse.addEventListener('rt_pipette', e => {
   const p = JSON.parse(e.data);
   const a = p.axis;
-  // 同步滑块
-  document.getElementById('sp-x').value  = a.x;
-  document.getElementById('sp-y').value  = a.y;
-  document.getElementById('sp-z1').value = a.z1;
-  document.getElementById('sp-z2').value = a.z2;
-  // 直接跳到目标姿态
-  updatePipette(a.x, a.y, a.z1, a.z2);
+  // 走 500ms ease-in-out 平滑过渡;高频流下会被新事件打断,从当前位置重启动画
+  animatePipetteTo(a.x, a.y, a.z1, a.z2, 500);
 });
 
 sse.onerror = e => {
@@ -2004,6 +2035,7 @@ sse.onerror = e => {
 
 window.updateRobot = updateRobot;
 window.updatePipette = updatePipette;
+window.animatePipetteTo = animatePipetteTo;
 window.fk = fk;
 window.ik = ik;
 window.j3deg2d3 = j3deg2d3;

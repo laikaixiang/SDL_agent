@@ -1019,6 +1019,7 @@ namespace WinFormsApp_Draft
                                             }
 
                                             //// digital twin dispenser sync
+                                            await Task.Delay(500);
                                             List<int> current_pos1 = dispenserForm.current_pos();
                                             Mqtt_connection.Publish(SpecForm.client, "twin", string.Format
                                                 (
@@ -1026,6 +1027,7 @@ namespace WinFormsApp_Draft
                                                 current_pos1[0], current_pos1[1], current_pos1[2], current_pos1[3]
                                                 )
                                             );
+                                            await Task.Delay(500);
                                             break;
 
                                         //do spin coating if "c<spin_speed>,<spin_acc>,<spin_dur>" read

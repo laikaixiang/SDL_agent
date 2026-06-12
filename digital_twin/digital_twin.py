@@ -959,6 +959,41 @@ atexit.register(kill_self_and_children)
 # ============================================================
 _TWIN_POLL_INTERVAL = 0.05      # 20Hz
 
+# ============================================================
+# 移液臂软件单位 → 真实 mm 映射
+# C# 端发来的 d{x},{y},{lz},{rz} 是软件单位(编码器/步进脉冲),
+# 不能直接当作 mm 用 —— 3D 模型会"飞出去"。
+#
+# 用户最新澄清的运动规律:
+#   1. "零点" (软件=0) = 机械臂真实位置 = 工作区的上界
+#   2. 软件值增加时, 真实位置 (mm) 减少(运动方向是反向的!)
+#   3. 换算公式:  real_mm = HOME - software × SLOPE
+#
+# 斜率(增量形式,用户提供,这里取绝对值):
+#   y:    5000 软件单位  = 10.95 cm = 109.5 mm  →  0.02190 mm/单位
+#   x:    10000 软件单位 =  7.90 cm =  79.0 mm  →  0.00790 mm/单位
+#   lz/rz: 50000 软件单位 =  3.00 cm =  30.0 mm  →  0.00060 mm/单位
+#
+# 零点(软件=0 时的真实位置,在工作区上界,用户提供):
+#   x   = 0  →  290.0 mm
+#   y   = 0  →  420.0 mm
+#   lz/rz = 0  → 150.0 mm
+#
+# 限位(软件单位)与换算后真实下界:
+#   x: 0~26000        →  84.6 ~ 290.0 mm  (下界 = 290 - 26000×0.0079)
+#   y: 0~24000        →  -105.6 ~ 420.0 mm
+#   lz/rz: 0~170000   →  48.0 ~ 150.0 mm
+#
+# 若 C# 端改为直接发 mm,把 _PIPETTE_APPLY_SCALING 改为 False 即可。
+# ============================================================
+_PIPETTE_APPLY_SCALING = True
+_PIPETTE_X_TO_MM = 79.0   / 10000.0   # 0.0079 mm/单位
+_PIPETTE_Y_TO_MM = 109.5  / 5000.0    # 0.0219 mm/单位
+_PIPETTE_Z_TO_MM = 30.0   / 50000.0   # 0.0006 mm/单位
+_PIPETTE_X_HOME_MM = 290.0    # 软件 x=0   →  290 mm(工作区上界 = 零点)
+_PIPETTE_Y_HOME_MM = 420.0    # 软件 y=0   →  420 mm(工作区上界 = 零点)
+_PIPETTE_Z_HOME_MM = 150.0    # 软件 lz/rz=0  →  150 mm(工作区上界 = 零点)
+
 _twin_listener_thread: Optional[threading.Thread] = None
 _twin_listener_stop = threading.Event()
 
@@ -1039,20 +1074,30 @@ def _handle_arm_message(payload: str):
 
 
 def _handle_pipette_message(payload: str):
-    """处理移液臂消息:解析 → FK 算 tip 位置 → 保存 → SSE 推送 pipette 事件。"""
+    """处理移液臂消息:解析 → 软件单位→mm 换算 → FK 算 tip 位置 → 保存 → SSE 推送。"""
     parsed = _parse_pipette_message(payload)
     if parsed is None:
         return
-    x, y, lz, rz = parsed
+    x_raw, y_raw, lz_raw, rz_raw = parsed
+
+    # 软件单位 → 真实 mm(C# 发的是编码器/脉冲数,不是 mm)
+    # 公式:  real_mm = HOME - software × SLOPE  (运动方向反向)
+    if _PIPETTE_APPLY_SCALING:
+        x_mm  = _PIPETTE_X_HOME_MM - x_raw  * _PIPETTE_X_TO_MM
+        y_mm  = _PIPETTE_Y_HOME_MM - y_raw  * _PIPETTE_Y_TO_MM
+        lz_mm = _PIPETTE_Z_HOME_MM - lz_raw * _PIPETTE_Z_TO_MM
+        rz_mm = _PIPETTE_Z_HOME_MM - rz_raw * _PIPETTE_Z_TO_MM
+    else:
+        x_mm, y_mm, lz_mm, rz_mm = x_raw, y_raw, lz_raw, rz_raw
 
     # 构建 PipetteState 并 FK(纯平移关节,FK 即坐标变换)
-    state = PipetteState(x=x, y=y, z1=lz, z2=rz)
+    state = PipetteState(x=x_mm, y=y_mm, z1=lz_mm, z2=rz_mm)
     pose = pipette_fk(state)
 
-    # 持久化
+    # 持久化(存真实 mm,与 /api/pipette/fk 等接口保持一致)
     from datetime import datetime
     _save_pipette_state({
-        "axis": {"x": x, "y": y, "z1": lz, "z2": rz},
+        "axis": {"x": x_mm, "y": y_mm, "z1": lz_mm, "z2": rz_mm},
         "tip1": pose.tip1.to_dict(),
         "tip2": pose.tip2.to_dict(),
         "updated_at": datetime.now().isoformat(timespec='seconds'),
@@ -1060,12 +1105,14 @@ def _handle_pipette_message(payload: str):
 
     # SSE 推送 — rt_pipette(实时,无动画,适配 20Hz 高频流;前端 updatePipette() 直接跳)
     _notify("rt_pipette", {
-        "axis": {"x": x, "y": y, "z1": lz, "z2": rz},
+        "axis": {"x": x_mm, "y": y_mm, "z1": lz_mm, "z2": rz_mm},
         "tip1": pose.tip1.to_dict(),
         "tip2": pose.tip2.to_dict(),
     })
 
-    print(f"[TwinListener][pipette] axis=(x={x:.1f}, y={y:.1f}, z1={lz:.1f}, z2={rz:.1f})  "
+    scale_tag = " (已缩放→mm)" if _PIPETTE_APPLY_SCALING else ""
+    print(f"[TwinListener][pipette] raw=(x={x_raw:.0f}, y={y_raw:.0f}, lz={lz_raw:.0f}, rz={rz_raw:.0f})  "
+          f"mm=(x={x_mm:.1f}, y={y_mm:.1f}, z1={lz_mm:.1f}, z2={rz_mm:.1f}){scale_tag}  "
           f"tip1=({pose.tip1.x:.1f}, {pose.tip1.y:.1f}, {pose.tip1.z:.1f})  "
           f"tip2=({pose.tip2.x:.1f}, {pose.tip2.y:.1f}, {pose.tip2.z:.1f})")
 

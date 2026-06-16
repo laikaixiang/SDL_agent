@@ -1,0 +1,42 @@
+{
+  "timestamp": "2026-06-13T02:22:09",
+  "csv_source": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\pytest-of-Administrator\\pytest-1\\test_auto_analyze_reader_fallb0\\extraction.csv",
+  "algorithm": "data_statistics",
+  "reasoning": "should fallback",
+  "result": {
+    "statistics": {
+      "PCE": {
+        "count": 10,
+        "mean": 16.35,
+        "median": 16.35,
+        "std": 0.9082951062292474,
+        "variance": 0.8249999999999997,
+        "min": 15.0,
+        "max": 17.7,
+        "q25": 15.675,
+        "q75": 17.025000000000002
+      },
+      "thickness": {
+        "count": 10,
+        "mean": 145.0,
+        "median": 145.0,
+        "std": 30.276503540974915,
+        "variance": 916.6666666666666,
+        "min": 100.0,
+        "max": 190.0,
+        "q25": 122.5,
+        "q75": 167.5
+      }
+    },
+    "correlation": {
+      "PCE": {
+        "PCE": 1.0,
+        "thickness": 1.0
+      },
+      "thickness": {
+        "PCE": 1.0,
+        "thickness": 1.0
+      }
+    }
+  }
+}

@@ -26,6 +26,15 @@
       "keywords": [
         "func"
       ]
+    },
+    {
+      "name": "_test_moving_average_xxx",
+      "description": "测试用移动平均",
+      "category": "自定义算法",
+      "input_type": "dict with 'values' key",
+      "keywords": [
+        "_test_moving_average_xxx"
+      ]
     }
   ],
   "version": "1.0.0",

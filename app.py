@@ -1728,6 +1728,61 @@ def csv_columns():
     return jsonify({"success": True, "data": {"columns": cols}})
 
 
+# =============================================================================
+# 算法推荐路由 (Phase 3 — 2026-06-19 software 优化)
+# =============================================================================
+# POST /api/algorithm/recommend
+# 让 LLM 根据 CSV 列名智能推荐最合适的算法 + 读取函数
+# =============================================================================
+
+@app.route('/api/algorithm/recommend', methods=['POST'])
+def algorithm_recommend():
+    """
+    智能推荐算法：根据 CSV 文件的列名和数据结构，由 LLM 推荐最佳算法
+
+    请求体：
+        {"path": "temporal/extraction.csv"}
+
+    返回：
+        {
+            "success": true,
+            "data": {
+                "algorithm": "spectrum_analysis",
+                "read_function": "read_numeric_columns",
+                "read_params": {},
+                "reasoning": "检测到 wavelength 和 intensity 列，适合光谱分析..."
+            }
+        }
+    """
+    from software.auto_analyze import recommend_algorithm
+
+    lang = i18n.get_lang(request)
+    data = request.get_json(silent=True) or {}
+    csv_path = data.get('path', '').strip()
+
+    if not csv_path:
+        return jsonify({
+            "success": False,
+            "message": i18n.get('errors.missingFilePath', lang)
+        }), 400
+
+    if not os.path.exists(csv_path):
+        return jsonify({
+            "success": False,
+            "message": i18n.get('errors.fileNotExist', lang).format(path=csv_path)
+        }), 404
+
+    algorithms = software_manager.list_algorithms()
+    if not algorithms:
+        return jsonify({
+            "success": False,
+            "message": "没有可用的算法"
+        }), 500
+
+    result = recommend_algorithm(csv_path, algorithms)
+    return jsonify(result)
+
+
 @app.route('/api/generate_algorithm', methods=['POST'])
 def generate_algorithm_alias():
     """

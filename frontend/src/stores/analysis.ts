@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { ref, reactive } from 'vue'
 import { defineStore } from 'pinia'
 import { listAlgorithms, browseCSV, runAlgorithm, previewCsv } from '@/api/analysis'
 import type { useExperimentStore as _ExpStore } from '@/stores/experiment'
@@ -17,6 +17,62 @@ export const useAnalysisStore = defineStore('analysis', () => {
   const algoInputFiles = ref<Record<string, string>>({})
   const algoOutputDirs = ref<Record<string, string>>({})
   const generating = ref(false)
+
+  // CSV 预览状态 (Phase 1)
+  // previewCache: 按 path 缓存 PreviewData, 避免重复请求
+  // 用 reactive 而不是 ref<Map>, 确保 .set() 时触发响应式更新
+  const previewCache = reactive<Record<string, PreviewData>>({})
+  // 正在加载预览的 path (用于 loading 状态)
+  const previewingPaths = ref<Set<string>>(new Set())
+  // 全屏预览的 path (CsvPreviewModal 用)
+  const fullPreviewPath = ref<string | null>(null)
+
+  /**
+   * 加载 CSV 预览 (带缓存)
+   *  - 如果 cache 中已有, 直接返回
+   *  - 否则发起网络请求, 写入 cache
+   */
+  async function loadPreview(path: string, n: number = 20): Promise<PreviewData | null> {
+    const cacheKey = `${path}::n=${n}`
+    if (previewCache[cacheKey]) {
+      return previewCache[cacheKey]
+    }
+    previewingPaths.value.add(path)
+    try {
+      const resp = await previewCsv(path, n)
+      if (resp.success && resp.data) {
+        previewCache[cacheKey] = resp.data
+        return resp.data
+      } else {
+        error.value = resp.message || ''
+        return null
+      }
+    } catch (err) {
+      error.value = (err as Error).message
+      return null
+    } finally {
+      previewingPaths.value.delete(path)
+    }
+  }
+
+  /** 清除某个 path 的预览缓存 (文件被重新上传等场景) */
+  function clearPreviewCache(path?: string) {
+    if (!path) {
+      for (const k of Object.keys(previewCache)) delete previewCache[k]
+    } else {
+      for (const k of Object.keys(previewCache)) {
+        if (k.startsWith(path)) delete previewCache[k]
+      }
+    }
+  }
+
+  function setFullPreviewPath(path: string | null) {
+    fullPreviewPath.value = path
+  }
+
+  function isPreviewing(path: string): boolean {
+    return previewingPaths.value.has(path)
+  }
 
   async function loadAlgorithms() {
     try { algorithms.value = await listAlgorithms() } catch { /* empty */ }
@@ -186,9 +242,11 @@ export const useAnalysisStore = defineStore('analysis', () => {
   return {
     algorithms, csvFiles, selectedAlgo, selectedFile, loading, result, error,
     expandedAlgo, algoInputFiles, algoOutputDirs, generating,
+    previewCache, previewingPaths, fullPreviewPath,
     showGuide, guideReply, guideProgress, guideSessionId, guideDone,
     loadAlgorithms, loadFiles, toggleDetail, setInputFile, setOutputDir,
     addToExperiment, generateAlgorithm, startGuide, submitGuideAnswer,
     guideGoBack, cancelGuide, run,
+    loadPreview, clearPreviewCache, setFullPreviewPath, isPreviewing,
   }
 })

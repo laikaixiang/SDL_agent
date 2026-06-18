@@ -38,3 +38,6 @@ prompts/overrides/
 frontend/node_modules
 frontend/dist
 
+# Git worktrees（multiagent 并行隔离目录）
+.worktrees/
+

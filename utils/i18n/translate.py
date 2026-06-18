@@ -12,7 +12,7 @@ import sys
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, PROJECT_ROOT)
 
-from core.config import config_obj
+from core.config import Config as config_obj
 from core.llm_client import LLMClient
 
 LOCALES_DIR = os.path.join(PROJECT_ROOT, 'frontend', 'src', 'locales')
@@ -53,9 +53,11 @@ def translate_batch(client: LLMClient, items: list) -> dict:
         f'Keep it concise and natural for a lab automation software UI.\n\n{lines}'
     )
 
-    resp = client.call_api([
-        {'role': 'user', 'content': prompt}
-    ], stream=False, temperature=0.1, max_tokens=2000)
+    resp = client.call_api(
+        model=config_obj.MODEL_NAME_TALK,
+        messages=[{'role': 'user', 'content': prompt}],
+        stream=False, temperature=0.1, max_tokens=2000,
+    )
 
     raw = resp.get('content', '') if isinstance(resp, dict) else str(resp)
     try:
@@ -90,7 +92,6 @@ def main(batch_size=15):
     client = LLMClient(
         api_key=config_obj.TALK_API_KEY or config_obj.API_KEY,
         api_url=config_obj.TALK_API_URL or config_obj.API_URL,
-        model=config_obj.TALK_MODEL_NAME or config_obj.MODEL_NAME_TALK,
         extra_body=config_obj.get_extra_body('TALK'),
     )
 

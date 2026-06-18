@@ -469,12 +469,23 @@ class ExtractionEngine:
 
         # 处理结果
         if result and isinstance(result, dict) and "data" in result:
+            # 提前提取页文本 (避免 per-item 重复读取 PDF)
+            page_text = None
+            if self.evidence_validator:
+                try:
+                    page_text = self.pdf_processor.extract_text_from_page(pdf_path, page_num) or ""
+                except Exception:
+                    page_text = ""
+
             for item in result["data"]:
                 item_dict = item if isinstance(item, dict) else item.model_dump()
                 item_dict['_source_doc'] = doc_id
                 item_dict['_source_page'] = page_num + 1
-                # Step 2: Evidence validation
-                self._annotate_evidence(item_dict, pdf_path, page_num)
+                # Step 2: Evidence validation (使用缓存的 page_text)
+                if page_text is not None:
+                    self._annotate_evidence(item_dict, page_text)
+                else:
+                    self._annotate_evidence(item_dict, pdf_path, page_num)
                 all_extracted_data.append(item_dict)
 
                 self.task_manager.put_task_message("finding", {
@@ -539,12 +550,21 @@ class ExtractionEngine:
 
         # 处理结果
         if result and isinstance(result, dict) and "data" in result:
+            # 提前提取页文本 (避免 per-item 重复读取 PDF)
+            page_text = None
+            if self.evidence_validator:
+                try:
+                    page_text = self.pdf_processor.extract_text_from_page(pdf_path, page_num) or ""
+                except Exception:
+                    page_text = ""
+
             for item in result["data"]:
                 item_dict = item if isinstance(item, dict) else item.model_dump()
                 item_dict['_source_doc'] = doc_id
                 item_dict['_source_page'] = page_num + 1
-                # Step 2: Evidence validation
-                self._annotate_evidence(item_dict, pdf_path, page_num)
+                # Step 2: Evidence validation (使用缓存的 page_text)
+                if page_text is not None:
+                    self._annotate_evidence(item_dict, page_text)
                 all_extracted_data.append(item_dict)
 
                 self.task_manager.put_task_message("finding", {
@@ -560,8 +580,8 @@ class ExtractionEngine:
     def _annotate_evidence(
         self,
         item_dict: Dict[str, Any],
-        pdf_path: str,
-        page_num: int,
+        page_text_or_path: str,
+        page_num: int = 0,
     ) -> None:
         """
         Step 2: 为单条记录添加 evidence 校验注解。
@@ -586,10 +606,13 @@ class ExtractionEngine:
             item_dict["_evidence_score"] = 0.0
             return
 
-        try:
-            page_text = self.pdf_processor.extract_text_from_page(pdf_path, page_num) or ""
-        except Exception:
-            page_text = ""
+        # page_text_or_path 可以是预提取的文本 (fast path) 或 pdf_path (fallback)
+        page_text = page_text_or_path if page_text_or_path and "\n" in page_text_or_path else ""
+        if not page_text and self.pdf_processor:
+            try:
+                page_text = self.pdf_processor.extract_text_from_page(page_text_or_path, page_num) or ""
+            except Exception:
+                page_text = ""
 
         validation = self.evidence_validator.validate(page_text, evidence)
         item_dict["_evidence_offset"] = validation["offset"]

@@ -123,23 +123,10 @@ export const useChatStore = defineStore('chat', () => {
             break
           }
           case 'finding': {
-            const f = msg.data as {
-              page: number
-              filename: string
-              details: Record<string, string>
-              // Step 6: 新增 evidence 字段
-              evidence_offset?: number
-              evidence_length?: number
-              evidence_score?: number
-              low_confidence?: boolean
-            }
+            const f = msg.data as { page: number; filename: string; details: Record<string, string> }
             let text = i18n.global.t('chat.extractionFinding', { page: f.page, filename: f.filename })
             for (const [k, v] of Object.entries(f.details)) {
               if (k !== '_source_doc') text += `  ${k}: ${v}\n`
-            }
-            // Step 6: 低置信度提示
-            if (f.low_confidence) {
-              text += `  [⚠️ 原文未找到匹配 — 低置信度]\n`
             }
             addMessage('ai', text.trim())
             break

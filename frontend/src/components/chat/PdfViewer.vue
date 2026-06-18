@@ -13,18 +13,7 @@ interface PageEntry {
 const totalPages = ref(0)
 const pageMap = reactive<Record<number, PageEntry>>({})
 const jumpPage = ref('')
-// Step 6: highlightRange support
-const highlightPage = ref<number | null>(null)
-const highlightOffset = ref<number | null>(null)
-const highlightLength = ref<number | null>(null)
 let observer: IntersectionObserver | null = null
-
-function onPdfJump(ev: Event) {
-  const detail = (ev as CustomEvent).detail as { page: number; offset?: number | null; length?: number | null }
-  if (!detail || typeof detail.page !== 'number') return
-  loadPage(detail.page)
-  highlightRange(detail.page, detail.offset, detail.length)
-}
 
 onMounted(async () => {
   if (!props.pdfPath) {
@@ -49,13 +38,10 @@ onMounted(async () => {
 
   await nextTick()
   setupObserver()
-  // Step 6: 监听 jumpToSource 事件
-  window.addEventListener('pdf-jump', onPdfJump)
 })
 
 onUnmounted(() => {
   observer?.disconnect()
-  window.removeEventListener('pdf-jump', onPdfJump)
 })
 
 async function loadPage(pageNum: number) {
@@ -95,30 +81,6 @@ function scrollToPage(pn: number) {
   const el = document.querySelector(`[data-page="${pn}"]`)
   el?.scrollIntoView({ behavior: 'smooth' })
 }
-
-/**
- * Step 6: 高亮指定页面 + 文本区间
- * @param page 0-based 页码
- * @param offset 可选 — 字符偏移 (用于覆盖层提示)
- * @param length 可选 — 高亮长度
- */
-function highlightRange(page: number, offset?: number | null, length?: number | null) {
-  highlightPage.value = page
-  highlightOffset.value = offset ?? null
-  highlightLength.value = length ?? null
-  // 自动滚动到该页
-  scrollToPage(page)
-  // 3s 后清除高亮标记
-  setTimeout(() => {
-    if (highlightPage.value === page) {
-      highlightPage.value = null
-      highlightOffset.value = null
-      highlightLength.value = null
-    }
-  }, 5000)
-}
-
-defineExpose({ scrollToPage, highlightRange })
 
 function onJump() {
   const pn = parseInt(jumpPage.value)
@@ -193,7 +155,6 @@ function pageNumbers(): number[] {
         class="page-sentinel"
         :data-page="pn"
         :ref="(el: any) => onPageRendered(el as Element)"
-        :class="{ 'page-highlight': highlightPage === pn }"
       >
         <div v-if="!pageMap[pn]" class="page-placeholder">
           <span>{{ pn + 1 }}</span>
@@ -206,11 +167,6 @@ function pageNumbers(): number[] {
           :src="'data:image/jpeg;base64,' + pageMap[pn].imageBase64"
           :alt="$t('pdf.pageOf', { n: pn + 1, total: totalPages })"
           class="page-img"
-        />
-        <div
-          v-if="highlightPage === pn && highlightOffset != null"
-          class="page-highlight-overlay"
-          :title="`offset=${highlightOffset} length=${highlightLength}`"
         />
       </div>
     </div>
@@ -301,26 +257,5 @@ function pageNumbers(): number[] {
   width: 100%;
   display: block;
   box-shadow: 0 2px 8px rgba(0,0,0,0.5);
-}
-/* Step 6: highlight range 样式 */
-.page-highlight {
-  position: relative;
-  outline: 3px solid var(--color-primary, #ffaa00);
-  outline-offset: -3px;
-  transition: outline 0.3s ease;
-}
-.page-highlight-overlay {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  background: rgba(255, 170, 0, 0.9);
-  color: #000;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-family: monospace;
-  z-index: 10;
-  pointer-events: none;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
 }
 </style>

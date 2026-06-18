@@ -1647,6 +1647,87 @@ def browse_output_dirs():
     return jsonify({"success": True, "dirs": dirs})
 
 
+# =============================================================================
+# CSV 预览路由 (Phase 1 — 2026-06-18 software 优化)
+# =============================================================================
+# GET  /api/csv/preview?path=<absolute>&n=20  → PreviewData
+# GET  /api/csv/columns?path=<absolute>       → {"columns": ["col1", "col2", ...]}
+# 注: 用 GET 是因为纯查; 不修改文件, 无副作用
+# =============================================================================
+
+@app.route('/api/csv/preview', methods=['GET'])
+def csv_preview():
+    """
+    返回 CSV 前 N 行预览 + 列类型推断
+
+    Query:
+        path: CSV 文件绝对路径
+        n   : 预览行数, 默认 20, 范围 1-200
+
+    Response:
+        {
+            "success": true,
+            "data": {
+                "path": "...",
+                "columns": [{"name": "PCE", "type": "float", "sample": [...], ...}],
+                "row_count": 20,
+                "total_rows": 1234,
+                "file_size": 98765
+            }
+        }
+    """
+    from software.csv_inspector import inspect_csv
+
+    lang = i18n.get_lang(request)
+    path = request.args.get('path', '').strip()
+    if not path:
+        return jsonify({"success": False, "message": i18n.get('errors.missingFilePath', lang)}), 400
+
+    n_raw = request.args.get('n', '20')
+    try:
+        n_rows = int(n_raw)
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "message": f"无效的 n 参数: {n_raw}"}), 400
+    n_rows = max(1, min(200, n_rows))
+
+    try:
+        preview = inspect_csv(path, n_rows=n_rows)
+    except FileNotFoundError as e:
+        return jsonify({"success": False, "message": str(e)}), 404
+    except Exception as e:
+        return jsonify({"success": False, "message": f"读取 CSV 失败: {e}"}), 500
+
+    return jsonify({"success": True, "data": preview.to_dict()})
+
+
+@app.route('/api/csv/columns', methods=['GET'])
+def csv_columns():
+    """
+    轻量级: 只取 CSV 的列名, 不读数据行
+
+    Query:
+        path: CSV 文件绝对路径
+
+    Response:
+        {"success": true, "data": {"columns": ["wavelength", "intensity", ...]}}
+    """
+    from software.readfile import read_column_names
+
+    lang = i18n.get_lang(request)
+    path = request.args.get('path', '').strip()
+    if not path:
+        return jsonify({"success": False, "message": i18n.get('errors.missingFilePath', lang)}), 400
+    if not os.path.exists(path):
+        return jsonify({"success": False, "message": f"文件不存在: {path}"}), 404
+
+    try:
+        cols = read_column_names(path)
+    except Exception as e:
+        return jsonify({"success": False, "message": f"读取列名失败: {e}"}), 500
+
+    return jsonify({"success": True, "data": {"columns": cols}})
+
+
 @app.route('/api/generate_algorithm', methods=['POST'])
 def generate_algorithm_alias():
     """

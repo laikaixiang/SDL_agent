@@ -165,6 +165,9 @@ class Config:
     DEDUP_NORMALIZE: str = _external.get("DEDUP_NORMALIZE", "strip")
     DEDUP_MERGE_STRATEGY: str = _external.get("DEDUP_MERGE_STRATEGY", "longest")
     DEDUP_ADD_METADATA: bool = _external.get("DEDUP_ADD_METADATA", True)
+    # Step 4: 语义去重 (embedding 聚类)
+    SEMANTIC_DEDUP_ENABLED: bool = _external.get("SEMANTIC_DEDUP_ENABLED", True)
+    SEMANTIC_DEDUP_THRESHOLD: float = _external.get("SEMANTIC_DEDUP_THRESHOLD", 0.92)
 
     # ======================== 提取质量检查 ========================
     QUALITY_CHECK_ENABLED: bool = _external.get("QUALITY_CHECK_ENABLED", True)

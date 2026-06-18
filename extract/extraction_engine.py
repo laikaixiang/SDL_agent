@@ -25,6 +25,7 @@ from .page_filter import PageFilter
 from .few_shot_retriever import FewShotRetriever
 from .dedup import deduplicate_extraction_results
 from .evidence_validator import EvidenceValidator
+from .semantic_dedup import SemanticDedup
 from prompts import create_prompt_manager
 
 
@@ -1036,6 +1037,35 @@ class ExtractionEngine:
                 self.task_manager.put_task_message(
                     "info",
                     f"去重完成: {original_count} 条 → {deduped_count} 条 (移除 {original_count - deduped_count} 条重复)"
+                )
+
+        # Step 4: 语义去重 (embedding 聚类) — 规则 dedup 之后
+        if (
+            self.config.SEMANTIC_DEDUP_ENABLED
+            and self.embedding_service is not None
+            and all_extracted_data
+            and fields
+            and len(all_extracted_data) >= 2
+        ):
+            try:
+                sem_dedup = SemanticDedup(
+                    self.embedding_service,
+                    similarity_threshold=self.config.SEMANTIC_DEDUP_THRESHOLD,
+                    merge_strategy=self.config.DEDUP_MERGE_STRATEGY,
+                )
+                before_count = len(all_extracted_data)
+                all_extracted_data = sem_dedup.cluster_and_merge(all_extracted_data, fields)
+                after_count = len(all_extracted_data)
+                if before_count != after_count:
+                    self.task_manager.put_task_message(
+                        "info",
+                        f"语义去重完成: {before_count} 条 → {after_count} 条 (合并 {before_count - after_count} 条同义)"
+                    )
+            except Exception as e:
+                # 语义去重失败不应阻塞主流程
+                self.task_manager.put_task_message(
+                    "warning",
+                    f"语义去重失败 (已跳过): {e}"
                 )
 
         # 确定所有字段

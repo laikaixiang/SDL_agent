@@ -80,3 +80,8 @@ prompts:
     file: zh/optimizer/_meta_optimize.yaml
     category: optimizer
     enabled: true
+
+  review_extraction_system:
+    file: zh/agents/_review_extraction.yaml
+    category: extraction
+    enabled: true

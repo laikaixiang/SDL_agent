@@ -1,0 +1,17 @@
+name: review_extraction_system
+description: "抽取结果审查 — 标记仍疑似的重复 / 错误"
+variables: [batch_json]
+template: |
+  你是文献抽取结果审查员。给定一批已合并的记录，请：
+  1. 找出仍可能重复的行（同一实体的不同命名）→ 返回疑似重复对
+  2. 找出明显异常（数值离谱、单位缺失）→ 标记低置信度
+  3. 不做修改，只返回 JSON 数组
+
+  输出格式:
+  [
+    {"row_index": 0, "flag": "duplicate" | "low_value" | "ok", "note": "..."},
+    {"row_index": 1, "flag": "ok", "note": ""}
+  ]
+
+  输入记录 (JSON 数组):
+  ${batch_json}

@@ -484,6 +484,44 @@ def _preview_pdf_page_func(args: dict) -> str:
         return f"预览失败: {str(e)}"
 
 
+def _review_extraction_func(args: dict) -> str:
+    """
+    对已抽取的 records 做一次 LLM 审查.
+
+    输入: {"records": [...], "fields": [...]}
+    输出: 审查后的 records 数组 (JSON 字符串), 每条多了 _review_flag / _duplicate_of / _review_note
+    """
+    import json as _json
+    from core.review_agent import ExtractionReviewAgent
+
+    records = args.get("records", [])
+    fields = args.get("fields", [])
+    if not isinstance(records, list) or not records:
+        return _json.dumps({"error": "records 必须是非空数组"}, ensure_ascii=False)
+    if not isinstance(fields, list) or not fields:
+        return _json.dumps({"error": "fields 必须是非空数组"}, ensure_ascii=False)
+
+    try:
+        agent = ExtractionReviewAgent()
+        reviewed = agent.review(records, fields)
+    except Exception as e:
+        return _json.dumps({"error": f"review_extraction 失败: {str(e)}"}, ensure_ascii=False)
+
+    # 汇总
+    n_total = len(reviewed)
+    n_dup = sum(1 for r in reviewed if r.get("_review_flag") == "duplicate")
+    n_low = sum(1 for r in reviewed if r.get("_review_flag") == "low_value")
+    n_ok = sum(1 for r in reviewed if r.get("_review_flag") == "ok")
+
+    return _json.dumps({
+        "total": n_total,
+        "ok": n_ok,
+        "duplicate": n_dup,
+        "low_value": n_low,
+        "records": reviewed,
+    }, ensure_ascii=False, indent=2)
+
+
 BUILTIN_TOOLS: list[AgentTool] = [
     AgentTool(
         name="ask_user",
@@ -596,6 +634,34 @@ BUILTIN_TOOLS: list[AgentTool] = [
         },
         required=["pdf_path"],
         func=_preview_pdf_page_func,
+        category="extraction",
+    ),
+    AgentTool(
+        name="review_extraction",
+        description=(
+            "对已抽取的文献数据做一次 LLM 审查。"
+            "标记仍可能重复的行 (LLM 语义判断) 和明显错误 (单位缺失、数值异常大)，"
+            "给每条记录添加 _review_flag (ok | duplicate | low_value) / _duplicate_of / _review_note。"
+            "用于抽取后兜底质量审查。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "records": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": "已抽取的记录数组",
+                },
+                "fields": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "字段名列表 (fields[0] 为主键)",
+                },
+            },
+            "required": ["records", "fields"],
+        },
+        required=["records", "fields"],
+        func=_review_extraction_func,
         category="extraction",
     ),
 ]

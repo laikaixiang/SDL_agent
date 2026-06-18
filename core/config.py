@@ -178,6 +178,11 @@ class Config:
     EVIDENCE_VALIDATION_ENABLED: bool = _external.get("EVIDENCE_VALIDATION_ENABLED", True)
     EVIDENCE_FUZZY_THRESHOLD: float = _external.get("EVIDENCE_FUZZY_THRESHOLD", 0.7)
 
+    # ======================== Review Agent (Step 5) ========================
+    # 对 dedup 后的结果做一次 fresh LLM 审查
+    REVIEW_AGENT_ENABLED: bool = _external.get("REVIEW_AGENT_ENABLED", True)
+    REVIEW_AGENT_BATCH_SIZE: int = _external.get("REVIEW_AGENT_BATCH_SIZE", 10)
+
     # ======================== PDF预览 ========================
     PDF_PREVIEW_ENABLED: bool = _external.get("PDF_PREVIEW_ENABLED", True)
 

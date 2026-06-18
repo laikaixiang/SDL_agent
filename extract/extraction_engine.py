@@ -1068,6 +1068,29 @@ class ExtractionEngine:
                     f"语义去重失败 (已跳过): {e}"
                 )
 
+        # Step 5: Fresh LLM Review Agent (兜底审查)
+        if (
+            self.config.REVIEW_AGENT_ENABLED
+            and all_extracted_data
+            and fields
+        ):
+            try:
+                from core.review_agent import ExtractionReviewAgent
+                review_agent = ExtractionReviewAgent()
+                before_n = len(all_extracted_data)
+                all_extracted_data = review_agent.review(all_extracted_data, fields)
+                n_dup = sum(1 for r in all_extracted_data if r.get("_review_flag") == "duplicate")
+                n_low = sum(1 for r in all_extracted_data if r.get("_review_flag") == "low_value")
+                self.task_manager.put_task_message(
+                    "info",
+                    f"LLM 审查完成: 共 {before_n} 条, 重复 {n_dup} 条, 低置信 {n_low} 条"
+                )
+            except Exception as e:
+                self.task_manager.put_task_message(
+                    "warning",
+                    f"LLM 审查失败 (已跳过): {e}"
+                )
+
         # 确定所有字段
         all_keys = set(fields)
         for d in all_extracted_data:

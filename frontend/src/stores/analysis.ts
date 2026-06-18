@@ -1,15 +1,9 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
-import { listAlgorithms, browseCSV, runAlgorithm } from '@/api/analysis'
+import { listAlgorithms, browseCSV, runAlgorithm, previewCsv } from '@/api/analysis'
 import type { useExperimentStore as _ExpStore } from '@/stores/experiment'
+import type { Algorithm, PreviewData } from '@/types/analysis'
 import i18n from '@/i18n'
-
-interface Algorithm {
-  name: string
-  chinese_name: string
-  description: string
-  params_schema?: Record<string, string>
-}
 
 export const useAnalysisStore = defineStore('analysis', () => {
   const algorithms = ref<Algorithm[]>([])
@@ -54,7 +48,7 @@ export const useAnalysisStore = defineStore('analysis', () => {
       name: algo.name,
       chinese_name: algo.chinese_name,
       description: algo.description,
-      params_schema: algo.params_schema,
+      params_schema: algo.params_schema as Record<string, string> | undefined,
     })
   }
 

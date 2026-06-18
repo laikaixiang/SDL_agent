@@ -283,6 +283,94 @@ def _save_result(csv_path: str, algorithm: str, reasoning: str, result: dict) ->
 
 
 # ==============================================================================
+# 结构化推荐接口 (Phase 3)
+# ==============================================================================
+
+def recommend_algorithm(csv_path: str, algorithms: list) -> dict:
+    """
+    纯同步接口: 根据 CSV 列名推荐最合适的算法（不执行，仅返回推荐结果）
+
+    用于 POST /api/algorithm/recommend 端点，前端展示推荐后由用户决定是否采纳。
+
+    Args:
+        csv_path  : CSV 文件路径（如 "temporal/extraction.csv"）
+        algorithms: 算法元数据列表，由 SoftwareManager.list_algorithms() 提供
+
+    Returns:
+        {"success": bool, "data": {algorithm, read_function, read_params, reasoning},
+         "message": str}
+    """
+    from software.readfile import (
+        read_column_names, READER_REGISTRY, FUNCTIONS_DESCRIPTION
+    )
+
+    # ---- Step 1: 查找并读取列名 ----
+    try:
+        resolved_path = _find_csv_file(csv_path)
+    except FileNotFoundError as e:
+        return {"success": False, "message": str(e)}
+
+    try:
+        columns = read_column_names(resolved_path)
+    except Exception as e:
+        return {"success": False, "message": f"读取列名失败: {e}"}
+
+    if not columns:
+        return {"success": False, "message": "CSV 文件为空或无列名"}
+
+    # ---- Step 2: 调用 LLM 推荐 ----
+    algos_desc = _build_algorithms_desc(algorithms)
+
+    from prompts import create_prompt_manager
+    pm = create_prompt_manager(lang='zh')
+
+    user_msg = pm.get(
+        "data_analysis_user",
+        csv_path=csv_path,
+        columns=json.dumps(columns, ensure_ascii=False),
+        algorithms_desc=algos_desc,
+        functions_desc=FUNCTIONS_DESCRIPTION,
+    )
+
+    try:
+        raw_response = _call_llm(pm.get("data_analysis_system"), user_msg)
+        spec = json.loads(_strip_json(raw_response))
+    except json.JSONDecodeError as e:
+        return {"success": False, "message": f"LLM 返回格式无效，JSON 解析失败: {e}"}
+    except Exception as e:
+        return {"success": False, "message": f"LLM 调用失败: {e}"}
+
+    algorithm     = spec.get("algorithm", "")
+    read_function = spec.get("read_function", "")
+    read_params   = spec.get("read_params", {})
+    reasoning     = spec.get("reasoning", "")
+
+    # 校验 LLM 返回是否合法
+    algo_names = [a["name"] for a in algorithms]
+    if algorithm not in algo_names:
+        return {
+            "success": False,
+            "message": f"LLM 指定了未知算法 '{algorithm}'，可用：{algo_names}"
+        }
+    if read_function not in READER_REGISTRY:
+        return {
+            "success": False,
+            "message": f"LLM 指定了未知读取函数 '{read_function}'，可用：{list(READER_REGISTRY)}"
+        }
+
+    return {
+        "success": True,
+        "data": {
+            "algorithm": algorithm,
+            "read_function": read_function,
+            "read_params": read_params,
+            "reasoning": reasoning,
+        },
+        "message": f"已推荐算法: {algorithm}"
+    }
+
+
+# ==============================================================================
 # 主流水线
 # ==============================================================================
 

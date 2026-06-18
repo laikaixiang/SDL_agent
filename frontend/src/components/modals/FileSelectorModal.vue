@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { ref, watch } from 'vue'
-import { X, FileText, Folder, Upload } from 'lucide-vue-next'
+import { X, FileText, Folder, Upload, Eye, Maximize2 } from 'lucide-vue-next'
+import CsvPreviewInline from '@/components/csv/CsvPreviewInline.vue'
+import CsvPreviewModal from '@/components/csv/CsvPreviewModal.vue'
 
 const { t } = useI18n()
 
@@ -9,6 +11,8 @@ const props = defineProps<{
   open: boolean
   title?: string
   dirMode?: boolean
+  /** Enable CSV preview (👁 + 全屏) for files. Default true (non-dir mode only) */
+  enableCsvPreview?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -22,8 +26,17 @@ const dirs = ref<{ path: string; name: string }[]>([])
 const customPath = ref('')
 const loading = ref(false)
 
+// CSV preview 状态
+const expandedPreviewPath = ref<string | null>(null)  // 行内展开的文件
+const fullPreviewPath = ref<string | null>(null)      // 全屏 modal 的文件
+
+// 计算属性: 是否启用 CSV 预览
+const csvPreviewEnabled = () => !props.dirMode && props.enableCsvPreview !== false
+
 watch(() => props.open, (val) => {
   if (val) {
+    expandedPreviewPath.value = null
+    fullPreviewPath.value = null
     if (props.dirMode) {
       loadDirs()
     } else {
@@ -61,6 +74,18 @@ async function loadDirs() {
 function selectItem(path: string, name: string) {
   emit('selected', path, name)
   close()
+}
+
+function toggleInlinePreview(path: string) {
+  expandedPreviewPath.value = expandedPreviewPath.value === path ? null : path
+}
+
+function openFullPreview(path: string) {
+  fullPreviewPath.value = path
+}
+
+function closeFullPreview() {
+  fullPreviewPath.value = null
 }
 
 function confirmCustom() {
@@ -108,18 +133,42 @@ async function onUpload(e: Event) {
         <!-- Recent files -->
         <div v-if="activeTab === 'recent' && !dirMode" class="fs-list">
           <div v-if="loading" class="fs-loading">{{ $t('common.loading') }}</div>
-          <button
+          <div
             v-for="f in recentFiles"
             :key="f.path"
-            class="fs-item"
-            @click="selectItem(f.path, f.name)"
+            class="fs-item-wrap"
           >
-            <FileText :size="14" class="fs-icon" />
-            <div class="fs-info">
-              <span class="fs-name">{{ f.name }}</span>
-              <span class="fs-path">{{ f.path }}</span>
-            </div>
-          </button>
+            <button
+              class="fs-item"
+              @click="selectItem(f.path, f.name)"
+            >
+              <FileText :size="14" class="fs-icon" />
+              <div class="fs-info">
+                <span class="fs-name">{{ f.name }}</span>
+                <span class="fs-path">{{ f.path }}</span>
+              </div>
+              <div v-if="csvPreviewEnabled()" class="fs-preview-actions" @click.stop>
+                <button
+                  class="fs-preview-btn"
+                  :title="$t('analysis.previewInline')"
+                  @click="toggleInlinePreview(f.path)"
+                >
+                  <Eye :size="12" />
+                </button>
+                <button
+                  class="fs-preview-btn"
+                  :title="$t('analysis.previewFullscreen')"
+                  @click="openFullPreview(f.path)"
+                >
+                  <Maximize2 :size="12" />
+                </button>
+              </div>
+            </button>
+            <CsvPreviewInline
+              v-if="csvPreviewEnabled() && expandedPreviewPath === f.path"
+              :path="f.path"
+            />
+          </div>
           <div v-if="!loading && !recentFiles.length" class="fs-empty">{{ $t('modals.noRecentFiles') }}</div>
         </div>
 
@@ -157,6 +206,14 @@ async function onUpload(e: Event) {
         </div>
       </div>
     </div>
+
+    <!-- Full-screen CSV preview modal -->
+    <CsvPreviewModal
+      v-if="fullPreviewPath"
+      :open="!!fullPreviewPath"
+      :path="fullPreviewPath"
+      @update:open="closeFullPreview"
+    />
   </div>
 </template>
 
@@ -210,6 +267,16 @@ async function onUpload(e: Event) {
 .fs-info { flex: 1; min-width: 0; }
 .fs-name { font-size: 14px; color: var(--color-text); display: block; }
 .fs-path { font-size: 11px; color: var(--color-text-tertiary); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.fs-item-wrap { display: flex; flex-direction: column; }
+.fs-preview-actions { display: flex; gap: 2px; flex-shrink: 0; }
+.fs-preview-btn {
+  width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
+  border: none; border-radius: var(--radius-sm); background: transparent;
+  color: var(--color-text-tertiary); cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+.fs-preview-btn:hover { color: var(--color-primary); background: var(--color-primary-soft); }
 
 .fs-upload { padding: var(--space-2xl); }
 .fs-upload-area {

@@ -168,7 +168,12 @@ class Config:
 
     # ======================== 提取质量检查 ========================
     QUALITY_CHECK_ENABLED: bool = _external.get("QUALITY_CHECK_ENABLED", True)
-    QUALITY_SPARSE_THRESHOLD: float = _external.get("QUALITY_SPARSE_THRESHOLD", 0.3)
+    QUALITY_SPARSE_THRESHOLD: float = _external.get("QUALITY_SPARSE_THRESHOLD", 0.5)
+
+    # ======================== Evidence Validation (Step 2) ========================
+    # 验证 LLM 抽取的"原文原句"是否真实出现在该页 PDF 文本中
+    EVIDENCE_VALIDATION_ENABLED: bool = _external.get("EVIDENCE_VALIDATION_ENABLED", True)
+    EVIDENCE_FUZZY_THRESHOLD: float = _external.get("EVIDENCE_FUZZY_THRESHOLD", 0.7)
 
     # ======================== PDF预览 ========================
     PDF_PREVIEW_ENABLED: bool = _external.get("PDF_PREVIEW_ENABLED", True)

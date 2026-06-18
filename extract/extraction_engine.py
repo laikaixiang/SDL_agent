@@ -24,6 +24,7 @@ from .page_indexer import PageIndexer, make_page_id
 from .page_filter import PageFilter
 from .few_shot_retriever import FewShotRetriever
 from .dedup import deduplicate_extraction_results
+from .evidence_validator import EvidenceValidator
 from prompts import create_prompt_manager
 
 
@@ -67,6 +68,12 @@ class ExtractionEngine:
         self.few_shot_retriever: Optional[FewShotRetriever] = None
         self.embedding_service = None
         self.vector_store = None
+        # Step 2: Evidence Validator (验证 grounding 真实性)
+        self.evidence_validator: Optional[EvidenceValidator] = None
+        if self.config.EVIDENCE_VALIDATION_ENABLED:
+            self.evidence_validator = EvidenceValidator(
+                fuzzy_threshold=self.config.EVIDENCE_FUZZY_THRESHOLD
+            )
 
     def _init_page_filter_services(self):
         """
@@ -465,6 +472,8 @@ class ExtractionEngine:
                 item_dict = item if isinstance(item, dict) else item.model_dump()
                 item_dict['_source_doc'] = doc_id
                 item_dict['_source_page'] = page_num + 1
+                # Step 2: Evidence validation
+                self._annotate_evidence(item_dict, pdf_path, page_num)
                 all_extracted_data.append(item_dict)
 
                 self.task_manager.put_task_message("finding", {
@@ -533,6 +542,8 @@ class ExtractionEngine:
                 item_dict = item if isinstance(item, dict) else item.model_dump()
                 item_dict['_source_doc'] = doc_id
                 item_dict['_source_page'] = page_num + 1
+                # Step 2: Evidence validation
+                self._annotate_evidence(item_dict, pdf_path, page_num)
                 all_extracted_data.append(item_dict)
 
                 self.task_manager.put_task_message("finding", {
@@ -544,6 +555,48 @@ class ExtractionEngine:
             # Phase 2: 保存提取结果到历史数据库
             self._save_to_extraction_history(pdf_path, page_num, result["data"],
                                              task_description, doc_id)
+
+    def _annotate_evidence(
+        self,
+        item_dict: Dict[str, Any],
+        pdf_path: str,
+        page_num: int,
+    ) -> None:
+        """
+        Step 2: 为单条记录添加 evidence 校验注解。
+
+        从 item_dict 中读取 "原文原句" 字段, 调 EvidenceValidator 验证其是否
+        真实出现在该页 PDF 文本中. 验证结果以 `_evidence_offset` /
+        `_evidence_length` / `_evidence_score` 写入 item_dict, 失败时设
+        `_low_confidence=True`.
+
+        Args:
+            item_dict:  LLM 返回的单条记录 (会被原地修改)
+            pdf_path:   当前 PDF 路径
+            page_num:   0-based 页码
+        """
+        if not self.evidence_validator:
+            return
+
+        evidence = str(item_dict.get("原文原句", "") or "").strip()
+        if not evidence:
+            # 缺失 grounding 字段 → 标灰
+            item_dict["_low_confidence"] = True
+            item_dict["_evidence_score"] = 0.0
+            return
+
+        try:
+            page_text = self.pdf_processor.extract_text_from_page(pdf_path, page_num) or ""
+        except Exception:
+            page_text = ""
+
+        validation = self.evidence_validator.validate(page_text, evidence)
+        item_dict["_evidence_offset"] = validation["offset"]
+        item_dict["_evidence_length"] = validation["length"]
+        item_dict["_evidence_score"] = validation["fuzzy_score"]
+
+        if not validation["valid"]:
+            item_dict["_low_confidence"] = True
 
     def _inject_few_shot_examples(self, sys_prompt: str, task_description: str,
                                     fields: List[str]) -> str:

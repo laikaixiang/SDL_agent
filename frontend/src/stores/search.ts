@@ -142,12 +142,36 @@ export const useSearchStore = defineStore('search', () => {
     }
   }
 
+  /**
+   * Step 6: 跳转到 PDF 原文位置.
+   *
+   * 1) 复用 openPdfViewer 打开 tab
+   * 2) 通过自定义事件通知 PdfViewer 跳转 + 高亮
+   *
+   * PdfViewer 监听 'pdf-jump' 事件, payload: { page (0-based), offset, length }
+   */
+  async function jumpToSource(
+    doc: string,
+    page: number,
+    offset?: number | null,
+    length?: number | null,
+  ) {
+    if (!doc) return
+    openPdfViewer(doc, doc)
+    // 等待 viewer 挂载, 然后发跳转事件
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('pdf-jump', {
+        detail: { page: page - 1, offset, length }
+      }))
+    }, 350)
+  }
+
   return {
     query, results, loading, totalPages, preview, previewLoading, error, hasSearched,
     search, viewPage, closePreview,
     literatureList, literatureLoading, literatureTotal, selectedLiterature, abstractLoading,
     loadLiteratureList, viewAbstract, closeAbstract,
     openPdfTabs, activePdfId, activePdfTab, pdfPanelOpen,
-    openPdfViewer, closePdfViewer, closePdfTab, setActivePdf,
+    openPdfViewer, closePdfViewer, closePdfTab, setActivePdf, jumpToSource,
   }
 })

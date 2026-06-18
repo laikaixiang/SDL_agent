@@ -995,6 +995,32 @@ class ExtractionEngine:
             fields: 提取字段
             prefix: 文件名前缀
         """
+        # Step 3: 全空行过滤 (主键空或 grounding 空)
+        if all_extracted_data and fields:
+            original_count = len(all_extracted_data)
+            primary_key = fields[0]
+            evidence_field = "原文原句" if "原文原句" in fields else None
+            empty_markers = {"", "无", "未提及", "N/A", "-", "--"}
+
+            valid_data: List[Dict[str, Any]] = []
+            for record in all_extracted_data:
+                primary = str(record.get(primary_key, "") or "").strip()
+                if not primary or primary in empty_markers:
+                    continue  # 主键空 → 丢弃
+                if evidence_field:
+                    evidence = str(record.get(evidence_field, "") or "").strip()
+                    if not evidence or evidence in empty_markers:
+                        continue  # grounding 空 → 丢弃
+                valid_data.append(record)
+
+            if len(valid_data) < original_count:
+                self.task_manager.put_task_message(
+                    "info",
+                    f"全空行过滤: {original_count} → {len(valid_data)} "
+                    f"(删 {original_count - len(valid_data)} 条无主键/无原文)"
+                )
+            all_extracted_data = valid_data
+
         # 去重：按实体名称（fields[0]）合并重复行
         if self.config.DEDUP_ENABLED and all_extracted_data and fields:
             original_count = len(all_extracted_data)

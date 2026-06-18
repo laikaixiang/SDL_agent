@@ -45,7 +45,10 @@ export async function getCsvColumns(path: string): Promise<ColumnsResponse> {
 
 /** 让 LLM 根据 CSV 列名推荐最合适的算法 */
 export async function recommendAlgorithm(path: string): Promise<RecommendResponse> {
-  const params = new URLSearchParams({ path })
-  const resp = await fetch(`/api/algorithm/recommend?${params.toString()}`)
+  const resp = await fetch('/api/algorithm/recommend', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  })
   return resp.json()
 }

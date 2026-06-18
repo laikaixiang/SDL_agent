@@ -6,11 +6,13 @@ import FileSelectorModal from '@/components/modals/FileSelectorModal.vue'
 import ResultCard from '@/components/cards/ResultCard.vue'
 import ResultRenderer from '@/components/result/ResultRenderer.vue'
 import ParamForm from '@/components/result/ParamForm.vue'
+import RecommendModal from '@/components/result/RecommendModal.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import Badge from '@/components/common/Badge.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import { BarChart3, FileText, Play, Plus, Sparkles, ChevronDown, ChevronRight } from 'lucide-vue-next'
-import type { Algorithm, PreviewData } from '@/types/analysis'
+import { recommendAlgorithm } from '@/api/analysis'
+import type { Algorithm, PreviewData, AlgorithmRecommend } from '@/types/analysis'
 
 const store = useAnalysisStore()
 const layout = useLayoutStore()
@@ -19,6 +21,12 @@ const showFileSelector = ref(false)
 const showDirSelector = ref(false)
 const pendingFileAlgo = ref('')
 const pendingDirAlgo = ref('')
+
+// ---- 智能推荐状态 (Phase 3) ----
+const showRecommendModal = ref(false)
+const recommendLoading = ref(false)
+const recommendError = ref('')
+const recommendResult = ref<AlgorithmRecommend | null>(null)
 
 // 每个算法的 params 状态: algo.name -> params dict
 const algoParams = ref<Record<string, Record<string, unknown>>>({})
@@ -114,6 +122,44 @@ const currentSchema = computed(() => {
 const runnable = computed(() => {
   return store.selectedAlgo && store.selectedFile && !store.loading
 })
+
+async function runRecommend() {
+  if (!store.selectedFile) return
+  showRecommendModal.value = true
+  recommendLoading.value = true
+  recommendError.value = ''
+  recommendResult.value = null
+  try {
+    const resp = await recommendAlgorithm(store.selectedFile)
+    if (resp.success && resp.data) {
+      recommendResult.value = resp.data
+    } else {
+      recommendError.value = resp.message || 'Recommendation failed'
+    }
+  } catch (err) {
+    recommendError.value = (err as Error).message
+  } finally {
+    recommendLoading.value = false
+  }
+}
+
+function onRecommendApply() {
+  if (!recommendResult.value) return
+  // 查找推荐的算法并选中
+  const algo = store.algorithms.find(a => a.name === recommendResult.value!.algorithm)
+  if (algo) {
+    onAlgoSelected(algo)
+    // 展开算法详情
+    store.toggleDetail(algo.name)
+  }
+  showRecommendModal.value = false
+}
+
+function onRecommendRetry() {
+  recommendError.value = ''
+  recommendResult.value = null
+  runRecommend()
+}
 </script>
 
 <template>
@@ -217,6 +263,15 @@ const runnable = computed(() => {
 
         <div class="run-bar">
           <button
+            class="recommend-btn"
+            :disabled="!store.selectedFile || store.loading || recommendLoading"
+            :title="$t('analysis.recommend')"
+            @click="runRecommend()"
+          >
+            <Sparkles :size="16" />
+            <span>{{ $t('analysis.recommend') }}</span>
+          </button>
+          <button
             class="run-btn"
             :disabled="!runnable"
             @click="store.run()"
@@ -272,6 +327,17 @@ const runnable = computed(() => {
       dir-mode
       @update:open="showDirSelector = $event"
       @selected="onDirSelected"
+    />
+
+    <!-- Smart recommend modal (Phase 3) -->
+    <RecommendModal
+      :open="showRecommendModal"
+      :recommendation="recommendResult"
+      :loading="recommendLoading"
+      :error="recommendError"
+      @update:open="showRecommendModal = $event"
+      @apply="onRecommendApply"
+      @retry="onRecommendRetry"
     />
 
   </div>
@@ -352,7 +418,7 @@ section h3 { font-size: 13px; color: var(--color-text-secondary); margin-bottom:
 .file-item:hover { background: var(--color-bg-soft); }
 .file-item.active { background: var(--color-primary-soft); color: var(--color-primary); }
 
-.run-bar { display: flex; justify-content: center; }
+.run-bar { display: flex; justify-content: center; gap: var(--space-md); flex-wrap: wrap; }
 .run-btn {
   display: flex; align-items: center; gap: var(--space-sm); padding: 10px 32px;
   border: none; border-radius: var(--radius-md); background: var(--color-primary);
@@ -360,6 +426,14 @@ section h3 { font-size: 13px; color: var(--color-text-secondary); margin-bottom:
 }
 .run-btn:disabled { opacity: 0.4; cursor: default; }
 .run-btn:not(:disabled):hover { opacity: 0.9; }
+.recommend-btn {
+  display: flex; align-items: center; gap: var(--space-sm); padding: 10px 24px;
+  border: 2px solid var(--color-primary); border-radius: var(--radius-md);
+  background: transparent; color: var(--color-primary); font-size: 15px;
+  cursor: pointer; transition: all var(--transition-fast);
+}
+.recommend-btn:hover:not(:disabled) { background: var(--color-primary-soft); }
+.recommend-btn:disabled { opacity: 0.4; cursor: default; }
 
 .loading-area { display: flex; justify-content: center; }
 .error-msg { font-size: 13px; color: var(--color-error); text-align: center; }

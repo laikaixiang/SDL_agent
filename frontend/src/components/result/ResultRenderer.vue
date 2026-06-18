@@ -13,6 +13,7 @@ import { computed } from 'vue'
 import ResultTable from './ResultTable.vue'
 import ResultKvList from './ResultKvList.vue'
 import ResultMatrix from './ResultMatrix.vue'
+import ResultChart from './ResultChart.vue'
 import type { ResultSchema } from '@/types/analysis'
 
 interface Props {
@@ -113,7 +114,15 @@ function dictToRows(data: Record<string, unknown>): Record<string, unknown>[] {
       </div>
     </template>
 
-    <!-- chart 类型 (占位, 后续 commit 实现 ResultChart) -->
+    <!-- chart 类型 -->
+    <template v-else-if="schema.type === 'chart' && schema.config">
+      <ResultChart
+        :x="(resolvePath(algoResult.result, schema.config.x_from) as number[]) || []"
+        :y="(resolvePath(algoResult.result, schema.config.y_from) as number[]) || []"
+        :chart-type="schema.config.chart_type"
+        :title="schema.config.title"
+      />
+    </template>
     <template v-else-if="schema.type === 'chart'">
       <pre class="result-fallback">{{ JSON.stringify(algoResult.result, null, 2) }}</pre>
     </template>

@@ -60,6 +60,18 @@ class DataNormalization(BaseAlgorithm):
             "required": False,
         },
     }
+    result_schema = {
+        "type": "kv",
+        "items": [
+            {"key": "method",        "label": "归一化方法"},
+            {"key": "original_min",  "label": "原始最小值",  "format": "decimal:4"},
+            {"key": "original_max",  "label": "原始最大值",  "format": "decimal:4"},
+            {"key": "mean",          "label": "均值",        "format": "decimal:4"},
+            {"key": "std",           "label": "标准差",      "format": "decimal:4"},
+            {"key": "median",        "label": "中位数",      "format": "decimal:4"},
+            {"key": "iqr",           "label": "IQR",         "format": "decimal:4"},
+        ],
+    }
 
     _SUPPORTED_METHODS = ("minmax", "zscore", "robust")
 

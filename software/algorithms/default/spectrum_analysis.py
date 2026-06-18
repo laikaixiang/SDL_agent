@@ -61,6 +61,16 @@ class SpectrumAnalysis(BaseAlgorithm):
             "required": False,
         },
     }
+    result_schema = {
+        "type": "kv",
+        "items": [
+            {"key": "peak_wavelength", "label": "峰波长",    "unit": "nm",  "format": "decimal:3"},
+            {"key": "peak_intensity",  "label": "峰强度"},
+            {"key": "fwhm",            "label": "半高宽",    "unit": "nm",  "format": "decimal:3"},
+            {"key": "peak_area",       "label": "峰面积",                    "format": "decimal:3"},
+            {"key": "baseline",        "label": "基线"},
+        ],
+    }
 
     def run(self, data: Any, params: dict = None) -> dict:
         """

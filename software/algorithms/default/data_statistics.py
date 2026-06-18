@@ -53,6 +53,32 @@ class DataStatistics(BaseAlgorithm):
             "required": False,
         },
     }
+    result_schema = {
+        "type": "table",
+        "sections": [
+            {
+                "title": "描述性统计",
+                "columns": [
+                    {"key": "count",   "label": "数量"},
+                    {"key": "mean",    "label": "均值",    "format": "decimal:3"},
+                    {"key": "median",  "label": "中位数",  "format": "decimal:3"},
+                    {"key": "std",     "label": "标准差",  "format": "decimal:3"},
+                    {"key": "variance","label": "方差",    "format": "decimal:3"},
+                    {"key": "min",     "label": "最小值",  "format": "decimal:3"},
+                    {"key": "max",     "label": "最大值",  "format": "decimal:3"},
+                    {"key": "q25",     "label": "Q1",      "format": "decimal:3"},
+                    {"key": "q75",     "label": "Q3",      "format": "decimal:3"},
+                ],
+                "rows_from": "result.statistics",
+            },
+            {
+                "title": "相关性矩阵",
+                "type": "matrix",
+                "rows_from": "result.correlation",
+                "value_format": "decimal:3",
+            },
+        ],
+    }
 
     def run(self, data: Any, params: dict = None) -> dict:
         """

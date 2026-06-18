@@ -12,6 +12,20 @@ class BayesianOptimization(BaseAlgorithm):
         "bounds": {"type": "list", "description": "每个输入参数的上下限，格式为 [[min1, max1], [min2, max2], ...]，若未提供则使用输入数据中每列的最小值和最大值。", "default": None, "required": False},
         "n_samples": {"type": "int", "description": "下一轮探索的工艺参数组合数量，即生成多少个候选参数点。", "default": 10, "required": False}
     }
+    result_schema = {
+        "type": "table",
+        "sections": [
+            {
+                "title": "下一轮候选参数 (按 EI 分数排序)",
+                "columns": [
+                    {"key": "index",   "label": "序号",      "format": "integer"},
+                    {"key": "params",  "label": "参数组合",  "format": "json"},
+                    {"key": "score",   "label": "EI 分数",   "format": "decimal:6"},
+                ],
+                "rows_from": "result.candidates",
+            },
+        ],
+    }
 
     def run(self, data, params=None):
         """
@@ -97,9 +111,19 @@ class BayesianOptimization(BaseAlgorithm):
                 next_params_scores.append(float(ei))
 
             # 4. 构造输出结果
+            # 兼容旧字段 (next_params, next_params_scores)
+            # 新增 candidates 列表供前端 result_schema 表格使用
+            candidates = []
+            for i, (p, s) in enumerate(zip(next_params, next_params_scores)):
+                candidates.append({
+                    "index": i + 1,
+                    "params": p,
+                    "score": round(float(s), 6),
+                })
             result = {
                 "next_params": next_params,
-                "next_params_scores": next_params_scores
+                "next_params_scores": next_params_scores,
+                "candidates": candidates,
             }
 
             return self._build_success(result, "算法执行成功")

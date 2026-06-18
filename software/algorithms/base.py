@@ -54,6 +54,10 @@ class BaseAlgorithm(ABC):
     chinese_name: str = ""
     description: str = ""
     params_schema: dict = {}
+    # Phase 2 (2026-06-18): 结果渲染 schema, 前端 ResultRenderer 据此派发
+    # type: "table" | "kv" | "chart" | "matrix" | "list"
+    # 留空 {} 表示走 plain text fallback, 兼容旧算法
+    result_schema: dict = {}
 
     @abstractmethod
     def run(self, data: Any, params: dict = None) -> dict:
@@ -102,13 +106,14 @@ class BaseAlgorithm(ABC):
         返回算法元数据，供前端展示可用算法列表
 
         Returns:
-            dict: {"name", "description", "params_schema"}
+            dict: {"name", "description", "params_schema", "result_schema"}
         """
         return {
             "name": self.name,
             "chinese_name": self.chinese_name or self.name,
             "description": self.description,
             "params_schema": self.params_schema,
+            "result_schema": self.result_schema,
         }
 
     def _build_error(self, message: str) -> dict:

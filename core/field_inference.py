@@ -68,6 +68,9 @@ class FieldInference:
         )
 
         if success:
+            # 兜底: 强制包含 grounding 字段 (Step 1)
+            if "原文原句" not in result.fields:
+                result.fields.append("原文原句")
             return True, result.fields
         else:
             return False, result
